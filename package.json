@@ -1,0 +1,95 @@
+{
+  "name": "@farukada/aws-langchain-s3-vector-ts",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "LangChain-compatible Amazon S3 Vectors store for TypeScript",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "author": "Faruk Ada <info@farukada.com>",
+  "homepage": "https://github.com/farukada/aws-langchain-s3-vector-ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/farukada/aws-langchain-s3-vector-ts"
+  },
+  "bugs": {
+    "url": "https://github.com/farukada/aws-langchain-s3-vector-ts/issues"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/**/*.ts tests/**/*.ts --fix",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "docs": "typedoc",
+    "docs:watch": "typedoc --watch",
+    "unused": "knip",
+    "depcheck": "depcheck .",
+    "cpd": "jscpd ./src --threshold 2 --min-lines 3 --reporters console --silent --format typescript,javascript",
+    "cpd:full": "jscpd ./src --threshold 2 --min-lines 3 --reporters console --verbose --format typescript,javascript",
+    "cpd:test": "jscpd ./tests --threshold 2 --min-lines 3 --reporters console --verbose --format typescript,javascript"
+  },
+  "keywords": [
+    "langchain",
+    "vector-store",
+    "aws",
+    "s3-vectors",
+    "embeddings",
+    "rag",
+    "similarity-search"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@aws-sdk/client-s3vectors": "^3.1014.0",
+    "@langchain/core": "^1.1.35"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3vectors": "^3.1014.0",
+    "@langchain/core": "^1.1.35"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.5.0",
+    "depcheck": "^1.4.7",
+    "eslint": "^10.1.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-no-instanceof": "^1.0.1",
+    "eslint-plugin-perfectionist": "^5.7.0",
+    "eslint-plugin-prettier": "^5.5.5",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "globals": "^17.4.0",
+    "jest": "^30.3.0",
+    "jest-sonar": "^0.2.16",
+    "jscpd": "^4.0.8",
+    "knip": "^6.0.1",
+    "prettier": "^3.8.1",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
+    "typedoc": "^0.28.17",
+    "typedoc-plugin-markdown": "^4.11.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.57.1"
+  },
+  "prettier": {
+    "semi": true,
+    "singleQuote": true,
+    "printWidth": 100,
+    "tabWidth": 2,
+    "trailingComma": "all"
+  }
+}
