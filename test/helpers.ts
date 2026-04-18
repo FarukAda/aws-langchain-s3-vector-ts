@@ -1,20 +1,25 @@
 import { S3VectorsClient } from '@aws-sdk/client-s3vectors';
 import { jest } from '@jest/globals';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
+import { mockClient, type AwsClientStub } from 'aws-sdk-client-mock';
 
 /**
- * Create a mocked `S3VectorsClient` with its `send` method stubbed.
+ * Create a mocked `S3VectorsClient` using aws-sdk-client-mock.
  *
- * Use `mockSend.mockResolvedValueOnce(...)` in each test to control
- * the responses returned for successive SDK calls.
+ * The returned `client` is a real `S3VectorsClient` instance whose `send`
+ * method is intercepted by the returned `mock` stub. Use
+ * `mock.on(CommandClass).resolves(...)` / `.rejects(...)` to script
+ * responses, and `mock.commandCalls(CommandClass)` to assert invocations.
+ *
+ * Always call `mock.reset()` in `beforeEach` to avoid cross-test leakage.
  */
 export function createMockClient(): {
   client: S3VectorsClient;
-  mockSend: jest.Mock;
+  mock: AwsClientStub<S3VectorsClient>;
 } {
-  const mockSend = jest.fn();
-  const client = { send: mockSend } as unknown as S3VectorsClient;
-  return { client, mockSend };
+  const client = new S3VectorsClient({ region: 'us-east-1' });
+  const mock = mockClient(client);
+  return { client, mock };
 }
 
 /**

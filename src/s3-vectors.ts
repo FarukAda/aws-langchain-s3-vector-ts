@@ -15,6 +15,10 @@ import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 import { VectorStore } from '@langchain/core/vectorstores';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
+import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './relevance-scores.js';
+import { isAwsNotFoundException } from './shared/errors.js';
+import { buildPutMetadata, createDocument } from './shared/metadata.js';
+import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
 import type {
   AmazonS3VectorsConfig,
   DistanceMetric,
@@ -22,7 +26,6 @@ import type {
   S3VectorsDeleteParams,
   VectorDataType,
 } from './types.js';
-import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './utils.js';
 
 /** Default batch sizes matching the Python implementation. */
 const DEFAULT_PUT_BATCH_SIZE = 200;
@@ -294,7 +297,10 @@ export class AmazonS3Vectors extends VectorStore {
     );
 
     const outputVectors = (response.vectors ?? []) as S3OutputVector[];
-    return outputVectors.map((v) => [this._createDocument(v), v.distance ?? 0]);
+    return outputVectors.map((v) => [
+      createDocument(v, this.pageContentMetadataKey),
+      v.distance ?? 0,
+    ]);
   }
 
   // ── Additional public API (parity with Python) ────────────────────────
@@ -335,7 +341,7 @@ export class AmazonS3Vectors extends VectorStore {
     );
 
     const outputVectors = (response.vectors ?? []) as S3OutputVector[];
-    return outputVectors.map((v) => this._createDocument(v));
+    return outputVectors.map((v) => createDocument(v, this.pageContentMetadataKey));
   }
 
   /**
@@ -417,7 +423,7 @@ export class AmazonS3Vectors extends VectorStore {
         if (!v) {
           throw new Error(`Id '${id}' not found in vector store.`);
         }
-        docs.push(this._createDocument(v, hasDuplicateIds));
+        docs.push(createDocument(v, this.pageContentMetadataKey, hasDuplicateIds));
       }
     }
 
@@ -509,7 +515,7 @@ export class AmazonS3Vectors extends VectorStore {
     const putVectors = vectors.map((vec, j) => {
       const doc = documents[j]!;
       const id = ids[j]!;
-      const metadata = this._buildPutMetadata(doc);
+      const metadata = buildPutMetadata(doc, this.pageContentMetadataKey);
 
       return {
         key: id,
@@ -561,69 +567,5 @@ export class AmazonS3Vectors extends VectorStore {
           : {}),
       }),
     );
-  }
-
-  /** Build the metadata object to send alongside a PutVectors call. */
-  private _buildPutMetadata(doc: Document): Record<string, unknown> {
-    const metadata = { ...doc.metadata };
-
-    if (this.pageContentMetadataKey !== null) {
-      metadata[this.pageContentMetadataKey] = doc.pageContent;
-    }
-
-    return metadata;
-  }
-
-  /** Reconstruct a LangChain `Document` from an S3 vector response. */
-  private _createDocument(vector: S3OutputVector, deepCopyMetadata = false): Document {
-    let pageContent = '';
-    const rawMeta = vector.metadata ?? {};
-    const metadata: Record<string, unknown> = deepCopyMetadata
-      ? structuredClone(rawMeta)
-      : { ...rawMeta };
-
-    if (this.pageContentMetadataKey !== null && this.pageContentMetadataKey in metadata) {
-      const rawValue = metadata[this.pageContentMetadataKey];
-      pageContent = typeof rawValue === 'string' ? rawValue : '';
-
-      delete metadata[this.pageContentMetadataKey];
-    }
-
-    return new Document({ pageContent, id: vector.key, metadata });
-  }
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Type guard for AWS SDK NotFoundException-shaped errors. */
-function isAwsNotFoundException(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  const name = (error as { name?: string }).name;
-  return name === 'NotFoundException' || name === 'ResourceNotFoundException';
-}
-
-/** Symbol used to identify StubEmbeddings without instanceof. */
-const STUB_BRAND = Symbol('StubEmbeddings');
-
-/** Type guard for StubEmbeddings that avoids instanceof. */
-function isStubEmbeddings(emb: unknown): boolean {
-  return (
-    typeof emb === 'object' && emb !== null && (emb as Record<symbol, boolean>)[STUB_BRAND] === true
-  );
-}
-
-/**
- * Minimal no-op embeddings used as a placeholder when the caller does not
- * provide an embedding model (e.g. raw-vector-only workflows).
- * @internal
- */
-class StubEmbeddings implements EmbeddingsInterface {
-  readonly [STUB_BRAND] = true;
-
-  async embedDocuments(_documents: string[]): Promise<number[][]> {
-    throw new Error('No embedding model configured');
-  }
-  async embedQuery(_query: string): Promise<number[]> {
-    throw new Error('No embedding model configured');
   }
 }

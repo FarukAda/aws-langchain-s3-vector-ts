@@ -1,10 +1,13 @@
 import eslint from '@eslint/js';
-import tseslint from 'typescript-eslint';
-import prettierConfig from 'eslint-config-prettier';
-import prettier from 'eslint-plugin-prettier';
-import perfectionist from 'eslint-plugin-perfectionist';
+// @ts-expect-error — no types shipped
 import noInstanceof from 'eslint-plugin-no-instanceof';
+// @ts-expect-error — no types shipped
+import perfectionist from 'eslint-plugin-perfectionist';
+import prettier from 'eslint-plugin-prettier';
+// @ts-expect-error — no types shipped
 import unusedImports from 'eslint-plugin-unused-imports';
+import prettierConfig from 'eslint-config-prettier';
+import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   eslint.configs.recommended,
@@ -82,10 +85,10 @@ export default tseslint.config(
   },
   // Disable type-checked rules for test files (not in tsconfig include).
   {
-    files: ['tests/**/*.ts'],
+    files: ['test/**/*.ts', 'tests/**/*.ts'],
     ...tseslint.configs.disableTypeChecked,
   },
   {
-    ignores: ['dist/', 'coverage/', 'node_modules/', '*.config.*'],
+    ignores: ['dist/', 'coverage/', 'node_modules/', '*.config.*', 'reports/'],
   },
 );

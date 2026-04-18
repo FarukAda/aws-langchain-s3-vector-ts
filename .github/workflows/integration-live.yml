@@ -1,0 +1,34 @@
+name: Integration (live AWS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      aws-region:
+        description: 'AWS region for the test bucket'
+        required: false
+        default: 'us-east-1'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  integration:
+    name: live-aws integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.14.0'
+          cache: npm
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ inputs.aws-region }}
+      - run: npm run test:integration
+        env:
+          RUN_LIVE_INTEGRATION: '1'
+          AWS_VECTOR_BUCKET: ${{ vars.AWS_VECTOR_BUCKET }}
+          AWS_REGION: ${{ inputs.aws-region }}

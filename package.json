@@ -1,6 +1,6 @@
 {
   "name": "@farukada/aws-langchain-s3-vector-ts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "LangChain-compatible Amazon S3 Vectors store for TypeScript",
   "type": "module",
@@ -28,18 +28,24 @@
     "url": "https://github.com/farukada/aws-langchain-s3-vector-ts/issues"
   },
   "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prebuild": "npm run clean",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/**/*.ts tests/**/*.ts --fix",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.integration.config.cjs",
+    "test:mutate": "stryker run",
+    "test:mutate:quick": "stryker run --mutate src/shared/**/*.ts,src/relevance-scores.ts",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
     "unused": "knip",
     "depcheck": "depcheck .",
     "cpd": "jscpd ./src --threshold 2 --min-lines 3 --reporters console --silent --format typescript,javascript",
     "cpd:full": "jscpd ./src --threshold 2 --min-lines 3 --reporters console --verbose --format typescript,javascript",
-    "cpd:test": "jscpd ./tests --threshold 2 --min-lines 3 --reporters console --verbose --format typescript,javascript"
+    "cpd:test": "jscpd ./test --threshold 2 --min-lines 3 --reporters console --verbose --format typescript,javascript"
   },
   "keywords": [
     "langchain",
@@ -51,7 +57,8 @@
     "similarity-search"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.14.0",
+    "npm": ">=10.0.0"
   },
   "peerDependencies": {
     "@aws-sdk/client-s3vectors": "^3.1014.0",
@@ -63,27 +70,32 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@jest/globals": "^30.3.0",
+    "@smithy/types": "^4.14.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/jest-runner": "^9.6.1",
+    "@stryker-mutator/typescript-checker": "^9.6.1",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.6.0",
+    "aws-sdk-client-mock": "^4.1.0",
     "depcheck": "^1.4.7",
-    "eslint": "^10.1.0",
+    "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-no-instanceof": "^1.0.1",
-    "eslint-plugin-perfectionist": "^5.7.0",
+    "eslint-plugin-perfectionist": "^5.9.0",
     "eslint-plugin-prettier": "^5.5.5",
     "eslint-plugin-unused-imports": "^4.4.1",
-    "globals": "^17.4.0",
     "jest": "^30.3.0",
     "jest-sonar": "^0.2.16",
-    "jscpd": "^4.0.8",
-    "knip": "^6.0.1",
+    "jiti": "^2.6.1",
+    "jscpd": "^4.0.9",
+    "knip": "^6.4.1",
     "prettier": "^3.8.1",
-    "ts-jest": "^29.4.6",
-    "ts-node": "^10.9.2",
-    "typedoc": "^0.28.17",
+    "ts-jest": "^29.4.9",
+    "typedoc": "^0.28.19",
     "typedoc-plugin-markdown": "^4.11.0",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.57.1"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.58.2"
   },
   "prettier": {
     "semi": true,
@@ -91,5 +103,10 @@
     "printWidth": 100,
     "tabWidth": 2,
     "trailingComma": "all"
+  },
+  "knip": {
+    "ignore": [
+      "jest.integration.config.cjs"
+    ]
   }
 }
