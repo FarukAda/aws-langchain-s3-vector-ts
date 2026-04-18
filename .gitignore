@@ -3,3 +3,15 @@ dist/
 coverage/
 *.tsbuildinfo
 .DS_Store
+
+# IDE / editor
+.idea/
+.vscode/
+
+# Claude Code per-project state
+.claude/
+
+# Stryker mutation testing
+.stryker-incremental.json
+.stryker-tmp/
+reports/

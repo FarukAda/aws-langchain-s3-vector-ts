@@ -30,7 +30,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/**/*.ts tests/**/*.ts --fix",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --fix",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
     "docs": "typedoc",
@@ -39,7 +40,7 @@
     "depcheck": "depcheck .",
     "cpd": "jscpd ./src --threshold 2 --min-lines 3 --reporters console --silent --format typescript,javascript",
     "cpd:full": "jscpd ./src --threshold 2 --min-lines 3 --reporters console --verbose --format typescript,javascript",
-    "cpd:test": "jscpd ./tests --threshold 2 --min-lines 3 --reporters console --verbose --format typescript,javascript"
+    "cpd:test": "jscpd ./test --threshold 2 --min-lines 3 --reporters console --verbose --format typescript,javascript"
   },
   "keywords": [
     "langchain",
@@ -51,7 +52,8 @@
     "similarity-search"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.14.0",
+    "npm": ">=10.0.0"
   },
   "peerDependencies": {
     "@aws-sdk/client-s3vectors": "^3.1014.0",
@@ -63,27 +65,29 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@jest/globals": "^30.3.0",
+    "@smithy/types": "^4.14.1",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.6.0",
     "depcheck": "^1.4.7",
-    "eslint": "^10.1.0",
+    "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-no-instanceof": "^1.0.1",
-    "eslint-plugin-perfectionist": "^5.7.0",
+    "eslint-plugin-perfectionist": "^5.9.0",
     "eslint-plugin-prettier": "^5.5.5",
     "eslint-plugin-unused-imports": "^4.4.1",
-    "globals": "^17.4.0",
     "jest": "^30.3.0",
     "jest-sonar": "^0.2.16",
-    "jscpd": "^4.0.8",
-    "knip": "^6.0.1",
+    "jiti": "^2.6.1",
+    "jscpd": "^4.0.9",
+    "knip": "^6.4.1",
     "prettier": "^3.8.1",
-    "ts-jest": "^29.4.6",
+    "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
-    "typedoc": "^0.28.17",
+    "typedoc": "^0.28.19",
     "typedoc-plugin-markdown": "^4.11.0",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.57.1"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.58.2"
   },
   "prettier": {
     "semi": true,
@@ -91,5 +95,10 @@
     "printWidth": 100,
     "tabWidth": 2,
     "trailingComma": "all"
+  },
+  "knip": {
+    "ignoreDependencies": [
+      "ts-node"
+    ]
   }
 }
