@@ -1,5 +1,7 @@
-export default {
-  testMatch: ['**/*.test.ts'],
+/** @type {import('jest').Config} */
+module.exports = {
+  testMatch: ['<rootDir>/test/**/*.test.ts'],
+  testPathIgnorePatterns: ['<rootDir>/test/integration/'],
   extensionsToTreatAsEsm: ['.ts'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
@@ -26,8 +28,9 @@ export default {
   coverageDirectory: 'coverage',
   coverageThreshold: {
     global: {
-      branches: 75,
+      branches: 80,
       functions: 80,
+      lines: 80,
       statements: 80,
     },
   },

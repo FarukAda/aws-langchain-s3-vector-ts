@@ -30,10 +30,13 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "lint:fix": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --fix",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.integration.config.cjs",
+    "test:mutate": "stryker run",
+    "test:mutate:quick": "stryker run --mutate src/utils.ts",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
     "unused": "knip",
@@ -67,8 +70,12 @@
     "@eslint/js": "^10.0.1",
     "@jest/globals": "^30.3.0",
     "@smithy/types": "^4.14.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/jest-runner": "^9.6.1",
+    "@stryker-mutator/typescript-checker": "^9.6.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.6.0",
+    "aws-sdk-client-mock": "^4.1.0",
     "depcheck": "^1.4.7",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
@@ -83,7 +90,6 @@
     "knip": "^6.4.1",
     "prettier": "^3.8.1",
     "ts-jest": "^29.4.9",
-    "ts-node": "^10.9.2",
     "typedoc": "^0.28.19",
     "typedoc-plugin-markdown": "^4.11.0",
     "typescript": "^6.0.3",
@@ -97,8 +103,8 @@
     "trailingComma": "all"
   },
   "knip": {
-    "ignoreDependencies": [
-      "ts-node"
+    "ignore": [
+      "jest.integration.config.cjs"
     ]
   }
 }
