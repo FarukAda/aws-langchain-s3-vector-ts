@@ -2,46 +2,45 @@ name: Release NPM Package
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
+      # `contents: write` is needed to create the GitHub release.
       contents: write
+      # `id-token: write` is required for npm Trusted Publishing and
+      # automatic provenance attestation.
       id-token: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '22.14.0'
           registry-url: 'https://registry.npmjs.org'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test -- --ci
+      - run: npm run build
 
-      - name: Install dependencies
-        run: npm ci
+      # No --provenance flag needed: npm Trusted Publishing generates
+      # the attestation automatically when the id-token: write permission
+      # is granted and the package has a Trusted Publisher configured on
+      # npmjs.com.
+      #
+      # No NODE_AUTH_TOKEN: Trusted Publishing uses short-lived OIDC
+      # credentials.
+      - run: npm publish --access public
 
-      - name: Build package
-        run: npm run build
-
-      - name: Lint code
-        run: npm run lint
-
-      - name: Run tests
-        run: npm test
-
-      - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+      - uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
         env:
