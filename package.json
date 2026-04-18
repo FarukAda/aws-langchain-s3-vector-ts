@@ -19,13 +19,13 @@
     "README.md"
   ],
   "author": "Faruk Ada <info@farukada.com>",
-  "homepage": "https://github.com/farukada/aws-langchain-s3-vector-ts",
+  "homepage": "https://github.com/FarukAda/aws-langchain-s3-vector-ts",
   "repository": {
     "type": "git",
-    "url": "https://github.com/farukada/aws-langchain-s3-vector-ts"
+    "url": "git+https://github.com/FarukAda/aws-langchain-s3-vector-ts.git"
   },
   "bugs": {
-    "url": "https://github.com/farukada/aws-langchain-s3-vector-ts/issues"
+    "url": "https://github.com/FarukAda/aws-langchain-s3-vector-ts/issues"
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
