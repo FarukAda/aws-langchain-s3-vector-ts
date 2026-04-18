@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@jest/globals';
 
-import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from '../src/utils.js';
+import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from '../src/relevance-scores.js';
 
 describe('Relevance score functions', () => {
   it('cosineRelevanceScoreFn converts distance to score', () => {

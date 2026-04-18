@@ -14,4 +14,4 @@ export type {
   S3OutputVector,
 } from './types.js';
 
-export { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './utils.js';
+export { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './relevance-scores.js';

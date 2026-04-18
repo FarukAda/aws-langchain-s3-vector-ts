@@ -1,8 +1,8 @@
 import { QueryVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
+import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from '../src/relevance-scores.js';
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from '../src/utils.js';
 import { createMockClient, createMockEmbeddings } from './helpers.js';
 
 const BASE_CONFIG = {
