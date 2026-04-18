@@ -65,8 +65,8 @@
     "@langchain/core": "^1.1.35"
   },
   "dependencies": {
-    "@aws-sdk/client-s3vectors": "^3.1014.0",
-    "@langchain/core": "^1.1.35"
+    "@aws-sdk/client-s3vectors": "^3.1032.0",
+    "@langchain/core": "^1.1.40"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -90,7 +90,7 @@
     "jiti": "^2.6.1",
     "jscpd": "^4.0.9",
     "knip": "^6.4.1",
-    "prettier": "^3.8.1",
+    "prettier": "^3.8.3",
     "ts-jest": "^29.4.9",
     "typedoc": "^0.28.19",
     "typedoc-plugin-markdown": "^4.11.0",
