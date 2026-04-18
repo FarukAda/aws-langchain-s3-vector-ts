@@ -20,25 +20,34 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v6
+
+      # Use Node 24 for the publish step. Trusted Publishing requires
+      # npm CLI >= 11.5.1, and all Node 22.x releases still bundle
+      # npm 10.x as of this writing. Node 24.x ships with npm 11.x.
+      # The package itself supports Node >=22.14.0 (see engines.node);
+      # the 24 pin here is a publisher-side choice only.
       - uses: actions/setup-node@v6
         with:
-          node-version: '22.14.0'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           cache: npm
+
+      # Belt-and-suspenders: ensure npm is new enough for Trusted
+      # Publishing even if the bundled version moves backwards.
+      - run: npm install -g npm@latest
+
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test -- --ci
       - run: npm run build
 
-      # No --provenance flag needed: npm Trusted Publishing generates
-      # the attestation automatically when the id-token: write permission
-      # is granted and the package has a Trusted Publisher configured on
-      # npmjs.com.
-      #
-      # No NODE_AUTH_TOKEN: Trusted Publishing uses short-lived OIDC
-      # credentials.
-      - run: npm publish --access public
+      # Do NOT set NODE_AUTH_TOKEN here — setting it (even as empty)
+      # causes npm to try token auth and bypass OIDC.
+      # The --provenance flag is explicit: npm docs say it is automatic
+      # with trusted publishing, but field reports suggest some npm
+      # versions still require the flag. It is harmless to include it.
+      - run: npm publish --access public --provenance
 
       - uses: softprops/action-gh-release@v3
         with:

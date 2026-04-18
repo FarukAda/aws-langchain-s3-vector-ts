@@ -28,6 +28,8 @@
     "url": "https://github.com/farukada/aws-langchain-s3-vector-ts/issues"
   },
   "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prebuild": "npm run clean",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -36,7 +38,7 @@
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
     "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.integration.config.cjs",
     "test:mutate": "stryker run",
-    "test:mutate:quick": "stryker run --mutate src/utils.ts",
+    "test:mutate:quick": "stryker run --mutate src/shared/**/*.ts,src/relevance-scores.ts",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch",
     "unused": "knip",

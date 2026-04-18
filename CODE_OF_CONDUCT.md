@@ -251,7 +251,7 @@ export async function getMessages(userId: string, sessionId: string): Promise<Ba
 - Create test files alongside source files with `.test.ts` extension
 - Use descriptive test names
 - Test both success and failure cases
-- Mock external dependencies (DynamoDB, Bedrock)
+- Mock external dependencies (S3 Vectors client, embedding providers)
 
 ```typescript
 describe('MyFunction', () => {
@@ -331,21 +331,14 @@ None
 
 ```
 src/
-├── checkpointer/     # Checkpoint saver implementation
-│   ├── actions/      # Action handlers
-│   ├── types/        # Type definitions
-│   └── utils/        # Utilities and validation
-├── store/            # Memory store implementation
-│   ├── actions/      # Action handlers
-│   ├── types/        # Type definitions
-│   └── utils/        # Utilities and validation
-├── history/          # Chat message history
-│   ├── actions/      # Action handlers
-│   ├── types/        # Type definitions
-│   └── utils/        # Utilities and validation
-├── shared/           # Shared utilities
-│   └── utils/        # Retry logic, constants, etc.
-└── factory.ts        # Factory for creating instances
+├── index.ts                 # Public API barrel
+├── s3-vectors.ts            # AmazonS3Vectors — core VectorStore
+├── relevance-scores.ts      # cosine / euclidean relevance score fns
+├── types.ts                 # Config + output types
+└── shared/                  # Internal helpers (not re-exported)
+    ├── stub-embeddings.ts
+    ├── errors.ts
+    └── metadata.ts
 ```
 
 ## Release Process
