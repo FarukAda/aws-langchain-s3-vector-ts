@@ -23,7 +23,7 @@ jobs:
           node-version: '22.14.0'
           cache: npm
       - run: npm ci
-      - uses: aws-actions/configure-aws-credentials@v5
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ inputs.aws-region }}
