@@ -49,6 +49,24 @@ try {
   const filtered = await cosine.similaritySearch('anything', 3, { topic: 'space' });
   check('only matching topic returned', filtered.every((d) => d.metadata.topic === 'space'));
 
+  section('filter operators narrow results');
+  const inResults = await cosine.similaritySearch('anything', 3, {
+    topic: { $in: ['space', 'food'] },
+  });
+  check(
+    '$in matches multiple topics',
+    inResults.length > 0 && inResults.every((d) => ['space', 'food'].includes(d.metadata.topic)),
+  );
+  const andResults = await cosine.similaritySearch('anything', 3, {
+    $and: [{ topic: { $eq: 'space' } }, { topic: { $ne: 'food' } }],
+  });
+  check('$and/$ne compose', andResults.every((d) => d.metadata.topic === 'space'));
+
+  section('asRetriever returns documents for a query');
+  const retriever = cosine.asRetriever(2);
+  const retrieved = await retriever.invoke('space exploration');
+  check('retriever returns up to k docs', retrieved.length > 0 && retrieved.length <= 2);
+
   section('relevance-score function follows the distance metric');
   check('cosine selects cosine scorer', cosine._selectRelevanceScoreFn()(0) === 1);
   check('euclidean selects euclidean scorer', euclidean._selectRelevanceScoreFn()(0) === 1);
