@@ -1,0 +1,42 @@
+import { S3VectorsErrorCode } from './error-code.js';
+
+/** Structured context attached to every {@link S3VectorsError}. */
+export interface S3VectorsErrorContext {
+  /** The logical operation that failed (e.g. `"PutVectors"`, `"getByIds"`). */
+  readonly operation: string;
+  readonly vectorBucketName?: string;
+  readonly indexName?: string;
+}
+
+const S3_VECTORS_ERROR_BRAND = Symbol('S3VectorsError');
+
+/**
+ * The single error type surfaced by this library. Wraps validation failures,
+ * not-found conditions, and underlying AWS errors behind one consistent shape.
+ */
+export class S3VectorsError extends Error {
+  readonly [S3_VECTORS_ERROR_BRAND] = true;
+  readonly code: S3VectorsErrorCode;
+  readonly context: S3VectorsErrorContext;
+
+  constructor(
+    message: string,
+    code: S3VectorsErrorCode,
+    context: S3VectorsErrorContext,
+    cause?: unknown,
+  ) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = 'S3VectorsError';
+    this.code = code;
+    this.context = context;
+  }
+}
+
+/** Type guard for {@link S3VectorsError} that avoids `instanceof`. */
+export function isS3VectorsError(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as Record<symbol, boolean>)[S3_VECTORS_ERROR_BRAND] === true
+  );
+}

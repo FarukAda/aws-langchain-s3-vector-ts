@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@jest/globals';
 
-import { isAwsNotFoundException } from '../../src/shared/errors.js';
+import { isAwsNotFoundException } from '../../../src/shared/errors/aws-not-found.js';
 
 describe('isAwsNotFoundException', () => {
   it('returns false for non-object inputs', () => {

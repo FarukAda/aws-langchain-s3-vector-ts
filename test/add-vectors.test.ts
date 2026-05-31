@@ -175,6 +175,6 @@ describe('AmazonS3Vectors.addVectors', () => {
 
     await expect(
       store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], { ids: ['id-1'] }),
-    ).rejects.toMatchObject({ name: 'AccessDenied' });
+    ).rejects.toMatchObject({ name: 'S3VectorsError' });
   });
 });
