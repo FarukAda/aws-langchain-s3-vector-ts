@@ -66,9 +66,10 @@ The whole library is one class with its logic split into small single-concern mo
 - **`src/types.ts`** — all interfaces/contracts: `AmazonS3VectorsConfig`, `DistanceMetric`, `VectorDataType`, `S3OutputVector`, `S3VectorsDeleteParams`. No logic.
 - **`src/relevance-scores.ts`** — pure distance→relevance conversions (`cosineRelevanceScoreFn`, `euclideanRelevanceScoreFn`). Selected by `_selectRelevanceScoreFn` based on `distanceMetric` unless a custom `relevanceScoreFn` is configured.
 - **`src/shared/metadata.ts`** — pure helpers `buildPutMetadata` / `createDocument`. These own the round-trip of `pageContent` ↔ S3 metadata under `pageContentMetadataKey`, and the duplicate-id `structuredClone` deep-copy behavior. State (the key) is passed in explicitly to keep them class-free.
-- **`src/shared/errors.ts`** — `isAwsNotFoundException` type guard (matches `NotFoundException` / `ResourceNotFoundException`). Used to treat a missing index as "not found" rather than an error.
-- **`src/shared/stub-embeddings.ts`** — `StubEmbeddings` placeholder for raw-vector-only workflows. Branded with a `Symbol` and detected via `isStubEmbeddings` because `instanceof` is banned by ESLint (`no-instanceof`). Calling its methods throws; query paths reject with a clear "no embedding model" error.
-- **`src/index.ts`** — the single allowed re-export surface (public API).
+- **`src/shared/errors/`** — the typed error model. `s3-vectors-error.ts` defines `S3VectorsError` (a `code`, a `{ operation, vectorBucketName, indexName }` context, and a `cause`; identified by `isS3VectorsError` via a `Symbol` brand because `instanceof` is banned); `error-code.ts` the `S3VectorsErrorCode` enum (`VALIDATION` / `NOT_FOUND` / `EMBEDDINGS_MISSING` / `AWS_REQUEST_FAILED`); `wrap-error.ts` the `wrapAwsError`/`toError` helpers; `aws-not-found.ts` the `isAwsNotFoundException` guard (lets a missing index read as "not found"). Every `client.send` goes through the class's `_send` wrapper and every validation/not-found/missing-embeddings throw is constructed here, so all failures surface one consistent way.
+- **`src/shared/validation.ts`** — `assertValidIndexConfig`: validates the bucket name and index-name format in the constructor, failing fast with `S3VectorsError` `VALIDATION` before any AWS call.
+- **`src/shared/stub-embeddings.ts`** — `StubEmbeddings` placeholder for raw-vector-only workflows. Branded with a `Symbol` and detected via `isStubEmbeddings` because `instanceof` is banned by ESLint (`no-instanceof`). Calling its methods throws; query paths reject with `S3VectorsError` code `EMBEDDINGS_MISSING`.
+- **`src/index.ts`** — the single allowed re-export surface (public API): `AmazonS3Vectors`, the relevance fns, `S3VectorsError` / `isS3VectorsError` / `S3VectorsErrorCode`, and the exported types.
 
 ### Key behaviors to preserve (Python parity)
 
@@ -78,13 +79,14 @@ The whole library is one class with its logic split into small single-concern mo
 - **`delete()` with no `ids` deletes the entire index**, not zero vectors. Be careful.
 - **`getByIds` preserves input order, throws on any missing id**, and deep-copies metadata only when duplicate ids are present.
 - **Distance vs. score:** S3 Vectors returns raw distance (lower = more similar). `similaritySearchVectorWithScore` returns that raw distance; relevance-score functions invert it to "higher is better."
-- **Client precedence:** a provided `config.client` (with a callable `send`) wins over `region`/`credentials`/`endpoint`.
+- **Client precedence:** a provided `config.client` (with a callable `send`) wins over `region`/`credentials`/`endpoint`/`maxAttempts`/`retryMode`. Throttling/5xx retries come from the AWS SDK; `maxAttempts`/`retryMode` tune them.
+- **Typed errors:** never throw a bare `Error` from `src/` — construct an `S3VectorsError` (or let `_send`/`wrapAwsError` wrap AWS failures). MMR (`maxMarginalRelevanceSearch`) is intentionally unimplemented (Python parity).
 
 ## Conventions
 
 - Prettier: single quotes, semicolons, `printWidth: 100`, `tabWidth: 2`, `trailingComma: all`.
 - Imports are auto-sorted by `eslint-plugin-perfectionist` (builtin → external → internal → parent/sibling → index, blank line between groups).
-- Tests mock AWS via `aws-sdk-client-mock`; use `createMockClient` / `createMockEmbeddings` from `test/helpers.ts` and `mock.reset()` in `beforeEach`. Test files live flat in `test/` (the 100%-coverage rule's `test/` mirrors `src/` layout is the target as the suite grows).
+- Tests mock AWS via `aws-sdk-client-mock`; use `createMockClient` / `createMockEmbeddings` from `test/helpers.ts` and `mock.reset()` in `beforeEach`. `test/` mirrors `src/` (e.g. `test/shared/errors/`) plus dedicated suites: `test/contract/` (VectorStore + MMR contract), `test/property/` (`fast-check` invariants), `test/types/` (compile-time assertions via `npm run typecheck:types`), and `test/package-smoke/` (packed-tarball import, `npm run test:package-smoke`).
 - Node `>=22.14.0`, npm `>=10`. `target`/`lib` ES2024, `module`/`moduleResolution` NodeNext.
 - Commit messages: **never** add a `Co-Authored-By: Claude` trailer or any AI-attribution anywhere in the repo.
-- CI (`.github/workflows/ci.yml`) runs on push to `main` only (no `pull_request` trigger): lint+typecheck, test matrix (Node 22/24 × ubuntu/windows/macos) + build, and `npm audit --omit=dev --audit-level=high`.
+- CI (`.github/workflows/ci.yml`) runs on push to `main` only (no `pull_request` trigger): lint+typecheck, test matrix (Node 22/24 × ubuntu/windows/macos) + build, and `npm audit --omit=dev --audit-level=high`. `integration-live.yml` runs the live-AWS smoke nightly (cron) and on `workflow_dispatch` via OIDC; `release.yml` publishes on `v*` tags with provenance.

@@ -1,4 +1,4 @@
-[**AWS LangChain S3 Vector TypeScript v0.1.0**](../README.md)
+[**AWS LangChain S3 Vector TypeScript v0.3.1**](../README.md)
 
 ***
 
@@ -6,7 +6,7 @@
 
 # Interface: S3OutputVector
 
-Defined in: types.ts:118
+Defined in: [types.ts:130](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/cda64cc6c6d517c6d9bca630a227b58c5e7cb2a8/src/types.ts#L130)
 
 Shape of a single vector as returned by QueryVectors / GetVectors.
 
@@ -16,7 +16,7 @@ Shape of a single vector as returned by QueryVectors / GetVectors.
 
 > `readonly` `optional` **data?**: `object`
 
-Defined in: types.ts:122
+Defined in: [types.ts:134](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/cda64cc6c6d517c6d9bca630a227b58c5e7cb2a8/src/types.ts#L134)
 
 #### float32?
 
@@ -28,7 +28,7 @@ Defined in: types.ts:122
 
 > `readonly` `optional` **distance?**: `number`
 
-Defined in: types.ts:121
+Defined in: [types.ts:133](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/cda64cc6c6d517c6d9bca630a227b58c5e7cb2a8/src/types.ts#L133)
 
 ***
 
@@ -36,7 +36,7 @@ Defined in: types.ts:121
 
 > `readonly` **key**: `string`
 
-Defined in: types.ts:119
+Defined in: [types.ts:131](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/cda64cc6c6d517c6d9bca630a227b58c5e7cb2a8/src/types.ts#L131)
 
 ***
 
@@ -44,4 +44,4 @@ Defined in: types.ts:119
 
 > `readonly` `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: types.ts:120
+Defined in: [types.ts:132](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/cda64cc6c6d517c6d9bca630a227b58c5e7cb2a8/src/types.ts#L132)

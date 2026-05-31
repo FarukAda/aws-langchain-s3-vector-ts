@@ -16,7 +16,7 @@
   "excludeInternal": false,
   "hideGenerator": false,
   "searchInComments": true,
-  "cleanOutputDir": true,
+  "cleanOutputDir": false,
   "categorizeByGroup": true,
   "sort": ["kind", "alphabetical"],
   "kindSortOrder": [

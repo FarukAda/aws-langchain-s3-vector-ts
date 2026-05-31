@@ -113,6 +113,8 @@ export class AmazonS3Vectors extends VectorStore {
    * @param config.createIndexIfNotExist - Auto-create index on first write (default: `true`)
    * @param config.queryEmbeddings - Separate embedding model for queries only
    * @param config.nonFilterableMetadataKeys - Metadata keys excluded from query filters
+   * @param config.maxAttempts - Max attempts (initial + retries) for AWS requests (ignored when `client` is set)
+   * @param config.retryMode - AWS SDK retry mode: `"standard"` | `"adaptive"` | `"legacy"` (ignored when `client` is set)
    */
   constructor(embeddings: EmbeddingsInterface | undefined, config: AmazonS3VectorsConfig) {
     super(embeddings ?? config.embeddings ?? new StubEmbeddings(), config);

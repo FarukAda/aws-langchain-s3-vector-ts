@@ -1,20 +1,26 @@
-**AWS LangChain S3 Vector TypeScript v0.1.0**
+**AWS LangChain S3 Vector TypeScript v0.3.1**
 
 ***
 
-# AWS LangChain S3 Vector TypeScript v0.1.0
+# AWS LangChain S3 Vector TypeScript v0.3.1
 
 LangChain-compatible Amazon S3 Vectors store for TypeScript.
+
+## Enumerations
+
+- [S3VectorsErrorCode](enumerations/S3VectorsErrorCode.md)
 
 ## Classes
 
 - [AmazonS3Vectors](classes/AmazonS3Vectors.md)
+- [S3VectorsError](classes/S3VectorsError.md)
 
 ## Interfaces
 
 - [AmazonS3VectorsConfig](interfaces/AmazonS3VectorsConfig.md)
 - [S3OutputVector](interfaces/S3OutputVector.md)
 - [S3VectorsDeleteParams](interfaces/S3VectorsDeleteParams.md)
+- [S3VectorsErrorContext](interfaces/S3VectorsErrorContext.md)
 
 ## Type Aliases
 
@@ -25,3 +31,4 @@ LangChain-compatible Amazon S3 Vectors store for TypeScript.
 
 - [cosineRelevanceScoreFn](functions/cosineRelevanceScoreFn.md)
 - [euclideanRelevanceScoreFn](functions/euclideanRelevanceScoreFn.md)
+- [isS3VectorsError](functions/isS3VectorsError.md)

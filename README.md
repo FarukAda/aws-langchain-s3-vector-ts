@@ -429,12 +429,17 @@ const retriever = store.asRetriever({
 import {
   cosineRelevanceScoreFn,
   euclideanRelevanceScoreFn,
+  // Error handling
+  S3VectorsError,
+  S3VectorsErrorCode,
+  isS3VectorsError,
   // Types
   AmazonS3VectorsConfig,
   DistanceMetric,
   VectorDataType,
   S3VectorsDeleteParams,
   S3OutputVector,
+  S3VectorsErrorContext,
 } from "@farukada/aws-langchain-s3-vector-ts";
 ```
 
@@ -532,9 +537,10 @@ export AWS_REGION=us-east-1
 
 npm run verify          # build + core, search, and edge-case scripts
 # or individually:
-npm run verify:core     # CRUD + index lifecycle
-npm run verify:search   # similarity-search surface + cosine/euclidean metrics
-npm run verify:edge     # parity edge cases (null page-content key, raw vectors, duplicate ids)
+npm run verify:core     # CRUD, index lifecycle, fromTexts/fromDocuments, queryEmbeddings, retry config
+npm run verify:search   # search surface, cosine/euclidean, full filter-operator matrix, asRetriever
+npm run verify:edge     # null page-content key, raw vectors, duplicate ids, nonFilterable keys,
+                        # typed error codes, and 200/100/500 batch boundaries
 ```
 
 `@langchain/aws` (which provides the Bedrock embeddings) is a **devDependency only** — it is used by the verification scripts and never ships in the published package.
@@ -553,35 +559,38 @@ npm run docs        # Regenerate TypeDoc output
 
 ```
 src/
-├── index.ts                      # Public API — exports class, types, utilities
+├── index.ts                      # Public API — class, error types, utilities
 ├── s3-vectors.ts                 # AmazonS3Vectors — core VectorStore implementation
 ├── relevance-scores.ts           # cosineRelevanceScoreFn, euclideanRelevanceScoreFn
 ├── types.ts                      # Config + output types
 ├── shared/                       # Internal helpers (not re-exported)
 │   ├── stub-embeddings.ts        # StubEmbeddings placeholder for raw-vector workflows
-│   ├── errors.ts                 # isAwsNotFoundException type guard
-│   └── metadata.ts               # buildPutMetadata, createDocument (pure functions)
+│   ├── validation.ts             # assertValidIndexConfig (bucket/index-name checks)
+│   ├── metadata.ts               # buildPutMetadata, createDocument (pure functions)
+│   └── errors/                   # Typed error model
+│       ├── s3-vectors-error.ts   # S3VectorsError + isS3VectorsError guard
+│       ├── error-code.ts         # S3VectorsErrorCode enum
+│       ├── wrap-error.ts         # wrapAwsError / toError
+│       └── aws-not-found.ts      # isAwsNotFoundException guard
 └── guide.md                      # In-depth usage guide
 
-test/
+test/                             # Unit (100% coverage), contract, property, types
 ├── helpers.ts                    # aws-sdk-client-mock factories
-├── constructor.test.ts           # Constructor behaviour + config defaults
-├── add-vectors.test.ts           # Raw vector writes + auto-index path
-├── add-documents.test.ts         # Per-batch embedding, mismatch guards
-├── add-texts.test.ts             # Texts + metadata wrapping
-├── similarity-search.test.ts     # Query paths (vector/text/no-embeddings)
-├── delete.test.ts                # Index + per-batch vector deletion
-├── get-by-ids.test.ts            # Batched retrieval, duplicate-ID semantics
-├── auto-index.test.ts            # CreateIndex with metadataConfiguration
-├── from-texts.test.ts            # Static factory
-├── relevance-scores.test.ts      # Relevance-score utility functions
+├── *.test.ts                     # Per-method unit suites (add/query/delete/get/errors…)
+├── shared/                       # Mirrors src/shared (incl. errors/, validation)
+├── contract/                     # VectorStore + MMR contract tests
+├── property/                     # fast-check invariants (metadata, batching)
+├── types/                        # Compile-time public-API assertions
+├── package-smoke/                # Packed-tarball import smoke (node --test)
 └── integration/                  # Live-AWS integration tests (env-gated)
-    ├── _guard.ts                 # Env gating contract
-    └── smoke.test.ts             # Create-index → add → query → delete roundtrip
+
+examples/                         # Standalone real-AWS verification scripts (.mjs)
+├── _harness.mjs / _embeddings.mjs
+└── verify-core / verify-search / verify-edge-cases
 
 .github/workflows/
 ├── ci.yml                        # Push-to-main CI (3 OS × Node 22/24)
-├── integration-live.yml          # workflow_dispatch — live-AWS tests via OIDC
+├── integration-live.yml          # Nightly + workflow_dispatch live-AWS smoke via OIDC
 └── release.yml                   # Tag-triggered publish via npm Trusted Publishing
 
 docs/                             # TypeDoc-generated API docs (checked in)
@@ -598,7 +607,7 @@ git clone https://github.com/FarukAda/aws-langchain-s3-vector-ts.git
 cd aws-langchain-s3-vector-ts
 nvm use                # reads .nvmrc → Node 22
 npm ci
-npm test               # 36 unit tests
+npm test               # unit tests at 100% coverage
 npm run build
 ```
 
