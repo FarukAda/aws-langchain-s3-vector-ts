@@ -14,6 +14,10 @@ const store = new AmazonS3Vectors(createEmbeddings(region), {
   region,
 });
 
+let fromDocsStore;
+let fromTextsStore;
+let queryEmbStore;
+
 try {
   section('addDocuments auto-creates the index on first write');
   const ids = await store.addDocuments(
@@ -51,8 +55,53 @@ try {
     () => store.getByIds(['core-3']),
     'not found',
   );
+
+  section('fromDocuments factory creates and populates a store');
+  fromDocsStore = await AmazonS3Vectors.fromDocuments(
+    [new Document({ pageContent: 'factory document', metadata: { k: 'fd' } })],
+    createEmbeddings(region),
+    {
+      vectorBucketName: bucketName,
+      indexName: `verify-core-fd-${randomUUID().slice(0, 8)}`,
+      region,
+      ids: ['fd-1'],
+    },
+  );
+  const fdDocs = await fromDocsStore.getByIds(['fd-1']);
+  check('fromDocuments stored the document', fdDocs[0].metadata.k === 'fd');
+
+  section('fromTexts factory creates and populates a store');
+  fromTextsStore = await AmazonS3Vectors.fromTexts(
+    ['factory text'],
+    { k: 'ft' },
+    createEmbeddings(region),
+    {
+      vectorBucketName: bucketName,
+      indexName: `verify-core-ft-${randomUUID().slice(0, 8)}`,
+      region,
+      ids: ['ft-1'],
+    },
+  );
+  const ftDocs = await fromTextsStore.getByIds(['ft-1']);
+  check('fromTexts stored the text', ftDocs[0].metadata.k === 'ft');
+
+  section('queryEmbeddings + retry config work end-to-end');
+  queryEmbStore = new AmazonS3Vectors(createEmbeddings(region), {
+    vectorBucketName: bucketName,
+    indexName: `verify-core-qe-${randomUUID().slice(0, 8)}`,
+    region,
+    queryEmbeddings: createEmbeddings(region),
+    maxAttempts: 5,
+    retryMode: 'adaptive',
+  });
+  await queryEmbStore.addTexts(['searchable content here'], [{ k: 'qe' }], { ids: ['qe-1'] });
+  const qeResults = await queryEmbStore.similaritySearchWithScore('searchable', 1);
+  check('query via a separate queryEmbeddings model returns results', qeResults.length === 1);
 } finally {
   await store.delete().catch(() => {});
+  await fromDocsStore?.delete().catch(() => {});
+  await fromTextsStore?.delete().catch(() => {});
+  await queryEmbStore?.delete().catch(() => {});
 }
 
 summary();

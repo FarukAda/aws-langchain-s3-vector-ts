@@ -10,9 +10,15 @@ const { bucketName, region } = requireEnv();
 const embeddings = createEmbeddings(region);
 
 const CORPUS = [
-  new Document({ pageContent: 'cats and dogs are common pets', metadata: { topic: 'pets' } }),
-  new Document({ pageContent: 'rockets travel to the moon and mars', metadata: { topic: 'space' } }),
-  new Document({ pageContent: 'pasta and pizza are italian dishes', metadata: { topic: 'food' } }),
+  new Document({ pageContent: 'cats and dogs are common pets', metadata: { topic: 'pets', year: 2001 } }),
+  new Document({
+    pageContent: 'rockets travel to the moon and mars',
+    metadata: { topic: 'space', year: 2010 },
+  }),
+  new Document({
+    pageContent: 'pasta and pizza are italian dishes',
+    metadata: { topic: 'food', year: 2020 },
+  }),
 ];
 
 async function seed(distanceMetric) {
@@ -50,17 +56,34 @@ try {
   check('only matching topic returned', filtered.every((d) => d.metadata.topic === 'space'));
 
   section('filter operators narrow results');
-  const inResults = await cosine.similaritySearch('anything', 3, {
-    topic: { $in: ['space', 'food'] },
-  });
+  const topics = async (filter) =>
+    (await cosine.similaritySearch('anything', 3, filter)).map((d) => d.metadata.topic).sort();
+
+  check('$eq matches one topic', (await topics({ topic: { $eq: 'space' } })).join() === 'space');
+  check(
+    '$ne excludes one topic',
+    (await topics({ topic: { $ne: 'food' } })).join() === 'pets,space',
+  );
   check(
     '$in matches multiple topics',
-    inResults.length > 0 && inResults.every((d) => ['space', 'food'].includes(d.metadata.topic)),
+    (await topics({ topic: { $in: ['space', 'food'] } })).join() === 'food,space',
   );
-  const andResults = await cosine.similaritySearch('anything', 3, {
-    $and: [{ topic: { $eq: 'space' } }, { topic: { $ne: 'food' } }],
-  });
-  check('$and/$ne compose', andResults.every((d) => d.metadata.topic === 'space'));
+  check('$nin excludes listed topics', (await topics({ topic: { $nin: ['food'] } })).length === 2);
+  check('$gt on a number', (await topics({ year: { $gt: 2005 } })).join() === 'food,space');
+  check('$gte on a number', (await topics({ year: { $gte: 2010 } })).join() === 'food,space');
+  check('$lt on a number', (await topics({ year: { $lt: 2015 } })).join() === 'pets,space');
+  check('$lte on a number', (await topics({ year: { $lte: 2001 } })).join() === 'pets');
+  check('$exists matches all', (await topics({ year: { $exists: true } })).length === 3);
+  check(
+    '$and composes conditions',
+    (await topics({ $and: [{ topic: { $eq: 'space' } }, { year: { $gte: 2010 } }] })).join() ===
+      'space',
+  );
+  check(
+    '$or composes conditions',
+    (await topics({ $or: [{ topic: { $eq: 'pets' } }, { topic: { $eq: 'food' } }] })).join() ===
+      'food,pets',
+  );
 
   section('asRetriever returns documents for a query');
   const retriever = cosine.asRetriever(2);

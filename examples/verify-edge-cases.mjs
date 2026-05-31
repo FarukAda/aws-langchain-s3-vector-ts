@@ -2,12 +2,22 @@ import { randomUUID } from 'node:crypto';
 
 import { Document } from '@langchain/core/documents';
 
-import { AmazonS3Vectors } from '../dist/index.js';
+import { AmazonS3Vectors, isS3VectorsError, S3VectorsErrorCode } from '../dist/index.js';
 import { createEmbeddings } from './_embeddings.mjs';
-import { check, expectThrow, requireEnv, section, summary } from './_harness.mjs';
+import { check, requireEnv, section, summary } from './_harness.mjs';
 
 const { bucketName, region } = requireEnv();
 const embeddings = createEmbeddings(region);
+
+/** Assert that `fn` rejects with an S3VectorsError carrying the given code. */
+async function expectErrorCode(label, fn, code) {
+  try {
+    await fn();
+    check(label, false);
+  } catch (error) {
+    check(label, isS3VectorsError(error) && error.code === code);
+  }
+}
 
 const noContentIndex = `verify-edge-nc-${randomUUID().slice(0, 8)}`;
 const rawIndex = `verify-edge-raw-${randomUUID().slice(0, 8)}`;
@@ -15,7 +25,7 @@ const dupIndex = `verify-edge-dup-${randomUUID().slice(0, 8)}`;
 const nonFilterableIndex = `verify-edge-nf-${randomUUID().slice(0, 8)}`;
 const batchIndex = `verify-edge-batch-${randomUUID().slice(0, 8)}`;
 
-const BATCH_DOC_COUNT = 250;
+const BATCH_DOC_COUNT = 501;
 
 const noContentStore = new AmazonS3Vectors(embeddings, {
   vectorBucketName: bucketName,
@@ -60,14 +70,18 @@ try {
   await rawStore.addVectors(sample, [new Document({ pageContent: 'raw' })], { ids: ['raw-1'] });
   const [rawDoc] = await rawStore.getByIds(['raw-1']);
   check('vector stored and retrieved', rawDoc.id === 'raw-1');
-  await expectThrow(
-    'text query without embeddings throws',
+  await expectErrorCode(
+    'text query without embeddings throws EMBEDDINGS_MISSING',
     () => rawStore.similaritySearchWithScore('anything', 1),
-    'No embedding model',
+    S3VectorsErrorCode.EMBEDDINGS_MISSING,
   );
 
-  section('getByIds throws for a missing id');
-  await expectThrow('missing id rejected', () => rawStore.getByIds(['does-not-exist']), 'not found');
+  section('getByIds throws a typed NOT_FOUND for a missing id');
+  await expectErrorCode(
+    'missing id rejected with NOT_FOUND',
+    () => rawStore.getByIds(['does-not-exist']),
+    S3VectorsErrorCode.NOT_FOUND,
+  );
 
   section('duplicate ids in getByIds return isolated metadata copies');
   await dupStore.addDocuments([new Document({ pageContent: 'dup', metadata: { tag: 'orig' } })], {
@@ -86,15 +100,13 @@ try {
   check('non-filterable value still round-trips', nfDoc.metadata.blob === 'large-context');
   const byFilterable = await nonFilterableStore.similaritySearch('config', 3, { topic: 'cfg' });
   check('filter on a filterable key works', byFilterable.some((d) => d.id === 'nf-1'));
-  let nonFilterableRejected = false;
-  try {
-    await nonFilterableStore.similaritySearch('config', 3, { blob: 'large-context' });
-  } catch {
-    nonFilterableRejected = true;
-  }
-  check('filtering on a non-filterable key is rejected', nonFilterableRejected);
+  await expectErrorCode(
+    'filtering on a non-filterable key is rejected (typed AWS error)',
+    () => nonFilterableStore.similaritySearch('config', 3, { blob: 'large-context' }),
+    S3VectorsErrorCode.AWS_REQUEST_FAILED,
+  );
 
-  section(`batch boundaries: ${BATCH_DOC_COUNT} vectors cross the 200 put and 100 get defaults`);
+  section(`batch boundaries: ${BATCH_DOC_COUNT} vectors cross the 200 put / 100 get / 500 delete defaults`);
   const [probeVector] = await embeddings.embedDocuments(['batch boundary probe']);
   const batchVectors = Array.from({ length: BATCH_DOC_COUNT }, () => probeVector);
   const batchDocs = Array.from(
@@ -109,6 +121,12 @@ try {
   check(
     'order preserved across get batches',
     fetched[0].id === 'b-0' && fetched[BATCH_DOC_COUNT - 1].id === `b-${BATCH_DOC_COUNT - 1}`,
+  );
+  await batchStore.delete({ ids: batchIds });
+  await expectErrorCode(
+    'delete across the 500 boundary removed every vector',
+    () => batchStore.getByIds(['b-0']),
+    S3VectorsErrorCode.NOT_FOUND,
   );
 } finally {
   await noContentStore.delete().catch(() => {});
