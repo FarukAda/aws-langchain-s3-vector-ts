@@ -22,6 +22,7 @@ import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from './shared/errors/wrap-error.js';
 import { buildPutMetadata, createDocument } from './shared/metadata.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
+import { assertValidIndexConfig } from './shared/validation.js';
 import type {
   AmazonS3VectorsConfig,
   DistanceMetric,
@@ -118,6 +119,7 @@ export class AmazonS3Vectors extends VectorStore {
 
     this.vectorBucketName = config.vectorBucketName;
     this.indexName = config.indexName;
+    assertValidIndexConfig(this.vectorBucketName, this.indexName);
     this.dataType = config.dataType ?? 'float32';
     this.distanceMetric = config.distanceMetric ?? 'cosine';
     this.nonFilterableMetadataKeys = config.nonFilterableMetadataKeys;

@@ -32,6 +32,8 @@
     "prebuild": "npm run clean",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "typecheck:types": "tsc --noEmit -p tsconfig.types.json",
+    "test:package-smoke": "node --test test/package-smoke/smoke.test.mjs",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
@@ -85,6 +87,7 @@
     "eslint-plugin-perfectionist": "^5.9.0",
     "eslint-plugin-prettier": "^5.5.6",
     "eslint-plugin-unused-imports": "^4.4.1",
+    "fast-check": "^4.8.0",
     "jest": "^30.4.2",
     "jest-sonar": "^0.2.16",
     "jiti": "^2.7.0",
@@ -106,7 +109,9 @@
   },
   "knip": {
     "ignore": [
-      "jest.integration.config.cjs"
+      "jest.integration.config.cjs",
+      "test/package-smoke/**",
+      "test/types/**"
     ]
   }
 }
