@@ -535,17 +535,6 @@ npm run verify:edge     # parity edge cases (null page-content key, raw vectors,
 
 `@langchain/aws` (which provides the Bedrock embeddings) is a **devDependency only** — it is used by the verification scripts and never ships in the published package.
 
-### Mutation testing
-
-```bash
-npm run test:mutate         # Full run (all mutants)
-npm run test:mutate:quick   # Quick variant — mutates src/shared/
-```
-
-Powered by [Stryker](https://stryker-mutator.io/). Thresholds: 80% (high) / 60% (low) / 50% (break).
-
-> **Known limitation:** at the time of writing, the Stryker jest-runner has a test-discovery issue when combined with ESM + `ts-jest/default-esm` on Windows sandboxes. The scaffold (`stryker.conf.json` + scripts) is in place; the run will fail with "No tests were found" until the underlying interaction resolves. Unit tests and coverage thresholds remain enforced in the normal CI path.
-
 ### Type-checking, lint, build
 
 ```bash

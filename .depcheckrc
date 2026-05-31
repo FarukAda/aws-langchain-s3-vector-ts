@@ -5,9 +5,6 @@
     "globals",
     "typedoc-plugin-markdown",
     "jiti",
-    "@stryker-mutator/core",
-    "@stryker-mutator/jest-runner",
-    "@stryker-mutator/typescript-checker",
     "aws-sdk-client-mock"
   ]
 }

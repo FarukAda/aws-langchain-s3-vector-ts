@@ -42,7 +42,7 @@ Jest runs through `node --experimental-vm-modules node_modules/jest/bin/jest.js`
 
 ### Heavy commands — ask first
 
-Do **not** run these without asking, and never in parallel: `npm run cpd`/`cpd:full`/`cpd:test` (jscpd), `npm run unused` (knip), `npm run depcheck`, `npm run test:mutate` (Stryker). `test:mutate:quick` mutates only `src/shared/**` + `src/relevance-scores.ts`.
+Do **not** run these without asking, and never in parallel: `npm run cpd`/`cpd:full`/`cpd:test` (jscpd), `npm run unused` (knip), `npm run depcheck`.
 
 ### Integration tests (real AWS — not Docker)
 
