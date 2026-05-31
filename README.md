@@ -345,6 +345,10 @@ Every failure — validation, not-found, or an underlying AWS error — is surfa
 
 `maxMarginalRelevanceSearch` is intentionally **not** implemented, matching the Python `langchain-aws` reference. Use metadata pre-filtering or client-side re-ranking when you need result diversity.
 
+### Observability
+
+The library emits no logs by design — it stays a thin, dependency-light adapter. To instrument requests (logging, metrics, tracing), construct your own `S3VectorsClient` with the desired `logger`/middleware and pass it via the `client` option; all operations flow through it.
+
 ## 🔧 Advanced Features
 
 ### Per-Batch Embedding

@@ -1,6 +1,8 @@
 name: Integration (live AWS)
 
 on:
+  schedule:
+    - cron: '0 4 * * *'
   workflow_dispatch:
     inputs:
       aws-region:
@@ -26,9 +28,9 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ inputs.aws-region }}
+          aws-region: ${{ inputs.aws-region || 'us-east-1' }}
       - run: npm run test:integration
         env:
           RUN_LIVE_INTEGRATION: '1'
           AWS_VECTOR_BUCKET: ${{ vars.AWS_VECTOR_BUCKET }}
-          AWS_REGION: ${{ inputs.aws-region }}
+          AWS_REGION: ${{ inputs.aws-region || 'us-east-1' }}
