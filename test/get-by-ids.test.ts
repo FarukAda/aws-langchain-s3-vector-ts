@@ -79,3 +79,37 @@ describe('AmazonS3Vectors.getByIds with duplicate IDs', () => {
     expect((docs[1]!.metadata['nested'] as Record<string, string>).value).toBe('original');
   });
 });
+
+describe('AmazonS3Vectors.getByIds batching and fallbacks', () => {
+  it('honours an explicit batch size', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+    });
+
+    mock.on(GetVectorsCommand).resolves({
+      vectors: [
+        { key: 'id-1', metadata: { _page_content: 'a' } },
+        { key: 'id-2', metadata: { _page_content: 'b' } },
+      ],
+    });
+
+    const docs = await store.getByIds(['id-1', 'id-2'], { batchSize: 1 });
+
+    expect(docs).toHaveLength(2);
+    expect(mock.commandCalls(GetVectorsCommand)).toHaveLength(2);
+  });
+
+  it('throws not found when the response has no vectors field', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+    });
+
+    mock.on(GetVectorsCommand).resolves({});
+
+    await expect(store.getByIds(['id-1'])).rejects.toThrow("Id 'id-1' not found");
+  });
+});

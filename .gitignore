@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+*.tgz
 .DS_Store
 
 # IDE / editor
@@ -10,8 +11,3 @@ coverage/
 
 # Claude Code per-project state
 .claude/
-
-# Stryker mutation testing
-.stryker-incremental.json
-.stryker-tmp/
-reports/

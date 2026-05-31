@@ -267,9 +267,10 @@ describe('MyFunction', () => {
 
 ### Coverage Requirements
 
-- Minimum 80% coverage for:
+- 100% coverage, enforced by the Jest threshold, for:
   - Branches
   - Functions
+  - Lines
   - Statements
 
 ## Pull Request Process

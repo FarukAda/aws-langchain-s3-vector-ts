@@ -7,6 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![AWS SDK](https://img.shields.io/badge/AWS%20SDK-v3-orange)](https://aws.amazon.com/sdk-for-javascript/)
 [![npm provenance](https://img.shields.io/badge/npm-provenance-brightgreen)](https://docs.npmjs.com/generating-provenance-statements/)
+[![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](#-testing)
 
 Built with [LangChain](https://github.com/langchain-ai/langchainjs) · [AWS SDK v3](https://aws.amazon.com/sdk-for-javascript/) · [npm](https://www.npmjs.com/package/@farukada/aws-langchain-s3-vector-ts) · [GitHub](https://github.com/FarukAda/aws-langchain-s3-vector-ts) · [Issues](https://github.com/FarukAda/aws-langchain-s3-vector-ts/issues)
 
@@ -327,8 +328,26 @@ As of 2026-04, CDK L2 constructs for S3 Vectors are not yet available. Use `CfnR
 | `queryEmbeddings` | `EmbeddingsInterface` | — | Separate embedding model for queries only |
 | `relevanceScoreFn` | `(distance: number) => number` | — | Custom distance-to-score conversion |
 | `embeddings` | `EmbeddingsInterface` | — | Alternative to the positional `embeddings` argument |
+| `maxAttempts` | `number` | SDK default | Max attempts (initial + retries) for AWS requests (ignored when `client` is set) |
+| `retryMode` | `"standard" \| "adaptive" \| "legacy"` | SDK default | AWS SDK retry mode (ignored when `client` is set) |
 
 Full generated API docs: see [`docs/`](docs/) (TypeDoc output).
+
+### Retries
+
+Throttling (`TooManyRequestsException`) and transient 5xx failures are retried automatically by the AWS SDK. Tune the behaviour with `maxAttempts` / `retryMode`, or pass a fully pre-configured `client`.
+
+### Errors
+
+Every failure — validation, not-found, or an underlying AWS error — is surfaced as a single typed `S3VectorsError` carrying a `code` (`S3VectorsErrorCode`), a `context` (`{ operation, vectorBucketName, indexName }`), and the original `cause`. Detect it with the exported `isS3VectorsError()` guard.
+
+### Maximal Marginal Relevance (MMR)
+
+`maxMarginalRelevanceSearch` is intentionally **not** implemented, matching the Python `langchain-aws` reference. Use metadata pre-filtering or client-side re-ranking when you need result diversity.
+
+### Observability
+
+The library emits no logs by design — it stays a thin, dependency-light adapter. To instrument requests (logging, metrics, tracing), construct your own `S3VectorsClient` with the desired `logger`/middleware and pass it via the `client` option; all operations flow through it.
 
 ## 🔧 Advanced Features
 
@@ -410,12 +429,17 @@ const retriever = store.asRetriever({
 import {
   cosineRelevanceScoreFn,
   euclideanRelevanceScoreFn,
+  // Error handling
+  S3VectorsError,
+  S3VectorsErrorCode,
+  isS3VectorsError,
   // Types
   AmazonS3VectorsConfig,
   DistanceMetric,
   VectorDataType,
   S3VectorsDeleteParams,
   S3OutputVector,
+  S3VectorsErrorContext,
 } from "@farukada/aws-langchain-s3-vector-ts";
 ```
 
@@ -477,7 +501,7 @@ npm test            # Run all unit tests with coverage
 npm run test:watch  # Watch mode
 ```
 
-Unit tests use [`aws-sdk-client-mock`](https://github.com/m-radzikowski/aws-sdk-client-mock) — the library [AWS officially recommends](https://aws.amazon.com/blogs/developer/mocking-modular-aws-sdk-for-javascript-v3-in-unit-tests/) for SDK v3 — to mock `S3VectorsClient` without network calls. Coverage thresholds: **80% branches / 80% functions / 80% lines / 80% statements**.
+Unit tests use [`aws-sdk-client-mock`](https://github.com/m-radzikowski/aws-sdk-client-mock) — the library [AWS officially recommends](https://aws.amazon.com/blogs/developer/mocking-modular-aws-sdk-for-javascript-v3-in-unit-tests/) for SDK v3 — to mock `S3VectorsClient` without network calls. Coverage thresholds: **100% branches / 100% functions / 100% lines / 100% statements**, enforced in CI.
 
 ### Integration tests (live AWS)
 
@@ -500,16 +524,26 @@ Without `RUN_LIVE_INTEGRATION=1` **and** `AWS_VECTOR_BUCKET` set, the suite prin
 
 The [`Integration (live AWS)`](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/integration-live.yml) workflow is triggered manually via the GitHub Actions UI (`workflow_dispatch`). It uses GitHub OIDC to assume an IAM role (configured via the `AWS_ROLE_TO_ASSUME` secret) and runs against the bucket named in the `AWS_VECTOR_BUCKET` repository variable.
 
-### Mutation testing
+### Verifying against real AWS
+
+Standalone verification scripts in [`examples/`](examples/) exercise the full public API against live Amazon S3 Vectors using real [Amazon Bedrock](https://aws.amazon.com/bedrock/) embeddings (Amazon Titan Text Embeddings V2, `amazon.titan-embed-text-v2:0`). Each script provisions a unique `verify-*` index, runs its checks, prints a `PASS/FAIL` summary, tears its index down, and exits non-zero on any failure.
+
+You need an existing S3 vector bucket and Bedrock model access to Titan Text Embeddings V2 in your region.
 
 ```bash
-npm run test:mutate         # Full run (all mutants)
-npm run test:mutate:quick   # Quick variant — mutates src/shared/
+export AWS_VECTOR_BUCKET=<your-pre-created-vector-bucket>
+export AWS_REGION=us-east-1
+# Plus AWS credentials (AWS_PROFILE or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)
+
+npm run verify          # build + core, search, and edge-case scripts
+# or individually:
+npm run verify:core     # CRUD, index lifecycle, fromTexts/fromDocuments, queryEmbeddings, retry config
+npm run verify:search   # search surface, cosine/euclidean, full filter-operator matrix, asRetriever
+npm run verify:edge     # null page-content key, raw vectors, duplicate ids, nonFilterable keys,
+                        # typed error codes, and 200/100/500 batch boundaries
 ```
 
-Powered by [Stryker](https://stryker-mutator.io/). Thresholds: 80% (high) / 60% (low) / 50% (break).
-
-> **Known limitation:** at the time of writing, the Stryker jest-runner has a test-discovery issue when combined with ESM + `ts-jest/default-esm` on Windows sandboxes. The scaffold (`stryker.conf.json` + scripts) is in place; the run will fail with "No tests were found" until the underlying interaction resolves. Unit tests and coverage thresholds remain enforced in the normal CI path.
+`@langchain/aws` (which provides the Bedrock embeddings) is a **devDependency only** — it is used by the verification scripts and never ships in the published package.
 
 ### Type-checking, lint, build
 
@@ -525,35 +559,38 @@ npm run docs        # Regenerate TypeDoc output
 
 ```
 src/
-├── index.ts                      # Public API — exports class, types, utilities
+├── index.ts                      # Public API — class, error types, utilities
 ├── s3-vectors.ts                 # AmazonS3Vectors — core VectorStore implementation
 ├── relevance-scores.ts           # cosineRelevanceScoreFn, euclideanRelevanceScoreFn
 ├── types.ts                      # Config + output types
 ├── shared/                       # Internal helpers (not re-exported)
 │   ├── stub-embeddings.ts        # StubEmbeddings placeholder for raw-vector workflows
-│   ├── errors.ts                 # isAwsNotFoundException type guard
-│   └── metadata.ts               # buildPutMetadata, createDocument (pure functions)
+│   ├── validation.ts             # assertValidIndexConfig (bucket/index-name checks)
+│   ├── metadata.ts               # buildPutMetadata, createDocument (pure functions)
+│   └── errors/                   # Typed error model
+│       ├── s3-vectors-error.ts   # S3VectorsError + isS3VectorsError guard
+│       ├── error-code.ts         # S3VectorsErrorCode enum
+│       ├── wrap-error.ts         # wrapAwsError / toError
+│       └── aws-not-found.ts      # isAwsNotFoundException guard
 └── guide.md                      # In-depth usage guide
 
-test/
+test/                             # Unit (100% coverage), contract, property, types
 ├── helpers.ts                    # aws-sdk-client-mock factories
-├── constructor.test.ts           # Constructor behaviour + config defaults
-├── add-vectors.test.ts           # Raw vector writes + auto-index path
-├── add-documents.test.ts         # Per-batch embedding, mismatch guards
-├── add-texts.test.ts             # Texts + metadata wrapping
-├── similarity-search.test.ts     # Query paths (vector/text/no-embeddings)
-├── delete.test.ts                # Index + per-batch vector deletion
-├── get-by-ids.test.ts            # Batched retrieval, duplicate-ID semantics
-├── auto-index.test.ts            # CreateIndex with metadataConfiguration
-├── from-texts.test.ts            # Static factory
-├── relevance-scores.test.ts      # Relevance-score utility functions
+├── *.test.ts                     # Per-method unit suites (add/query/delete/get/errors…)
+├── shared/                       # Mirrors src/shared (incl. errors/, validation)
+├── contract/                     # VectorStore + MMR contract tests
+├── property/                     # fast-check invariants (metadata, batching)
+├── types/                        # Compile-time public-API assertions
+├── package-smoke/                # Packed-tarball import smoke (node --test)
 └── integration/                  # Live-AWS integration tests (env-gated)
-    ├── _guard.ts                 # Env gating contract
-    └── smoke.test.ts             # Create-index → add → query → delete roundtrip
+
+examples/                         # Standalone real-AWS verification scripts (.mjs)
+├── _harness.mjs / _embeddings.mjs
+└── verify-core / verify-search / verify-edge-cases
 
 .github/workflows/
 ├── ci.yml                        # Push-to-main CI (3 OS × Node 22/24)
-├── integration-live.yml          # workflow_dispatch — live-AWS tests via OIDC
+├── integration-live.yml          # Nightly + workflow_dispatch live-AWS smoke via OIDC
 └── release.yml                   # Tag-triggered publish via npm Trusted Publishing
 
 docs/                             # TypeDoc-generated API docs (checked in)
@@ -570,7 +607,7 @@ git clone https://github.com/FarukAda/aws-langchain-s3-vector-ts.git
 cd aws-langchain-s3-vector-ts
 nvm use                # reads .nvmrc → Node 22
 npm ci
-npm test               # 36 unit tests
+npm test               # unit tests at 100% coverage
 npm run build
 ```
 

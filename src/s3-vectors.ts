@@ -16,9 +16,13 @@ import { VectorStore } from '@langchain/core/vectorstores';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
 import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './relevance-scores.js';
-import { isAwsNotFoundException } from './shared/errors.js';
+import { isAwsNotFoundException } from './shared/errors/aws-not-found.js';
+import { S3VectorsErrorCode } from './shared/errors/error-code.js';
+import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
+import { wrapAwsError } from './shared/errors/wrap-error.js';
 import { buildPutMetadata, createDocument } from './shared/metadata.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
+import { assertValidIndexConfig } from './shared/validation.js';
 import type {
   AmazonS3VectorsConfig,
   DistanceMetric,
@@ -49,6 +53,13 @@ const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
  *
  * Documents are embedded per batch to keep peak memory usage low for
  * large document sets, matching the Python `langchain-aws` implementation.
+ *
+ * Throttling and transient (5xx) failures are retried automatically by the
+ * AWS SDK; tune this via the `maxAttempts` and `retryMode` config options.
+ *
+ * Maximal Marginal Relevance (`maxMarginalRelevanceSearch`) is intentionally
+ * not implemented, matching the Python `langchain-aws` reference — use metadata
+ * pre-filtering or client-side re-ranking if you need diversity.
  *
  * @example
  * ```ts
@@ -102,12 +113,15 @@ export class AmazonS3Vectors extends VectorStore {
    * @param config.createIndexIfNotExist - Auto-create index on first write (default: `true`)
    * @param config.queryEmbeddings - Separate embedding model for queries only
    * @param config.nonFilterableMetadataKeys - Metadata keys excluded from query filters
+   * @param config.maxAttempts - Max attempts (initial + retries) for AWS requests (ignored when `client` is set)
+   * @param config.retryMode - AWS SDK retry mode: `"standard"` | `"adaptive"` | `"legacy"` (ignored when `client` is set)
    */
   constructor(embeddings: EmbeddingsInterface | undefined, config: AmazonS3VectorsConfig) {
     super(embeddings ?? config.embeddings ?? new StubEmbeddings(), config);
 
     this.vectorBucketName = config.vectorBucketName;
     this.indexName = config.indexName;
+    assertValidIndexConfig(this.vectorBucketName, this.indexName);
     this.dataType = config.dataType ?? 'float32';
     this.distanceMetric = config.distanceMetric ?? 'cosine';
     this.nonFilterableMetadataKeys = config.nonFilterableMetadataKeys;
@@ -127,6 +141,8 @@ export class AmazonS3Vectors extends VectorStore {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- AWS credential types are complex and vary by SDK version
         credentials: config.credentials,
         endpoint: config.endpoint,
+        maxAttempts: config.maxAttempts,
+        retryMode: config.retryMode,
       });
     }
   }
@@ -161,7 +177,8 @@ export class AmazonS3Vectors extends VectorStore {
     options?: { ids?: string[]; batchSize?: number },
   ): Promise<string[]> {
     if (vectors.length !== documents.length) {
-      throw new Error(
+      throw this._validationError(
+        'addVectors',
         `Number of vectors (${vectors.length}) must match number of documents (${documents.length})`,
       );
     }
@@ -171,7 +188,8 @@ export class AmazonS3Vectors extends VectorStore {
     const ids = options?.ids ?? vectors.map(() => randomUUID().replace(/-/g, ''));
 
     if (ids.length !== vectors.length) {
-      throw new Error(
+      throw this._validationError(
+        'addVectors',
         `Number of IDs (${ids.length}) must match number of vectors (${vectors.length})`,
       );
     }
@@ -214,7 +232,8 @@ export class AmazonS3Vectors extends VectorStore {
     const ids = options?.ids ?? documents.map(() => randomUUID().replace(/-/g, ''));
 
     if (ids.length !== documents.length) {
-      throw new Error(
+      throw this._validationError(
+        'addDocuments',
         `Number of IDs (${ids.length}) must match number of documents (${documents.length})`,
       );
     }
@@ -256,7 +275,8 @@ export class AmazonS3Vectors extends VectorStore {
     options?: { ids?: string[]; batchSize?: number },
   ): Promise<string[]> {
     if (metadatas && metadatas.length !== texts.length) {
-      throw new Error(
+      throw this._validationError(
+        'addTexts',
         `Number of metadatas (${metadatas.length}) must match number of texts (${texts.length})`,
       );
     }
@@ -284,16 +304,18 @@ export class AmazonS3Vectors extends VectorStore {
     k: number,
     filter?: this['FilterType'],
   ): Promise<[Document, number][]> {
-    const response = await this._client.send(
-      new QueryVectorsCommand({
-        vectorBucketName: this.vectorBucketName,
-        indexName: this.indexName,
-        topK: k,
-        queryVector: { float32: query },
-        filter: filter as __DocumentType | undefined,
-        returnMetadata: true,
-        returnDistance: true,
-      }),
+    const response = await this._send('QueryVectors', () =>
+      this._client.send(
+        new QueryVectorsCommand({
+          vectorBucketName: this.vectorBucketName,
+          indexName: this.indexName,
+          topK: k,
+          queryVector: { float32: query },
+          filter: filter as __DocumentType | undefined,
+          returnMetadata: true,
+          returnDistance: true,
+        }),
+      ),
     );
 
     const outputVectors = (response.vectors ?? []) as S3OutputVector[];
@@ -328,16 +350,18 @@ export class AmazonS3Vectors extends VectorStore {
     k = 4,
     filter?: this['FilterType'],
   ): Promise<Document[]> {
-    const response = await this._client.send(
-      new QueryVectorsCommand({
-        vectorBucketName: this.vectorBucketName,
-        indexName: this.indexName,
-        topK: k,
-        queryVector: { float32: embedding },
-        filter: filter as __DocumentType | undefined,
-        returnMetadata: true,
-        returnDistance: false,
-      }),
+    const response = await this._send('QueryVectors', () =>
+      this._client.send(
+        new QueryVectorsCommand({
+          vectorBucketName: this.vectorBucketName,
+          indexName: this.indexName,
+          topK: k,
+          queryVector: { float32: embedding },
+          filter: filter as __DocumentType | undefined,
+          returnMetadata: true,
+          returnDistance: false,
+        }),
+      ),
     );
 
     const outputVectors = (response.vectors ?? []) as S3OutputVector[];
@@ -356,21 +380,25 @@ export class AmazonS3Vectors extends VectorStore {
 
     if (ids === undefined) {
       // Delete the entire index.
-      await this._client.send(
-        new DeleteIndexCommand({
-          vectorBucketName: this.vectorBucketName,
-          indexName: this.indexName,
-        }),
+      await this._send('DeleteIndex', () =>
+        this._client.send(
+          new DeleteIndexCommand({
+            vectorBucketName: this.vectorBucketName,
+            indexName: this.indexName,
+          }),
+        ),
       );
     } else {
       const batchSize = params?.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
       for (let i = 0; i < ids.length; i += batchSize) {
-        await this._client.send(
-          new DeleteVectorsCommand({
-            vectorBucketName: this.vectorBucketName,
-            indexName: this.indexName,
-            keys: ids.slice(i, i + batchSize),
-          }),
+        await this._send('DeleteVectors', () =>
+          this._client.send(
+            new DeleteVectorsCommand({
+              vectorBucketName: this.vectorBucketName,
+              indexName: this.indexName,
+              keys: ids.slice(i, i + batchSize),
+            }),
+          ),
         );
       }
     }
@@ -397,14 +425,16 @@ export class AmazonS3Vectors extends VectorStore {
     for (let i = 0; i < ids.length; i += batchSize) {
       const batchIds = ids.slice(i, i + batchSize);
 
-      const response = await this._client.send(
-        new GetVectorsCommand({
-          vectorBucketName: this.vectorBucketName,
-          indexName: this.indexName,
-          keys: batchIds,
-          returnData: false,
-          returnMetadata: true,
-        }),
+      const response = await this._send('GetVectors', () =>
+        this._client.send(
+          new GetVectorsCommand({
+            vectorBucketName: this.vectorBucketName,
+            indexName: this.indexName,
+            keys: batchIds,
+            returnData: false,
+            returnMetadata: true,
+          }),
+        ),
       );
 
       const outputVectors = (response.vectors ?? []) as S3OutputVector[];
@@ -421,7 +451,15 @@ export class AmazonS3Vectors extends VectorStore {
       for (const id of batchIds) {
         const v = vectorMap.get(id);
         if (!v) {
-          throw new Error(`Id '${id}' not found in vector store.`);
+          throw new S3VectorsError(
+            `Id '${id}' not found in vector store.`,
+            S3VectorsErrorCode.NOT_FOUND,
+            {
+              operation: 'getByIds',
+              vectorBucketName: this.vectorBucketName,
+              indexName: this.indexName,
+            },
+          );
         }
         docs.push(createDocument(v, this.pageContentMetadataKey, hasDuplicateIds));
       }
@@ -480,13 +518,37 @@ export class AmazonS3Vectors extends VectorStore {
   /** Return the query-embedding model, falling back to the indexing model. */
   private _getQueryEmbeddings(): EmbeddingsInterface {
     const emb = this._queryEmbeddings ?? this.embeddings;
-    if (!emb || isStubEmbeddings(emb)) {
-      throw new Error(
+    if (isStubEmbeddings(emb)) {
+      throw new S3VectorsError(
         'No embedding model available for queries. ' +
           'Provide `embeddings` or `queryEmbeddings` in the config.',
+        S3VectorsErrorCode.EMBEDDINGS_MISSING,
+        { operation: 'query', vectorBucketName: this.vectorBucketName, indexName: this.indexName },
       );
     }
     return emb;
+  }
+
+  /** Build a {@link S3VectorsError} for a caller-input validation failure. */
+  private _validationError(operation: string, message: string): S3VectorsError {
+    return new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, {
+      operation,
+      vectorBucketName: this.vectorBucketName,
+      indexName: this.indexName,
+    });
+  }
+
+  /** Run an AWS call, surfacing any failure as a coded {@link S3VectorsError}. */
+  private async _send<T>(operation: string, send: () => Promise<T>): Promise<T> {
+    try {
+      return await send();
+    } catch (error: unknown) {
+      throw wrapAwsError(error, S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+        operation,
+        vectorBucketName: this.vectorBucketName,
+        indexName: this.indexName,
+      });
+    }
   }
 
   /**
@@ -506,7 +568,10 @@ export class AmazonS3Vectors extends VectorStore {
       if (existing === null) {
         const firstVector = vectors[0];
         if (!firstVector) {
-          throw new Error('Cannot determine vector dimension from empty batch');
+          throw this._validationError(
+            'addDocuments',
+            'Cannot determine vector dimension from empty batch',
+          );
         }
         await this._createIndex(firstVector.length);
       }
@@ -524,12 +589,14 @@ export class AmazonS3Vectors extends VectorStore {
       };
     });
 
-    await this._client.send(
-      new PutVectorsCommand({
-        vectorBucketName: this.vectorBucketName,
-        indexName: this.indexName,
-        vectors: putVectors,
-      }),
+    await this._send('PutVectors', () =>
+      this._client.send(
+        new PutVectorsCommand({
+          vectorBucketName: this.vectorBucketName,
+          indexName: this.indexName,
+          vectors: putVectors,
+        }),
+      ),
     );
   }
 
@@ -545,27 +612,33 @@ export class AmazonS3Vectors extends VectorStore {
       return result as unknown as Record<string, unknown>;
     } catch (error: unknown) {
       if (isAwsNotFoundException(error)) return null;
-      throw error;
+      throw wrapAwsError(error, S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+        operation: 'GetIndex',
+        vectorBucketName: this.vectorBucketName,
+        indexName: this.indexName,
+      });
     }
   }
 
   /** Create the vector index with the given dimension. */
   private async _createIndex(dimension: number): Promise<void> {
-    await this._client.send(
-      new CreateIndexCommand({
-        vectorBucketName: this.vectorBucketName,
-        indexName: this.indexName,
-        dataType: this.dataType,
-        dimension,
-        distanceMetric: this.distanceMetric,
-        ...(this.nonFilterableMetadataKeys
-          ? {
-              metadataConfiguration: {
-                nonFilterableMetadataKeys: this.nonFilterableMetadataKeys,
-              },
-            }
-          : {}),
-      }),
+    await this._send('CreateIndex', () =>
+      this._client.send(
+        new CreateIndexCommand({
+          vectorBucketName: this.vectorBucketName,
+          indexName: this.indexName,
+          dataType: this.dataType,
+          dimension,
+          distanceMetric: this.distanceMetric,
+          ...(this.nonFilterableMetadataKeys
+            ? {
+                metadataConfiguration: {
+                  nonFilterableMetadataKeys: this.nonFilterableMetadataKeys,
+                },
+              }
+            : {}),
+        }),
+      ),
     );
   }
 }
