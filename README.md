@@ -328,8 +328,22 @@ As of 2026-04, CDK L2 constructs for S3 Vectors are not yet available. Use `CfnR
 | `queryEmbeddings` | `EmbeddingsInterface` | — | Separate embedding model for queries only |
 | `relevanceScoreFn` | `(distance: number) => number` | — | Custom distance-to-score conversion |
 | `embeddings` | `EmbeddingsInterface` | — | Alternative to the positional `embeddings` argument |
+| `maxAttempts` | `number` | SDK default | Max attempts (initial + retries) for AWS requests (ignored when `client` is set) |
+| `retryMode` | `"standard" \| "adaptive" \| "legacy"` | SDK default | AWS SDK retry mode (ignored when `client` is set) |
 
 Full generated API docs: see [`docs/`](docs/) (TypeDoc output).
+
+### Retries
+
+Throttling (`TooManyRequestsException`) and transient 5xx failures are retried automatically by the AWS SDK. Tune the behaviour with `maxAttempts` / `retryMode`, or pass a fully pre-configured `client`.
+
+### Errors
+
+Every failure — validation, not-found, or an underlying AWS error — is surfaced as a single typed `S3VectorsError` carrying a `code` (`S3VectorsErrorCode`), a `context` (`{ operation, vectorBucketName, indexName }`), and the original `cause`. Detect it with the exported `isS3VectorsError()` guard.
+
+### Maximal Marginal Relevance (MMR)
+
+`maxMarginalRelevanceSearch` is intentionally **not** implemented, matching the Python `langchain-aws` reference. Use metadata pre-filtering or client-side re-ranking when you need result diversity.
 
 ## 🔧 Advanced Features
 

@@ -76,4 +76,15 @@ describe('AmazonS3Vectors constructor', () => {
 
     expect(store).toBeInstanceOf(AmazonS3Vectors);
   });
+
+  it('forwards retry options to the SDK client', () => {
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      region: 'us-east-1',
+      maxAttempts: 5,
+      retryMode: 'adaptive',
+    });
+
+    expect(store).toBeInstanceOf(AmazonS3Vectors);
+  });
 });

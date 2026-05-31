@@ -53,6 +53,13 @@ const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
  * Documents are embedded per batch to keep peak memory usage low for
  * large document sets, matching the Python `langchain-aws` implementation.
  *
+ * Throttling and transient (5xx) failures are retried automatically by the
+ * AWS SDK; tune this via the `maxAttempts` and `retryMode` config options.
+ *
+ * Maximal Marginal Relevance (`maxMarginalRelevanceSearch`) is intentionally
+ * not implemented, matching the Python `langchain-aws` reference — use metadata
+ * pre-filtering or client-side re-ranking if you need diversity.
+ *
  * @example
  * ```ts
  * import { AmazonS3Vectors } from "@farukada/aws-langchain-s3-vector-ts";
@@ -130,6 +137,8 @@ export class AmazonS3Vectors extends VectorStore {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- AWS credential types are complex and vary by SDK version
         credentials: config.credentials,
         endpoint: config.endpoint,
+        maxAttempts: config.maxAttempts,
+        retryMode: config.retryMode,
       });
     }
   }

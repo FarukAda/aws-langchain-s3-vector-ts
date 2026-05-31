@@ -110,6 +110,18 @@ export interface AmazonS3VectorsConfig {
 
   /** Custom endpoint URL to use instead of the default regional endpoint. */
   readonly endpoint?: string;
+
+  /**
+   * Maximum number of attempts (initial try + retries) for AWS requests.
+   * Forwarded to the AWS SDK retry strategy. Ignored when `client` is provided.
+   */
+  readonly maxAttempts?: number;
+
+  /**
+   * AWS SDK retry mode. Throttling and 5xx errors are retried by the SDK.
+   * Ignored when `client` is provided.
+   */
+  readonly retryMode?: 'standard' | 'adaptive' | 'legacy';
 }
 
 // ─── Internal types ──────────────────────────────────────────────────────────
