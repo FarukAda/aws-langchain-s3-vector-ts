@@ -140,6 +140,76 @@ describe('AmazonS3Vectors.similaritySearchWithScore without embeddings', () => {
   });
 });
 
+describe('AmazonS3Vectors.similaritySearchVectorWithScore fallbacks', () => {
+  it('returns an empty array when the response has no vectors field', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    mock.on(QueryVectorsCommand).resolves({});
+
+    const results = await store.similaritySearchVectorWithScore([1], 1);
+    expect(results).toEqual([]);
+  });
+
+  it('defaults the score to 0 when distance is absent', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'id-1', metadata: { _page_content: 'x' } }],
+    });
+
+    const results = await store.similaritySearchVectorWithScore([1], 1);
+    expect(results[0]![1]).toBe(0);
+  });
+});
+
+describe('AmazonS3Vectors.similaritySearchWithScore default k', () => {
+  it('defaults topK to 4', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+
+    await store.similaritySearchWithScore('q');
+    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.topK).toBe(4);
+  });
+});
+
+describe('AmazonS3Vectors.similaritySearchWithScore with queryEmbeddings', () => {
+  it('uses the dedicated query-embedding model', async () => {
+    const { client, mock } = createMockClient();
+    const indexEmb = createMockEmbeddings();
+    const queryEmb = createMockEmbeddings(5);
+    const store = new AmazonS3Vectors(indexEmb, {
+      ...BASE_CONFIG,
+      client,
+      queryEmbeddings: queryEmb,
+    });
+
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'id-1', metadata: { _page_content: 'r' }, distance: 0.1 }],
+    });
+
+    await store.similaritySearchWithScore('q', 1);
+    expect(queryEmb.embedQuery).toHaveBeenCalledWith('q');
+    expect(indexEmb.embedQuery).not.toHaveBeenCalled();
+  });
+});
+
+describe('AmazonS3Vectors.similaritySearchByVector fallbacks', () => {
+  it('defaults topK to 4 and handles a missing vectors field', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    mock.on(QueryVectorsCommand).resolves({});
+
+    const results = await store.similaritySearchByVector([1]);
+    expect(results).toEqual([]);
+    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.topK).toBe(4);
+  });
+});
+
 describe('AmazonS3Vectors._selectRelevanceScoreFn', () => {
   it('returns cosine fn by default', () => {
     const { client } = createMockClient();

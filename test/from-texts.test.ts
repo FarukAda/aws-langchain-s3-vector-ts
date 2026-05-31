@@ -28,3 +28,38 @@ describe('AmazonS3Vectors.fromTexts', () => {
     expect(embeddings.embedDocuments).toHaveBeenCalledWith(['hello', 'world']);
   });
 });
+
+describe('AmazonS3Vectors.fromTexts metadata handling', () => {
+  it('applies a single metadata object to every text', async () => {
+    const { client, mock } = createMockClient();
+    const embeddings = createMockEmbeddings();
+
+    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
+    mock.on(PutVectorsCommand).resolves({});
+
+    await AmazonS3Vectors.fromTexts(['a', 'b'], { shared: true }, embeddings, {
+      ...BASE_CONFIG,
+      client,
+    });
+
+    const input = mock.commandCalls(PutVectorsCommand)[0]!.args[0].input;
+    expect(input.vectors?.[0]?.metadata).toMatchObject({ shared: true });
+    expect(input.vectors?.[1]?.metadata).toMatchObject({ shared: true });
+  });
+
+  it('defaults to empty metadata when the array is shorter than texts', async () => {
+    const { client, mock } = createMockClient();
+    const embeddings = createMockEmbeddings();
+
+    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
+    mock.on(PutVectorsCommand).resolves({});
+
+    await AmazonS3Vectors.fromTexts(['a', 'b'], [{ only: 'first' }], embeddings, {
+      ...BASE_CONFIG,
+      client,
+    });
+
+    const input = mock.commandCalls(PutVectorsCommand)[0]!.args[0].input;
+    expect(input.vectors?.[1]?.metadata).toEqual({ _page_content: 'b' });
+  });
+});

@@ -50,4 +50,21 @@ describe('AmazonS3Vectors.addTexts', () => {
 
     await expect(store.addTexts(['a', 'b'], [{ x: 1 }])).rejects.toThrow('must match');
   });
+
+  it('stores texts when no metadatas are provided', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(3), {
+      ...BASE_CONFIG,
+      client,
+    });
+
+    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
+    mock.on(PutVectorsCommand).resolves({});
+
+    const ids = await store.addTexts(['solo'], undefined, { ids: ['t-1'] });
+
+    expect(ids).toEqual(['t-1']);
+    const input = mock.commandCalls(PutVectorsCommand)[0]!.args[0].input;
+    expect(input.vectors?.[0]?.metadata).toEqual({ _page_content: 'solo' });
+  });
 });

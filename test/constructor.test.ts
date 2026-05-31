@@ -54,4 +54,26 @@ describe('AmazonS3Vectors constructor', () => {
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
     expect(store._vectorstoreType()).toBe('amazonS3Vectors');
   });
+
+  it('constructs a real S3VectorsClient when no client is supplied', () => {
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      region: 'us-east-1',
+      endpoint: 'https://example.test',
+    });
+
+    expect(store).toBeInstanceOf(AmazonS3Vectors);
+    expect(store.vectorBucketName).toBe('test-bucket');
+  });
+
+  it('builds its own client when the supplied client has no send method', () => {
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- exercising the no-send fallback
+      client: {} as any,
+      region: 'us-east-1',
+    });
+
+    expect(store).toBeInstanceOf(AmazonS3Vectors);
+  });
 });

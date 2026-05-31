@@ -153,6 +153,22 @@ describe('AmazonS3Vectors.addVectors', () => {
     ).rejects.toThrow('Number of IDs (1) must match number of vectors (2)');
   });
 
+  it('skips the index existence check when createIndexIfNotExist is false', async () => {
+    const localStore = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+      createIndexIfNotExist: false,
+    });
+    mock.on(PutVectorsCommand).resolves({});
+
+    await localStore.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], {
+      ids: ['id-1'],
+    });
+
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(0);
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
+  });
+
   it('rethrows non-NotFound errors when checking for existing index', async () => {
     const awsError = Object.assign(new Error('access denied'), { name: 'AccessDenied' });
     mock.on(GetIndexCommand).rejects(awsError);

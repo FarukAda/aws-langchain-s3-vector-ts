@@ -37,4 +37,17 @@ describe('AmazonS3Vectors.delete', () => {
     expect(deleteCalls[0]!.args[0].input.keys).toEqual(['id-0', 'id-1']);
     expect(deleteCalls[2]!.args[0].input.keys).toEqual(['id-4']);
   });
+
+  it('deletes by IDs using the default batch size', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+
+    mock.on(DeleteVectorsCommand).resolves({});
+
+    await store.delete({ ids: ['a', 'b'] });
+
+    const deleteCalls = mock.commandCalls(DeleteVectorsCommand);
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]!.args[0].input.keys).toEqual(['a', 'b']);
+  });
 });

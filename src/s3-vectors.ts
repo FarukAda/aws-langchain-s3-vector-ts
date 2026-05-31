@@ -480,7 +480,7 @@ export class AmazonS3Vectors extends VectorStore {
   /** Return the query-embedding model, falling back to the indexing model. */
   private _getQueryEmbeddings(): EmbeddingsInterface {
     const emb = this._queryEmbeddings ?? this.embeddings;
-    if (!emb || isStubEmbeddings(emb)) {
+    if (isStubEmbeddings(emb)) {
       throw new Error(
         'No embedding model available for queries. ' +
           'Provide `embeddings` or `queryEmbeddings` in the config.',
