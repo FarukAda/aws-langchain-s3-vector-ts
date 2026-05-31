@@ -6,13 +6,22 @@ on:
   workflow_dispatch:
     inputs:
       aws-region:
-        description: 'AWS region for the test bucket'
+        description: 'AWS region for the ephemeral test bucket'
         required: false
         default: 'us-east-1'
 
 permissions:
   contents: read
   id-token: write
+
+env:
+  # The vector bucket is ephemeral: created at the start of each run and
+  # deleted in teardown (`if: always()`), so nothing stands between runs.
+  # The name is fixed and MUST match the IAM role's resource policy, which
+  # is scoped to exactly this bucket. The schedule trigger sends no input,
+  # so `aws-region` falls back to us-east-1 for the nightly run.
+  AWS_VECTOR_BUCKET: langchain-vectors-ci
+  AWS_REGION: ${{ inputs.aws-region || 'us-east-1' }}
 
 jobs:
   integration:
@@ -28,9 +37,45 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ inputs.aws-region || 'us-east-1' }}
-      - run: npm run test:integration
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Spin the bucket up. If a previous run was killed before its teardown
+      # finished, a leftover bucket would block create-vector-bucket — so we
+      # remove any leftover (and its indexes) first. Steady state: no bucket
+      # exists at the start of a run.
+      - name: Spin up ephemeral vector bucket
+        run: |
+          if aws s3vectors get-vector-bucket \
+            --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Leftover bucket found — removing before recreate."
+            for idx in $(aws s3vectors list-indexes \
+              --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION" \
+              --query 'indexes[].indexName' --output text); do
+              aws s3vectors delete-index \
+                --vector-bucket-name "$AWS_VECTOR_BUCKET" --index-name "$idx" --region "$AWS_REGION"
+            done
+            aws s3vectors delete-vector-bucket \
+              --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION"
+          fi
+          aws s3vectors create-vector-bucket \
+            --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION"
+
+      - name: Run live integration tests
+        run: npm run test:integration
         env:
           RUN_LIVE_INTEGRATION: '1'
-          AWS_VECTOR_BUCKET: ${{ vars.AWS_VECTOR_BUCKET }}
-          AWS_REGION: ${{ inputs.aws-region || 'us-east-1' }}
+
+      # Spin the bucket down — always, even if the tests failed. Delete every
+      # index first (the bucket must be empty), then the bucket itself. Each
+      # step is best-effort so a partial teardown never fails the job.
+      - name: Tear down ephemeral vector bucket
+        if: always()
+        run: |
+          for idx in $(aws s3vectors list-indexes \
+            --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION" \
+            --query 'indexes[].indexName' --output text 2>/dev/null); do
+            aws s3vectors delete-index \
+              --vector-bucket-name "$AWS_VECTOR_BUCKET" --index-name "$idx" --region "$AWS_REGION" || true
+          done
+          aws s3vectors delete-vector-bucket \
+            --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION" || true
