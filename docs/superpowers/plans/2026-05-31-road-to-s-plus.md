@@ -1027,7 +1027,7 @@ git add .github/workflows/integration-live.yml
 git commit -m "ci: run live-AWS smoke nightly via OIDC"
 ```
 
-### Task 17: 1.0, stability, and observability docs
+### Task 17: 0.3.1 release + observability docs
 
 **Files:**
 - Modify: `package.json` (version)
@@ -1035,20 +1035,19 @@ git commit -m "ci: run live-AWS smoke nightly via OIDC"
 
 - [ ] **Step 1: Bump version**
 
-Set `"version": "1.0.0"` in `package.json`.
+Set `"version": "0.3.1"` in `package.json` (from `0.2.2`).
 
-- [ ] **Step 2: Add a CHANGELOG entry** for `1.0.0` summarizing: typed `S3VectorsError`, retry config, input validation, contract/property/package-smoke tests, scheduled live-AWS, Stryker removed. Note the only behavioral change: errors are now `S3VectorsError` (messages unchanged).
+- [ ] **Step 2: Add a CHANGELOG entry** for `0.3.1` summarizing: typed `S3VectorsError`, retry config (`maxAttempts`/`retryMode`), input validation, contract/property/package-smoke tests, scheduled live-AWS, Stryker removed. Note the one behavioral change: errors are now `S3VectorsError` (messages unchanged).
 
-- [ ] **Step 3: Add README sections**
+- [ ] **Step 3: Add README "Observability" subsection**
 
-- "Stability": 1.0 commits to semver; the public surface is `AmazonS3Vectors`, the error API, relevance fns, and exported types.
-- "Observability": the library emits no logs by design; pass a pre-configured `S3VectorsClient` (with logger/middleware) via the `client` option to instrument requests.
+The library emits no logs by design; pass a pre-configured `S3VectorsClient` (with logger/middleware) via the `client` option to instrument requests. (No 1.0/semver-stability claim — the package is pre-1.0.)
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add package.json CHANGELOG.md README.md
-git commit -m "docs: cut 1.0 with stability and observability notes"
+git commit -m "docs: release 0.3.1 with observability notes"
 ```
 
 ---

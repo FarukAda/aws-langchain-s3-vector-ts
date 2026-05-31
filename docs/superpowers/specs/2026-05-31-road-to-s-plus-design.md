@@ -65,8 +65,8 @@ S+ is reached when every advertised capability is mechanically proven, errors ar
 **T2.5 Scheduled live-AWS CI** (respects the "no `pull_request` trigger" rule)
 - Add a `schedule` (nightly cron) to the live-AWS workflow that runs `npm run test:integration` (the env-gated jest smoke — random embeddings, **no Bedrock dependency**, cheap drift detection) via the existing OIDC role, keeping `workflow_dispatch`.
 
-**T2.6 1.0 + stability + observability docs**
-- Bump to `1.0.0` with a `CHANGELOG.md` entry and a README "Stability" note (semver commitment).
+**T2.6 0.3.1 release + observability docs**
+- Bump to `0.3.1` with a `CHANGELOG.md` entry. (Pre-1.0, so no semver-stability promise — additive error API + features warrant the minor bump.)
 - README "Observability" subsection: the library adds no logging by design; inject a pre-configured `S3VectorsClient` (with middleware/logger) via the existing `client` config option for instrumentation.
 
 ## Out of scope (research-driven — building these would be wrong)
