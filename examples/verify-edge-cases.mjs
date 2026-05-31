@@ -12,6 +12,10 @@ const embeddings = createEmbeddings(region);
 const noContentIndex = `verify-edge-nc-${randomUUID().slice(0, 8)}`;
 const rawIndex = `verify-edge-raw-${randomUUID().slice(0, 8)}`;
 const dupIndex = `verify-edge-dup-${randomUUID().slice(0, 8)}`;
+const nonFilterableIndex = `verify-edge-nf-${randomUUID().slice(0, 8)}`;
+const batchIndex = `verify-edge-batch-${randomUUID().slice(0, 8)}`;
+
+const BATCH_DOC_COUNT = 250;
 
 const noContentStore = new AmazonS3Vectors(embeddings, {
   vectorBucketName: bucketName,
@@ -27,6 +31,17 @@ const rawStore = new AmazonS3Vectors(undefined, {
 const dupStore = new AmazonS3Vectors(embeddings, {
   vectorBucketName: bucketName,
   indexName: dupIndex,
+  region,
+});
+const nonFilterableStore = new AmazonS3Vectors(embeddings, {
+  vectorBucketName: bucketName,
+  indexName: nonFilterableIndex,
+  region,
+  nonFilterableMetadataKeys: ['blob'],
+});
+const batchStore = new AmazonS3Vectors(embeddings, {
+  vectorBucketName: bucketName,
+  indexName: batchIndex,
   region,
 });
 
@@ -61,10 +76,46 @@ try {
   const dupDocs = await dupStore.getByIds(['dup-1', 'dup-1']);
   dupDocs[0].metadata.tag = 'mutated';
   check('second copy unaffected by mutation', dupDocs[1].metadata.tag === 'orig');
+
+  section('nonFilterableMetadataKeys: value is stored but not filterable');
+  await nonFilterableStore.addDocuments(
+    [new Document({ pageContent: 'config doc', metadata: { topic: 'cfg', blob: 'large-context' } })],
+    { ids: ['nf-1'] },
+  );
+  const [nfDoc] = await nonFilterableStore.getByIds(['nf-1']);
+  check('non-filterable value still round-trips', nfDoc.metadata.blob === 'large-context');
+  const byFilterable = await nonFilterableStore.similaritySearch('config', 3, { topic: 'cfg' });
+  check('filter on a filterable key works', byFilterable.some((d) => d.id === 'nf-1'));
+  let nonFilterableRejected = false;
+  try {
+    await nonFilterableStore.similaritySearch('config', 3, { blob: 'large-context' });
+  } catch {
+    nonFilterableRejected = true;
+  }
+  check('filtering on a non-filterable key is rejected', nonFilterableRejected);
+
+  section(`batch boundaries: ${BATCH_DOC_COUNT} vectors cross the 200 put and 100 get defaults`);
+  const [probeVector] = await embeddings.embedDocuments(['batch boundary probe']);
+  const batchVectors = Array.from({ length: BATCH_DOC_COUNT }, () => probeVector);
+  const batchDocs = Array.from(
+    { length: BATCH_DOC_COUNT },
+    (_, i) => new Document({ pageContent: `batch item ${i}`, metadata: { n: i } }),
+  );
+  const batchIds = Array.from({ length: BATCH_DOC_COUNT }, (_, i) => `b-${i}`);
+  const storedIds = await batchStore.addVectors(batchVectors, batchDocs, { ids: batchIds });
+  check('all ids returned across put batches', storedIds.length === BATCH_DOC_COUNT);
+  const fetched = await batchStore.getByIds(batchIds);
+  check('all docs retrieved across get batches', fetched.length === BATCH_DOC_COUNT);
+  check(
+    'order preserved across get batches',
+    fetched[0].id === 'b-0' && fetched[BATCH_DOC_COUNT - 1].id === `b-${BATCH_DOC_COUNT - 1}`,
+  );
 } finally {
   await noContentStore.delete().catch(() => {});
   await rawStore.delete().catch(() => {});
   await dupStore.delete().catch(() => {});
+  await nonFilterableStore.delete().catch(() => {});
+  await batchStore.delete().catch(() => {});
 }
 
 summary();
