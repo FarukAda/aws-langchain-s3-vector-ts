@@ -19,7 +19,7 @@ Standard for every change — no exceptions without explicit user sign-off.
 - **Simplicity:** no overengineering. ESLint-enforced `max-depth ≤ 3` and cyclomatic `complexity ≤ 10`. Prefer a well-named helper over deeper nesting; don't over-decompose to chase the number.
 - **Types:** no `any` or `unknown`. Model everything with interfaces/enums. (Two `any`/`unsafe` escapes exist, both for AWS credential types and both carry a justifying `eslint-disable` comment — match that pattern, don't add new ones.)
 - **Errors:** thrown, wrapped, and surfaced one consistent way. No silent failures.
-- **Testing:** 100% coverage target; tests assert real outcomes, not coverage padding. `jest.config.cjs` thresholds currently sit at 80% — raise toward 100% as work progresses, never lower them.
+- **Testing:** 100% coverage, enforced — `jest.config.cjs` `coverageThreshold.global` is 100 on all four metrics. Tests assert real outcomes, not coverage padding. Never lower the thresholds. When a branch is genuinely unreachable, remove the dead code rather than ignore it.
 - **Dev tooling:** never disable/exclude linters or add blanket ignore rules to make checks pass.
 
 ## Commands
@@ -53,6 +53,10 @@ RUN_LIVE_INTEGRATION=1 AWS_VECTOR_BUCKET=<bucket> AWS_REGION=us-east-1 npm run t
 ```
 
 The guard in `test/integration/_guard.ts` returns `null` and the suite skips itself unless `RUN_LIVE_INTEGRATION=1` and `AWS_VECTOR_BUCKET` are both set — no false pass, no false fail.
+
+### Real-AWS verification scripts (`examples/`)
+
+Standalone scripts (`npm run verify`, or `verify:core` / `verify:search` / `verify:edge`) exercise the full public API against live S3 Vectors using **real Bedrock embeddings** (Amazon Titan Text Embeddings V2). Each imports the built `dist/`, provisions a unique `verify-*` index, prints `PASS/FAIL`, tears its index down in a `finally`, and sets a non-zero exit code on failure. They require `AWS_VECTOR_BUCKET` (+ `AWS_REGION`) and Bedrock model access. `@langchain/aws` (the Bedrock provider) is a **devDependency only** — it is never imported by `src/` and never ships in `dist`. The shared `examples/_harness.mjs` (check/expectThrow/summary) and `examples/_embeddings.mjs` (model factory) back the three scripts. These `.mjs` files are not unit-tested; they are validated by `node --check` and by running them against real AWS.
 
 ## Architecture
 
