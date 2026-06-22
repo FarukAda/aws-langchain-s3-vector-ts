@@ -19,7 +19,7 @@ jobs:
       # automatic provenance attestation.
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Use Node 24 for the publish step. Trusted Publishing requires
       # npm CLI >= 11.5.1, and all Node 22.x releases still bundle
