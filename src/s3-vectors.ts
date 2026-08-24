@@ -493,12 +493,20 @@ export class AmazonS3Vectors extends VectorStore {
     texts: string[],
     metadatas: Record<string, unknown>[] | Record<string, unknown>,
     embeddings: EmbeddingsInterface,
-    config: AmazonS3VectorsConfig & { ids?: string[] },
+    config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number },
   ): Promise<AmazonS3Vectors> {
+    if (Array.isArray(metadatas) && metadatas.length !== texts.length) {
+      throw new S3VectorsError(
+        `Number of metadatas (${metadatas.length}) must match number of texts (${texts.length})`,
+        S3VectorsErrorCode.VALIDATION,
+        { operation: 'fromTexts' },
+      );
+    }
+
     const metaArray = Array.isArray(metadatas) ? metadatas : texts.map(() => metadatas);
 
     const documents = texts.map(
-      (text, i) => new Document({ pageContent: text, metadata: metaArray[i] ?? {} }),
+      (text, i) => new Document({ pageContent: text, metadata: metaArray[i]! }),
     );
 
     return AmazonS3Vectors.fromDocuments(documents, embeddings, config);
@@ -511,10 +519,10 @@ export class AmazonS3Vectors extends VectorStore {
   static async fromDocuments(
     docs: Document[],
     embeddings: EmbeddingsInterface,
-    config: AmazonS3VectorsConfig & { ids?: string[] },
+    config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number },
   ): Promise<AmazonS3Vectors> {
     const instance = new AmazonS3Vectors(embeddings, config);
-    await instance.addDocuments(docs, { ids: config.ids });
+    await instance.addDocuments(docs, { ids: config.ids, batchSize: config.batchSize });
     return instance;
   }
 
