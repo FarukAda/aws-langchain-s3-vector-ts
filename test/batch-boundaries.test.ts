@@ -69,12 +69,20 @@ describe('AmazonS3Vectors default batch boundaries', () => {
   });
 });
 
-describe('AmazonS3Vectors rejects a non-positive batchSize', () => {
+describe('AmazonS3Vectors rejects an invalid batchSize', () => {
   it('addVectors throws for batchSize 0', async () => {
     const { client } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
     await expect(
       store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { batchSize: 0 }),
+    ).rejects.toThrow('batchSize must be a positive integer');
+  });
+
+  it('addVectors throws for a non-integer batchSize', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    await expect(
+      store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { batchSize: 1.5 }),
     ).rejects.toThrow('batchSize must be a positive integer');
   });
 
@@ -104,20 +112,37 @@ describe('AmazonS3Vectors rejects a non-positive batchSize', () => {
 });
 
 describe('AmazonS3Vectors.delete runs batches concurrently', () => {
-  it('issues all DeleteVectors batches without waiting for each in turn', async () => {
+  it('starts every DeleteVectors batch before waiting for any of them to settle', async () => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
 
-    const callOrder: string[] = [];
+    const started: string[] = [];
+    let resolveFirst: (() => void) | undefined;
+    const firstGate = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+
     mock.on(DeleteVectorsCommand).callsFake(async (input) => {
-      callOrder.push(`start:${input.keys?.[0]}`);
+      const key = input.keys?.[0];
+      started.push(`start:${key}`);
+      if (key === 'id-0') {
+        await firstGate; // deliberately blocks the first batch until released below
+      }
       return {};
     });
 
     const ids = Array.from({ length: 1001 }, (_, i) => `id-${i}`);
-    await store.delete({ ids });
+    const deletePromise = store.delete({ ids });
 
-    expect(mock.commandCalls(DeleteVectorsCommand)).toHaveLength(3);
-    expect(callOrder).toEqual(['start:id-0', 'start:id-500', 'start:id-1000']);
+    // Let the event loop tick so every dispatched batch has a chance to start.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Sequential await-in-loop code could only have started the first batch by
+    // now (it's still blocked on firstGate, so batch 2/3 would never have been
+    // dispatched). A concurrent implementation starts all three up front.
+    expect(started).toEqual(['start:id-0', 'start:id-500', 'start:id-1000']);
+
+    resolveFirst?.();
+    await deletePromise;
   });
 });
