@@ -28,7 +28,8 @@ describe('AmazonS3Vectors auto-index with nonFilterableMetadataKeys', () => {
 
     const createCalls = mock.commandCalls(CreateIndexCommand);
     expect(createCalls).toHaveLength(1);
-    const keys = createCalls[0]!.args[0].input.metadataConfiguration?.nonFilterableMetadataKeys ?? [];
+    const keys =
+      createCalls[0]!.args[0].input.metadataConfiguration?.nonFilterableMetadataKeys ?? [];
     expect(new Set(keys)).toEqual(new Set(['large_field', '_page_content']));
   });
 });
@@ -86,8 +87,8 @@ describe('AmazonS3Vectors auto-index default pageContentMetadataKey handling', (
 
     await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
 
-    expect(
-      mock.commandCalls(CreateIndexCommand)[0]!.args[0].input.metadataConfiguration,
-    ).toEqual({ nonFilterableMetadataKeys: ['_page_content'] });
+    expect(mock.commandCalls(CreateIndexCommand)[0]!.args[0].input.metadataConfiguration).toEqual({
+      nonFilterableMetadataKeys: ['_page_content'],
+    });
   });
 });
