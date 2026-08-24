@@ -162,6 +162,15 @@ const store = new AmazonS3Vectors(embeddings, {
 });
 ```
 
+Use it via `similaritySearchWithRelevanceScores`:
+
+```typescript
+const results = await store.similaritySearchWithRelevanceScores("neural networks", 5);
+for (const [doc, score] of results) {
+  console.log(`${doc.pageContent} (relevance: ${score})`);
+}
+```
+
 ### Metadata Filtering
 
 S3 Vectors supports a MongoDB-style filter syntax:

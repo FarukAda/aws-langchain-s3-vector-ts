@@ -391,6 +391,21 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
+   * Run a text-based similarity search and return documents with
+   * *relevance scores* (higher is better), converted from S3 Vectors'
+   * raw distance via {@link _selectRelevanceScoreFn}.
+   */
+  async similaritySearchWithRelevanceScores(
+    query: string,
+    k = 4,
+    filter?: this['FilterType'],
+  ): Promise<[Document, number][]> {
+    const scoreFn = this._selectRelevanceScoreFn();
+    const results = await this.similaritySearchWithScore(query, k, filter);
+    return results.map(([doc, distance]) => [doc, scoreFn(distance)]);
+  }
+
+  /**
    * Delete vectors by ID, or delete the entire index when no IDs are given.
    *
    * @param params - Optional deletion parameters

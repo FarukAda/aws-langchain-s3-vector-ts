@@ -265,6 +265,51 @@ describe('AmazonS3Vectors.asRetriever', () => {
   });
 });
 
+describe('AmazonS3Vectors.similaritySearchWithRelevanceScores', () => {
+  it('applies the selected relevance-score function to each distance', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [
+        { key: 'id-1', metadata: { _page_content: 'a' }, distance: 0 },
+        { key: 'id-2', metadata: { _page_content: 'b' }, distance: 1 },
+      ],
+    });
+
+    const results = await store.similaritySearchWithRelevanceScores('q', 2);
+    expect(results).toHaveLength(2);
+    expect(results[0]![1]).toBe(cosineRelevanceScoreFn(0));
+    expect(results[1]![1]).toBe(cosineRelevanceScoreFn(1));
+  });
+
+  it('uses a custom relevanceScoreFn when configured', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+      relevanceScoreFn: (d) => 100 - d,
+    });
+
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'id-1', metadata: { _page_content: 'a' }, distance: 3 }],
+    });
+
+    const results = await store.similaritySearchWithRelevanceScores('q', 1);
+    expect(results[0]![1]).toBe(97);
+  });
+
+  it('defaults k to 4', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+
+    await store.similaritySearchWithRelevanceScores('q');
+    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.topK).toBe(4);
+  });
+});
+
 describe('AmazonS3Vectors._selectRelevanceScoreFn', () => {
   it('returns cosine fn by default', () => {
     const { client } = createMockClient();

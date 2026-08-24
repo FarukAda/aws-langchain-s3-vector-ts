@@ -91,6 +91,8 @@ The library supports three search modes:
 
 You can also provide your own via `relevanceScoreFn` in the config.
 
+Call `similaritySearchWithRelevanceScores(query, k, filter?)` to get `[Document, score][]` tuples with the conversion already applied.
+
 ## Advanced Patterns
 
 ### Separate Query Embeddings
