@@ -352,6 +352,19 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
+   * Run a text-based similarity search and return documents (no scores).
+   *
+   * @remarks
+   * Overrides `VectorStore`'s default implementation, which embeds the
+   * query with the indexing embedding model. This override routes through
+   * {@link similaritySearchWithScore}, so a configured `queryEmbeddings`
+   * model is used for the query, matching {@link asRetriever}'s behavior.
+   */
+  async similaritySearch(query: string, k = 4, filter?: this['FilterType']): Promise<Document[]> {
+    return (await this.similaritySearchWithScore(query, k, filter)).map(([doc]) => doc);
+  }
+
+  /**
    * Return documents most similar to a raw embedding vector (no scores).
    */
   async similaritySearchByVector(

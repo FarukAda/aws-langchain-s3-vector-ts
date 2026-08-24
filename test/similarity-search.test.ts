@@ -210,6 +210,61 @@ describe('AmazonS3Vectors.similaritySearchByVector fallbacks', () => {
   });
 });
 
+describe('AmazonS3Vectors.similaritySearch', () => {
+  it('uses the dedicated query-embedding model, not the indexing model', async () => {
+    const { client, mock } = createMockClient();
+    const indexEmb = createMockEmbeddings();
+    const queryEmb = createMockEmbeddings(5);
+    const store = new AmazonS3Vectors(indexEmb, {
+      ...BASE_CONFIG,
+      client,
+      queryEmbeddings: queryEmb,
+    });
+
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'id-1', metadata: { _page_content: 'r' }, distance: 0.1 }],
+    });
+
+    const docs = await store.similaritySearch('q', 1);
+    expect(docs).toHaveLength(1);
+    expect(queryEmb.embedQuery).toHaveBeenCalledWith('q');
+    expect(indexEmb.embedQuery).not.toHaveBeenCalled();
+  });
+
+  it('defaults topK to 4', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+
+    await store.similaritySearch('q');
+    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.topK).toBe(4);
+  });
+});
+
+describe('AmazonS3Vectors.asRetriever', () => {
+  it('routes through the dedicated query-embedding model via similaritySearch', async () => {
+    const { client, mock } = createMockClient();
+    const indexEmb = createMockEmbeddings();
+    const queryEmb = createMockEmbeddings(5);
+    const store = new AmazonS3Vectors(indexEmb, {
+      ...BASE_CONFIG,
+      client,
+      queryEmbeddings: queryEmb,
+    });
+
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'id-1', metadata: { _page_content: 'r' }, distance: 0.1 }],
+    });
+
+    const retriever = store.asRetriever(2);
+    const docs = await retriever.invoke('q');
+    expect(docs).toHaveLength(1);
+    expect(queryEmb.embedQuery).toHaveBeenCalledWith('q');
+    expect(indexEmb.embedQuery).not.toHaveBeenCalled();
+  });
+});
+
 describe('AmazonS3Vectors._selectRelevanceScoreFn', () => {
   it('returns cosine fn by default', () => {
     const { client } = createMockClient();
