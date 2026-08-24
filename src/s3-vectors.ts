@@ -244,10 +244,11 @@ export class AmazonS3Vectors extends VectorStore {
       );
     }
 
+    const embeddings = this._getIndexEmbeddings();
     let offset = 0;
     for (const batchDocs of chunk(documents, batchSize)) {
       const batchTexts = batchDocs.map((d) => d.pageContent);
-      const batchVectors = await this.embeddings.embedDocuments(batchTexts);
+      const batchVectors = await embeddings.embedDocuments(batchTexts);
 
       await this._ensureIndexAndPut(
         'addDocuments',
@@ -543,6 +544,22 @@ export class AmazonS3Vectors extends VectorStore {
       );
     }
     return emb;
+  }
+
+  /** Return the indexing-embedding model, throwing a coded error if none is configured. */
+  private _getIndexEmbeddings(): EmbeddingsInterface {
+    if (isStubEmbeddings(this.embeddings)) {
+      throw new S3VectorsError(
+        'No embedding model configured for indexing. Provide `embeddings` in the config.',
+        S3VectorsErrorCode.EMBEDDINGS_MISSING,
+        {
+          operation: 'addDocuments',
+          vectorBucketName: this.vectorBucketName,
+          indexName: this.indexName,
+        },
+      );
+    }
+    return this.embeddings;
   }
 
   /** Build a {@link S3VectorsError} for a caller-input validation failure. */

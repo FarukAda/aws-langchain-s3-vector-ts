@@ -3,6 +3,8 @@ import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
+import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
+import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import { createMockClient, createMockEmbeddings } from './helpers.js';
 
 const BASE_CONFIG = {
@@ -83,5 +85,22 @@ describe('AmazonS3Vectors.addDocuments per-batch embedding', () => {
     expect(embeddings.embedDocuments).toHaveBeenCalledTimes(2);
     expect(embeddings.embedDocuments).toHaveBeenNthCalledWith(1, ['a', 'b']);
     expect(embeddings.embedDocuments).toHaveBeenNthCalledWith(2, ['c']);
+  });
+});
+
+describe('AmazonS3Vectors.addDocuments without embeddings', () => {
+  it('throws a coded S3VectorsError instead of a plain Error', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+
+    try {
+      await store.addDocuments([new Document({ pageContent: 'x' })]);
+      throw new Error('should have thrown');
+    } catch (error: unknown) {
+      expect(isS3VectorsError(error)).toBe(true);
+      expect((error as { code: S3VectorsErrorCode }).code).toBe(
+        S3VectorsErrorCode.EMBEDDINGS_MISSING,
+      );
+    }
   });
 });
