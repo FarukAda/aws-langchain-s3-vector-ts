@@ -8,7 +8,7 @@
 
 > **isS3VectorsError**(`value`): `boolean`
 
-Defined in: [shared/errors/s3-vectors-error.ts:36](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/cda64cc6c6d517c6d9bca630a227b58c5e7cb2a8/src/shared/errors/s3-vectors-error.ts#L36)
+Defined in: [shared/errors/s3-vectors-error.ts:36](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/a5f5afba658106f7077f51bead54ffbb17ca175c/src/shared/errors/s3-vectors-error.ts#L36)
 
 Type guard for [S3VectorsError](../classes/S3VectorsError.md) that avoids `instanceof`.
 
