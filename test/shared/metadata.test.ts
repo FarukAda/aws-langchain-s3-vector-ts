@@ -8,7 +8,7 @@ const PAGE_CONTENT_KEY = '_page_content';
 describe('buildPutMetadata', () => {
   it('stores pageContent under the key when key is set', () => {
     const doc = new Document({ pageContent: 'hello', metadata: { genre: 'scifi' } });
-    expect(buildPutMetadata(doc, PAGE_CONTENT_KEY)).toEqual({
+    expect(buildPutMetadata(doc, PAGE_CONTENT_KEY, 'addDocuments')).toEqual({
       genre: 'scifi',
       [PAGE_CONTENT_KEY]: 'hello',
     });
@@ -16,7 +16,17 @@ describe('buildPutMetadata', () => {
 
   it('omits pageContent when key is null', () => {
     const doc = new Document({ pageContent: 'hello', metadata: { genre: 'scifi' } });
-    expect(buildPutMetadata(doc, null)).toEqual({ genre: 'scifi' });
+    expect(buildPutMetadata(doc, null, 'addDocuments')).toEqual({ genre: 'scifi' });
+  });
+
+  it('throws when document metadata already contains the reserved page-content key', () => {
+    const doc = new Document({
+      pageContent: 'hello',
+      metadata: { [PAGE_CONTENT_KEY]: 'user value', genre: 'scifi' },
+    });
+    expect(() => buildPutMetadata(doc, PAGE_CONTENT_KEY, 'addDocuments')).toThrow(
+      `reserved key '${PAGE_CONTENT_KEY}'`,
+    );
   });
 });
 

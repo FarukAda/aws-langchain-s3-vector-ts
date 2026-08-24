@@ -4,7 +4,7 @@ import { Document } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { createMockClient } from './helpers.js';
+import { createMockClient, createMockEmbeddings } from './helpers.js';
 
 const BASE_CONFIG = {
   vectorBucketName: 'test-bucket',
@@ -26,6 +26,18 @@ describe('AmazonS3Vectors empty-batch dimension guard', () => {
 
     await expect(
       store.addDocuments([new Document({ pageContent: 'orphan' })], { ids: ['id-1'] }),
+    ).rejects.toThrow('Cannot determine vector dimension from empty batch');
+  });
+
+  it('throws when the first vector is an empty array (not just absent)', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
+    mock.on(GetIndexCommand).rejects(notFoundError);
+
+    await expect(
+      store.addVectors([[]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
     ).rejects.toThrow('Cannot determine vector dimension from empty batch');
   });
 });

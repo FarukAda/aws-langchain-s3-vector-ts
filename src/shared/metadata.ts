@@ -1,20 +1,38 @@
 import { Document } from '@langchain/core/documents';
 
 import type { S3OutputVector } from '../types.js';
+import { S3VectorsErrorCode } from './errors/error-code.js';
+import { S3VectorsError } from './errors/s3-vectors-error.js';
 
 /**
  * Build the metadata object to send alongside a PutVectors call.
  *
  * Pure function extracted from AmazonS3Vectors. Takes pageContentMetadataKey
- * explicitly to keep the helper free of class state.
+ * and the calling operation name explicitly to keep the helper free of class
+ * state while still producing correctly-labeled errors.
+ *
+ * @throws {S3VectorsError} if the document's own metadata already uses the
+ *         reserved `pageContentMetadataKey` — that key is reserved for
+ *         internal pageContent round-tripping and would otherwise be
+ *         silently overwritten.
  */
 export function buildPutMetadata(
   doc: Document,
   pageContentMetadataKey: string | null,
+  operation: string,
 ): Record<string, unknown> {
   const metadata: Record<string, unknown> = { ...doc.metadata };
 
   if (pageContentMetadataKey !== null) {
+    if (pageContentMetadataKey in metadata) {
+      throw new S3VectorsError(
+        `Document metadata already contains reserved key '${pageContentMetadataKey}' ` +
+          '(used internally to store pageContent). Rename this metadata field or configure ' +
+          'a different `pageContentMetadataKey`.',
+        S3VectorsErrorCode.VALIDATION,
+        { operation },
+      );
+    }
     metadata[pageContentMetadataKey] = doc.pageContent;
   }
 

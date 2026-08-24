@@ -17,6 +17,7 @@ import type { DocumentType as __DocumentType } from '@smithy/types';
 
 import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './relevance-scores.js';
 import { chunk } from './shared/batching.js';
+import { isAwsConflictException } from './shared/errors/aws-conflict.js';
 import { isAwsNotFoundException } from './shared/errors/aws-not-found.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
@@ -97,6 +98,7 @@ export class AmazonS3Vectors extends VectorStore {
   private readonly _relevanceScoreFn: ((distance: number) => number) | undefined;
   private readonly _queryEmbeddings: EmbeddingsInterface | undefined;
   private readonly _client: S3VectorsClient;
+  private _ensureIndexPromise: Promise<void> | null = null;
 
   // ── Constructor ───────────────────────────────────────────────────────
 
@@ -584,25 +586,14 @@ export class AmazonS3Vectors extends VectorStore {
     documents: Document[],
     ids: string[],
   ): Promise<void> {
-    // Auto-create the index on the very first batch.
     if (batchOffset === 0 && this.createIndexIfNotExist) {
-      const existing = await this._getIndex();
-      if (existing === null) {
-        const firstVector = vectors[0];
-        if (!firstVector) {
-          throw this._validationError(
-            operation,
-            'Cannot determine vector dimension from empty batch',
-          );
-        }
-        await this._createIndex(firstVector.length);
-      }
+      await this._ensureIndexExists(vectors[0], operation);
     }
 
     const putVectors = vectors.map((vec, j) => {
       const doc = documents[j]!;
       const id = ids[j]!;
-      const metadata = buildPutMetadata(doc, this.pageContentMetadataKey);
+      const metadata = buildPutMetadata(doc, this.pageContentMetadataKey, operation);
 
       return {
         key: id,
@@ -620,6 +611,45 @@ export class AmazonS3Vectors extends VectorStore {
         }),
       ),
     );
+  }
+
+  /**
+   * Ensure the configured index exists, creating it if needed. In-flight
+   * creation attempts are memoized so concurrent callers share one
+   * GetIndex/CreateIndex sequence instead of racing (same-process safety);
+   * a `ConflictException` from CreateIndex itself (another process won the
+   * race) is tolerated as success (cross-process safety). The memo is
+   * cleared once the attempt settles, so a later top-level call still
+   * re-verifies existence (e.g. after the index was deleted via `delete()`).
+   */
+  private _ensureIndexExists(firstVector: number[] | undefined, operation: string): Promise<void> {
+    if (this._ensureIndexPromise) return this._ensureIndexPromise;
+
+    this._ensureIndexPromise = (async () => {
+      try {
+        const existing = await this._getIndex();
+        if (existing !== null) return;
+
+        if (!firstVector || firstVector.length === 0) {
+          throw this._validationError(
+            operation,
+            'Cannot determine vector dimension from empty batch',
+          );
+        }
+
+        try {
+          await this._createIndex(firstVector.length);
+        } catch (error: unknown) {
+          const cause = (error as { cause?: unknown }).cause;
+          if (!isAwsConflictException(cause)) throw error;
+          // Another process created the index between our GetIndex and CreateIndex calls — fine.
+        }
+      } finally {
+        this._ensureIndexPromise = null;
+      }
+    })();
+
+    return this._ensureIndexPromise;
   }
 
   /** Check whether the configured index already exists. */
