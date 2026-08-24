@@ -68,3 +68,56 @@ describe('AmazonS3Vectors default batch boundaries', () => {
     expect(calls[1]!.args[0].input.keys).toHaveLength(1);
   });
 });
+
+describe('AmazonS3Vectors rejects a non-positive batchSize', () => {
+  it('addVectors throws for batchSize 0', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    await expect(
+      store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { batchSize: 0 }),
+    ).rejects.toThrow('batchSize must be a positive integer');
+  });
+
+  it('addDocuments throws for a negative batchSize', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    await expect(
+      store.addDocuments([new Document({ pageContent: 'x' })], { batchSize: -1 }),
+    ).rejects.toThrow('batchSize must be a positive integer');
+  });
+
+  it('delete throws for batchSize 0', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+    await expect(store.delete({ ids: ['a'], batchSize: 0 })).rejects.toThrow(
+      'batchSize must be a positive integer',
+    );
+  });
+
+  it('getByIds throws for batchSize 0', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    await expect(store.getByIds(['a'], { batchSize: 0 })).rejects.toThrow(
+      'batchSize must be a positive integer',
+    );
+  });
+});
+
+describe('AmazonS3Vectors.delete runs batches concurrently', () => {
+  it('issues all DeleteVectors batches without waiting for each in turn', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+
+    const callOrder: string[] = [];
+    mock.on(DeleteVectorsCommand).callsFake(async (input) => {
+      callOrder.push(`start:${input.keys?.[0]}`);
+      return {};
+    });
+
+    const ids = Array.from({ length: 1001 }, (_, i) => `id-${i}`);
+    await store.delete({ ids });
+
+    expect(mock.commandCalls(DeleteVectorsCommand)).toHaveLength(3);
+    expect(callOrder).toEqual(['start:id-0', 'start:id-500', 'start:id-1000']);
+  });
+});

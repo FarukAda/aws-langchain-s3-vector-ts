@@ -16,6 +16,7 @@ import { VectorStore } from '@langchain/core/vectorstores';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
 import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './relevance-scores.js';
+import { chunk } from './shared/batching.js';
 import { isAwsNotFoundException } from './shared/errors/aws-not-found.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
@@ -185,6 +186,7 @@ export class AmazonS3Vectors extends VectorStore {
     if (vectors.length === 0) return [];
 
     const batchSize = options?.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
+    this._validateBatchSize('addVectors', batchSize);
     const ids = options?.ids ?? vectors.map(() => randomUUID().replace(/-/g, ''));
 
     if (ids.length !== vectors.length) {
@@ -194,15 +196,16 @@ export class AmazonS3Vectors extends VectorStore {
       );
     }
 
-    for (let i = 0; i < vectors.length; i += batchSize) {
-      const slice = vectors.slice(i, i + batchSize);
-
+    let offset = 0;
+    for (const slice of chunk(vectors, batchSize)) {
       await this._ensureIndexAndPut(
-        i,
+        'addVectors',
+        offset,
         slice,
-        slice.map((_, j) => documents[i + j]!),
-        slice.map((_, j) => ids[i + j]!),
+        documents.slice(offset, offset + slice.length),
+        ids.slice(offset, offset + slice.length),
       );
+      offset += slice.length;
     }
 
     return ids;
@@ -229,6 +232,7 @@ export class AmazonS3Vectors extends VectorStore {
     if (documents.length === 0) return [];
 
     const batchSize = options?.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
+    this._validateBatchSize('addDocuments', batchSize);
     const ids = options?.ids ?? documents.map(() => randomUUID().replace(/-/g, ''));
 
     if (ids.length !== documents.length) {
@@ -238,17 +242,19 @@ export class AmazonS3Vectors extends VectorStore {
       );
     }
 
-    for (let i = 0; i < documents.length; i += batchSize) {
-      const batchDocs = documents.slice(i, i + batchSize);
+    let offset = 0;
+    for (const batchDocs of chunk(documents, batchSize)) {
       const batchTexts = batchDocs.map((d) => d.pageContent);
       const batchVectors = await this.embeddings.embedDocuments(batchTexts);
 
       await this._ensureIndexAndPut(
-        i,
+        'addDocuments',
+        offset,
         batchVectors,
         batchDocs,
-        batchDocs.map((_, j) => ids[i + j]!),
+        ids.slice(offset, offset + batchDocs.length),
       );
+      offset += batchDocs.length;
     }
 
     return ids;
@@ -390,17 +396,20 @@ export class AmazonS3Vectors extends VectorStore {
       );
     } else {
       const batchSize = params?.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
-      for (let i = 0; i < ids.length; i += batchSize) {
-        await this._send('DeleteVectors', () =>
-          this._client.send(
-            new DeleteVectorsCommand({
-              vectorBucketName: this.vectorBucketName,
-              indexName: this.indexName,
-              keys: ids.slice(i, i + batchSize),
-            }),
+      this._validateBatchSize('delete', batchSize);
+      await Promise.all(
+        chunk(ids, batchSize).map((batchIds) =>
+          this._send('DeleteVectors', () =>
+            this._client.send(
+              new DeleteVectorsCommand({
+                vectorBucketName: this.vectorBucketName,
+                indexName: this.indexName,
+                keys: batchIds,
+              }),
+            ),
           ),
-        );
-      }
+        ),
+      );
     }
   }
 
@@ -420,24 +429,29 @@ export class AmazonS3Vectors extends VectorStore {
    */
   async getByIds(ids: string[], options?: { batchSize?: number }): Promise<Document[]> {
     const batchSize = options?.batchSize ?? DEFAULT_GET_BATCH_SIZE;
-    const docs: Document[] = [];
+    this._validateBatchSize('getByIds', batchSize);
+    const batches = chunk(ids, batchSize);
 
-    for (let i = 0; i < ids.length; i += batchSize) {
-      const batchIds = ids.slice(i, i + batchSize);
-
-      const response = await this._send('GetVectors', () =>
-        this._client.send(
-          new GetVectorsCommand({
-            vectorBucketName: this.vectorBucketName,
-            indexName: this.indexName,
-            keys: batchIds,
-            returnData: false,
-            returnMetadata: true,
-          }),
+    const responses = await Promise.all(
+      batches.map((batchIds) =>
+        this._send('GetVectors', () =>
+          this._client.send(
+            new GetVectorsCommand({
+              vectorBucketName: this.vectorBucketName,
+              indexName: this.indexName,
+              keys: batchIds,
+              returnData: false,
+              returnMetadata: true,
+            }),
+          ),
         ),
-      );
+      ),
+    );
 
-      const outputVectors = (response.vectors ?? []) as S3OutputVector[];
+    const docs: Document[] = [];
+    for (let b = 0; b < batches.length; b++) {
+      const batchIds = batches[b]!;
+      const outputVectors = (responses[b]!.vectors ?? []) as S3OutputVector[];
       const vectorMap = new Map<string, S3OutputVector>();
       for (const v of outputVectors) {
         vectorMap.set(v.key, v);
@@ -538,6 +552,13 @@ export class AmazonS3Vectors extends VectorStore {
     });
   }
 
+  /** Reject a non-positive batchSize before it can drive an infinite loop. */
+  private _validateBatchSize(operation: string, batchSize: number): void {
+    if (!Number.isInteger(batchSize) || batchSize <= 0) {
+      throw this._validationError(operation, 'batchSize must be a positive integer');
+    }
+  }
+
   /** Run an AWS call, surfacing any failure as a coded {@link S3VectorsError}. */
   private async _send<T>(operation: string, send: () => Promise<T>): Promise<T> {
     try {
@@ -557,6 +578,7 @@ export class AmazonS3Vectors extends VectorStore {
    * @internal Shared helper extracted from `addVectors` / `addDocuments`.
    */
   private async _ensureIndexAndPut(
+    operation: string,
     batchOffset: number,
     vectors: number[][],
     documents: Document[],
@@ -569,7 +591,7 @@ export class AmazonS3Vectors extends VectorStore {
         const firstVector = vectors[0];
         if (!firstVector) {
           throw this._validationError(
-            'addDocuments',
+            operation,
             'Cannot determine vector dimension from empty batch',
           );
         }
