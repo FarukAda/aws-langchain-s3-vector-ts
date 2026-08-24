@@ -11,3 +11,4 @@ coverage/
 
 # Claude Code per-project state
 .claude/
+.superpowers/
