@@ -10,10 +10,21 @@ function isError(value: unknown): boolean {
   return Object.prototype.toString.call(value) === '[object Error]';
 }
 
+/** Stringify a value for an error message, tolerating BigInt and circular references. */
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, (_key: string, v: unknown) =>
+      typeof v === 'bigint' ? v.toString() : v,
+    );
+  } catch {
+    return String(value);
+  }
+}
+
 /** Normalize an unknown thrown value into an `Error`. */
 export function toError(value: unknown): Error {
   if (isError(value)) return value as Error;
-  return new Error(typeof value === 'string' ? value : JSON.stringify(value));
+  return new Error(typeof value === 'string' ? value : safeStringify(value));
 }
 
 /**

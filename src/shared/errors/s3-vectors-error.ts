@@ -8,7 +8,7 @@ export interface S3VectorsErrorContext {
   readonly indexName?: string;
 }
 
-const S3_VECTORS_ERROR_BRAND = Symbol('S3VectorsError');
+const S3_VECTORS_ERROR_BRAND = Symbol.for('@farukada/aws-langchain-s3-vector-ts:S3VectorsError');
 
 /**
  * The single error type surfaced by this library. Wraps validation failures,

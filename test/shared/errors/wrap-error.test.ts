@@ -19,6 +19,21 @@ describe('toError', () => {
   });
 });
 
+describe('toError safety', () => {
+  it('does not throw on a circular-reference object', () => {
+    const circular: Record<string, unknown> = { message: 'boom' };
+    circular['self'] = circular;
+    expect(() => toError(circular)).not.toThrow();
+    expect(toError(circular)).toBeInstanceOf(Error);
+  });
+
+  it('does not throw on a value containing a BigInt', () => {
+    const value = { big: 10n };
+    expect(() => toError(value)).not.toThrow();
+    expect(toError(value)).toBeInstanceOf(Error);
+  });
+});
+
 describe('wrapAwsError', () => {
   it('wraps an unknown cause into a coded S3VectorsError', () => {
     const cause = Object.assign(new Error('denied'), { name: 'AccessDeniedException' });

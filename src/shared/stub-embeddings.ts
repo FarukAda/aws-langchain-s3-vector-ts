@@ -1,7 +1,7 @@
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 
 /** Symbol used to identify StubEmbeddings without instanceof. */
-const STUB_BRAND = Symbol('StubEmbeddings');
+const STUB_BRAND = Symbol.for('@farukada/aws-langchain-s3-vector-ts:StubEmbeddings');
 
 /**
  * Minimal no-op embeddings used as a placeholder when the caller does not
