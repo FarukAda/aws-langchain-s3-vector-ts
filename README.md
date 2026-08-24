@@ -90,8 +90,8 @@ npm install @farukada/aws-langchain-s3-vector-ts @aws-sdk/client-s3vectors @lang
 
 | Package | Version |
 |---|---|
-| `@aws-sdk/client-s3vectors` | `^3.1014.0` |
-| `@langchain/core` | `^1.1.35` |
+| `@aws-sdk/client-s3vectors` | `^3.1117.0` |
+| `@langchain/core` | `^1.2.9` |
 
 ### Runtime Requirements
 
