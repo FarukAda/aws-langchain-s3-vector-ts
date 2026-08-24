@@ -699,6 +699,11 @@ export class AmazonS3Vectors extends VectorStore {
 
   /** Create the vector index with the given dimension. */
   private async _createIndex(dimension: number): Promise<void> {
+    const nonFilterableKeys =
+      this.pageContentMetadataKey === null
+        ? this.nonFilterableMetadataKeys
+        : [...new Set([...(this.nonFilterableMetadataKeys ?? []), this.pageContentMetadataKey])];
+
     await this._send('CreateIndex', () =>
       this._client.send(
         new CreateIndexCommand({
@@ -707,12 +712,8 @@ export class AmazonS3Vectors extends VectorStore {
           dataType: this.dataType,
           dimension,
           distanceMetric: this.distanceMetric,
-          ...(this.nonFilterableMetadataKeys
-            ? {
-                metadataConfiguration: {
-                  nonFilterableMetadataKeys: this.nonFilterableMetadataKeys,
-                },
-              }
+          ...(nonFilterableKeys && nonFilterableKeys.length > 0
+            ? { metadataConfiguration: { nonFilterableMetadataKeys: nonFilterableKeys } }
             : {}),
         }),
       ),
