@@ -110,9 +110,10 @@
   },
   "knip": {
     "ignore": [
-      "jest.integration.config.cjs",
-      "test/package-smoke/**",
-      "test/types/**"
+      "jest.integration.config.cjs"
+    ],
+    "ignoreDependencies": [
+      "@typescript/native"
     ]
   }
 }

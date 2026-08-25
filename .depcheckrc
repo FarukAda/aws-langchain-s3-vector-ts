@@ -5,6 +5,7 @@
     "globals",
     "typedoc-plugin-markdown",
     "jiti",
-    "aws-sdk-client-mock"
+    "aws-sdk-client-mock",
+    "@typescript/native"
   ]
 }
