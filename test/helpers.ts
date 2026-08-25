@@ -9,6 +9,7 @@ import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 import { mockClient, type AwsClientStub } from 'aws-sdk-client-mock';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
+import type { AmazonS3VectorsConfig } from '../src/types.js';
 
 /** Shared bucket/index config used across unit tests that don't need a different one. */
 export const BASE_CONFIG = {
@@ -52,16 +53,19 @@ export function createMockEmbeddings(dimension = 3): EmbeddingsInterface {
 /**
  * Create a store wired to a mocked client with default embeddings and
  * `BASE_CONFIG` — the common case for tests that don't need a custom
- * embeddings dimension or config override.
+ * embeddings dimension. Pass `configOverrides` for tests that need e.g.
+ * `pageContentMetadataKey: null` or a custom `relevanceScoreFn`.
  */
-export function createTestStore(): {
+export function createTestStore(configOverrides: Partial<AmazonS3VectorsConfig> = {}): {
   store: AmazonS3Vectors;
   client: S3VectorsClient;
   mock: AwsClientStub<S3VectorsClient>;
+  embeddings: EmbeddingsInterface;
 } {
   const { client, mock } = createMockClient();
-  const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
-  return { store, client, mock };
+  const embeddings = createMockEmbeddings();
+  const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, ...configOverrides, client });
+  return { store, client, mock, embeddings };
 }
 
 /** Configure `mock` so `GetIndexCommand` rejects as not-found. */

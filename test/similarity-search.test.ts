@@ -3,7 +3,7 @@ import { describe, it, expect } from '@jest/globals';
 
 import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from '../src/relevance-scores.js';
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import { BASE_CONFIG, createMockClient, createMockEmbeddings, createTestStore } from './helpers.js';
 
 /**
  * Assert that `callMethod` defaults its `k`/topK parameter to 4 when
@@ -47,11 +47,7 @@ function setupQueryEmbeddingsScenario() {
 
 describe('AmazonS3Vectors.similaritySearchVectorWithScore', () => {
   it('returns scored documents from QueryVectors', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-    });
+    const { store, mock } = createTestStore();
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [
@@ -80,12 +76,7 @@ describe('AmazonS3Vectors.similaritySearchVectorWithScore', () => {
 
 describe('AmazonS3Vectors.similaritySearchWithScore', () => {
   it('embeds query and returns scored results', async () => {
-    const { client, mock } = createMockClient();
-    const embeddings = createMockEmbeddings();
-    const store = new AmazonS3Vectors(embeddings, {
-      ...BASE_CONFIG,
-      client,
-    });
+    const { store, mock, embeddings } = createTestStore();
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { _page_content: 'result' }, distance: 0.2 }],
@@ -102,11 +93,7 @@ describe('AmazonS3Vectors.similaritySearchWithScore', () => {
 
 describe('AmazonS3Vectors.similaritySearchByVector', () => {
   it('returns documents without scores', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-    });
+    const { store, mock } = createTestStore();
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { _page_content: 'doc' } }],
@@ -125,11 +112,7 @@ describe('AmazonS3Vectors.similaritySearchByVector', () => {
 
 describe('AmazonS3Vectors page_content handling', () => {
   it('extracts page_content from metadata key', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-    });
+    const { store, mock } = createTestStore();
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [
@@ -144,12 +127,7 @@ describe('AmazonS3Vectors page_content handling', () => {
   });
 
   it('returns empty page_content when pageContentMetadataKey is null', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-      pageContentMetadataKey: null,
-    });
+    const { store, mock } = createTestStore({ pageContentMetadataKey: null });
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { some_field: 'value' }, distance: 0 }],
@@ -177,8 +155,7 @@ describe('AmazonS3Vectors.similaritySearchWithScore without embeddings', () => {
 
 describe('AmazonS3Vectors.similaritySearchVectorWithScore fallbacks', () => {
   it('returns an empty array when the response has no vectors field', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    const { store, mock } = createTestStore();
 
     mock.on(QueryVectorsCommand).resolves({});
 
@@ -187,8 +164,7 @@ describe('AmazonS3Vectors.similaritySearchVectorWithScore fallbacks', () => {
   });
 
   it('defaults the score to 0 when distance is absent', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    const { store, mock } = createTestStore();
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { _page_content: 'x' } }],
@@ -216,8 +192,7 @@ describe('AmazonS3Vectors.similaritySearchWithScore with queryEmbeddings', () =>
 
 describe('AmazonS3Vectors.similaritySearchByVector fallbacks', () => {
   it('defaults topK to 4 and handles a missing vectors field', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    const { store, mock } = createTestStore();
 
     mock.on(QueryVectorsCommand).resolves({});
 
@@ -240,8 +215,7 @@ describe('AmazonS3Vectors.similaritySearch', () => {
   it('defaults topK to 4', () => expectDefaultsTopKTo4((store) => store.similaritySearch('q')));
 
   it('accepts a 4th callbacks argument without error (matches the base VectorStore signature)', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    const { store, mock } = createTestStore();
 
     mock.on(QueryVectorsCommand).resolves({ vectors: [] });
 
@@ -263,8 +237,7 @@ describe('AmazonS3Vectors.asRetriever', () => {
 
 describe('AmazonS3Vectors.similaritySearchWithRelevanceScores', () => {
   it('applies the selected relevance-score function to each distance', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    const { store, mock } = createTestStore();
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [
@@ -280,12 +253,7 @@ describe('AmazonS3Vectors.similaritySearchWithRelevanceScores', () => {
   });
 
   it('uses a custom relevanceScoreFn when configured', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-      relevanceScoreFn: (d) => 100 - d,
-    });
+    const { store, mock } = createTestStore({ relevanceScoreFn: (d) => 100 - d });
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { _page_content: 'a' }, distance: 3 }],
