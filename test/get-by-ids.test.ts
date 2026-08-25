@@ -2,12 +2,7 @@ import { GetVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { createMockClient, createMockEmbeddings } from './helpers.js';
-
-const BASE_CONFIG = {
-  vectorBucketName: 'test-bucket',
-  indexName: 'test-index',
-} as const;
+import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
 
 describe('AmazonS3Vectors.getByIds', () => {
   it('retrieves documents in input order', async () => {

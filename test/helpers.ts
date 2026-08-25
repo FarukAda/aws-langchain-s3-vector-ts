@@ -3,6 +3,12 @@ import { jest } from '@jest/globals';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 import { mockClient, type AwsClientStub } from 'aws-sdk-client-mock';
 
+/** Shared bucket/index config used across unit tests that don't need a different one. */
+export const BASE_CONFIG = {
+  vectorBucketName: 'test-bucket',
+  indexName: 'test-index',
+} as const;
+
 /**
  * Create a mocked `S3VectorsClient` using aws-sdk-client-mock.
  *

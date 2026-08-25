@@ -2,9 +2,7 @@ import { GetIndexCommand, PutVectorsCommand, QueryVectorsCommand } from '@aws-sd
 import { describe, it, expect } from '@jest/globals';
 
 import { AmazonS3Vectors } from '../../src/s3-vectors.js';
-import { createMockClient, createMockEmbeddings } from '../helpers.js';
-
-const BASE_CONFIG = { vectorBucketName: 'test-bucket', indexName: 'test-index' } as const;
+import { BASE_CONFIG, createMockClient, createMockEmbeddings } from '../helpers.js';
 
 function seededStore() {
   const { client, mock } = createMockClient();

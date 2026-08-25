@@ -9,12 +9,7 @@ import { Document } from '@langchain/core/documents';
 import type { AwsClientStub } from 'aws-sdk-client-mock';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { createMockClient, createMockEmbeddings } from './helpers.js';
-
-const BASE_CONFIG = {
-  vectorBucketName: 'test-bucket',
-  indexName: 'test-index',
-} as const;
+import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
 
 describe('AmazonS3Vectors.addVectors', () => {
   let store: AmazonS3Vectors;

@@ -5,12 +5,7 @@ import { Document } from '@langchain/core/documents';
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
-import { createMockClient, createMockEmbeddings } from './helpers.js';
-
-const BASE_CONFIG = {
-  vectorBucketName: 'test-bucket',
-  indexName: 'test-index',
-} as const;
+import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
 
 describe('AmazonS3Vectors.addDocuments', () => {
   it('embeds documents and calls addVectors', async () => {

@@ -3,9 +3,7 @@ import { describe, it, expect } from '@jest/globals';
 import fc from 'fast-check';
 
 import { AmazonS3Vectors } from '../../src/s3-vectors.js';
-import { createMockClient } from '../helpers.js';
-
-const BASE_CONFIG = { vectorBucketName: 'test-bucket', indexName: 'test-index' } as const;
+import { BASE_CONFIG, createMockClient } from '../helpers.js';
 
 describe('delete batching property', () => {
   it('issues ceil(n / batchSize) DeleteVectors calls', async () => {

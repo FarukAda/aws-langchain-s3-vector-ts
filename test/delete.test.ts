@@ -2,12 +2,7 @@ import { DeleteIndexCommand, DeleteVectorsCommand } from '@aws-sdk/client-s3vect
 import { describe, it, expect } from '@jest/globals';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { createMockClient } from './helpers.js';
-
-const BASE_CONFIG = {
-  vectorBucketName: 'test-bucket',
-  indexName: 'test-index',
-} as const;
+import { BASE_CONFIG, createMockClient } from './helpers.js';
 
 describe('AmazonS3Vectors.delete', () => {
   it('deletes entire index when no IDs provided', async () => {
