@@ -11,92 +11,60 @@ import {
   mockIndexNotFound,
 } from './helpers.js';
 
-describe('AmazonS3Vectors auto-index with nonFilterableMetadataKeys', () => {
-  it('passes metadataConfiguration to CreateIndex', async () => {
+const TEN_KEYS = Array.from({ length: 10 }, (_, i) => `key_${i}`);
+
+describe('AmazonS3Vectors auto-index nonFilterableMetadataKeys behavior', () => {
+  it.each([
+    {
+      name: 'merges an explicitly configured key with the auto-added page-content key',
+      config: { nonFilterableMetadataKeys: ['large_field'] },
+      expectedKeys: ['large_field', '_page_content'],
+    },
+    {
+      name: 'adds the default page-content key when none are configured',
+      config: {},
+      expectedKeys: ['_page_content'],
+    },
+    {
+      name: 'adds nothing when pageContentMetadataKey is null and no other keys are set',
+      config: { pageContentMetadataKey: null },
+      expectedKeys: null,
+    },
+    {
+      name: 'does not duplicate the key when the caller already listed it explicitly',
+      config: { nonFilterableMetadataKeys: ['_page_content'] },
+      expectedKeys: ['_page_content'],
+    },
+    {
+      name: 'does not exceed the 10-key cap, falling back to the configured list unchanged',
+      config: { nonFilterableMetadataKeys: TEN_KEYS },
+      expectedKeys: TEN_KEYS,
+    },
+  ])('$name', async ({ config, expectedKeys }) => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), {
       ...BASE_CONFIG,
+      ...config,
       client,
-      nonFilterableMetadataKeys: ['large_field'],
     });
 
     mockIndexAutoCreated(mock);
 
-    await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
+    await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], {
+      ids: ['id-1'],
+    });
 
     const createCalls = mock.commandCalls(CreateIndexCommand);
     expect(createCalls).toHaveLength(1);
-    const keys =
-      createCalls[0]!.args[0].input.metadataConfiguration?.nonFilterableMetadataKeys ?? [];
-    expect(new Set(keys)).toEqual(new Set(['large_field', '_page_content']));
-  });
-});
+    const metadataConfiguration = createCalls[0]!.args[0].input.metadataConfiguration;
 
-describe('AmazonS3Vectors auto-index default pageContentMetadataKey handling', () => {
-  it('adds the default page-content key to nonFilterableMetadataKeys when none are configured', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
-
-    mockIndexAutoCreated(mock);
-
-    await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
-
-    const createCalls = mock.commandCalls(CreateIndexCommand);
-    expect(createCalls[0]!.args[0].input.metadataConfiguration).toEqual({
-      nonFilterableMetadataKeys: ['_page_content'],
-    });
-  });
-
-  it('does not add a metadataConfiguration when pageContentMetadataKey is null and no other keys are set', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-      pageContentMetadataKey: null,
-    });
-
-    mockIndexAutoCreated(mock);
-
-    await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
-
-    expect(
-      mock.commandCalls(CreateIndexCommand)[0]!.args[0].input.metadataConfiguration,
-    ).toBeUndefined();
-  });
-
-  it('does not duplicate the key when the caller already listed it explicitly', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-      nonFilterableMetadataKeys: ['_page_content'],
-    });
-
-    mockIndexAutoCreated(mock);
-
-    await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
-
-    expect(mock.commandCalls(CreateIndexCommand)[0]!.args[0].input.metadataConfiguration).toEqual({
-      nonFilterableMetadataKeys: ['_page_content'],
-    });
-  });
-
-  it('does not exceed the 10-key cap by falling back to the configured list', async () => {
-    const { client, mock } = createMockClient();
-    const tenKeys = Array.from({ length: 10 }, (_, i) => `key_${i}`);
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-      nonFilterableMetadataKeys: tenKeys,
-    });
-
-    mockIndexAutoCreated(mock);
-
-    await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
-
-    expect(mock.commandCalls(CreateIndexCommand)[0]!.args[0].input.metadataConfiguration).toEqual({
-      nonFilterableMetadataKeys: tenKeys,
-    });
+    if (expectedKeys === null) {
+      expect(metadataConfiguration).toBeUndefined();
+    } else {
+      expect(new Set(metadataConfiguration?.nonFilterableMetadataKeys)).toEqual(
+        new Set(expectedKeys),
+      );
+    }
   });
 });
 
