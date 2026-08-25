@@ -333,7 +333,7 @@ As of 2026-04, CDK L2 constructs for S3 Vectors are not yet available. Use `CfnR
 | `distanceMetric` | `"cosine" \| "euclidean"` | `"cosine"` | Distance metric for similarity search |
 | `createIndexIfNotExist` | `boolean` | `true` | Auto-create the index on first write |
 | `pageContentMetadataKey` | `string \| null` | `"_page_content"` | Metadata key for storing `Document.pageContent`; `null` to disable round-tripping |
-| `nonFilterableMetadataKeys` | `string[]` | — | Metadata keys excluded from query filters (reduces index size for large values) |
+| `nonFilterableMetadataKeys` | `string[]` | — | Metadata keys excluded from query filters (reduces index size for large values). When this library creates a new index, `pageContentMetadataKey` is automatically added to this list too (unless doing so would exceed S3 Vectors' 10-key cap) — see [Non-Filterable Metadata Keys](#non-filterable-metadata-keys). |
 | `queryEmbeddings` | `EmbeddingsInterface` | — | Separate embedding model for queries only |
 | `relevanceScoreFn` | `(distance: number) => number` | — | Custom distance-to-score conversion |
 | `embeddings` | `EmbeddingsInterface` | — | Alternative to the positional `embeddings` argument |
@@ -380,6 +380,8 @@ const store = new AmazonS3Vectors(embeddings, {
 });
 ```
 
+By default, the configured `pageContentMetadataKey` (`_page_content` unless changed) is automatically included in this list when this library creates the index — document text is exactly the kind of large value this feature exists for, and filterable metadata is capped at 2 KB per vector versus 40 KB total. Pass your own `nonFilterableMetadataKeys` alongside it as shown above; the two lists are merged (deduplicated), not replaced.
+
 This configuration applies at index-creation time — it cannot be changed after the index exists.
 
 ### Disabling Page-Content Round-Tripping
@@ -393,6 +395,8 @@ const store = new AmazonS3Vectors(embeddings, {
   pageContentMetadataKey: null, // documents come back with empty pageContent
 });
 ```
+
+If a document's own metadata already uses the reserved `pageContentMetadataKey` name, `addDocuments`/`addVectors` throws a `VALIDATION`-coded `S3VectorsError` rather than silently overwriting that field — rename the field or configure a different `pageContentMetadataKey`.
 
 ### Deep-Copy Metadata on Duplicate-ID Fetches
 

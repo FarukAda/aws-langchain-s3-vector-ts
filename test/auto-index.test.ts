@@ -91,4 +91,46 @@ describe('AmazonS3Vectors auto-index default pageContentMetadataKey handling', (
       nonFilterableMetadataKeys: ['_page_content'],
     });
   });
+
+  it('does not exceed the 10-key cap by falling back to the configured list', async () => {
+    const { client, mock } = createMockClient();
+    const tenKeys = Array.from({ length: 10 }, (_, i) => `key_${i}`);
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+      nonFilterableMetadataKeys: tenKeys,
+    });
+
+    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
+    mock.on(GetIndexCommand).rejects(notFoundError);
+    mock.on(CreateIndexCommand).resolves({});
+    mock.on(PutVectorsCommand).resolves({});
+
+    await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
+
+    expect(mock.commandCalls(CreateIndexCommand)[0]!.args[0].input.metadataConfiguration).toEqual({
+      nonFilterableMetadataKeys: tenKeys,
+    });
+  });
+});
+
+describe('AmazonS3Vectors metadata collision is checked before index creation', () => {
+  it('does not call CreateIndex when the first batch has a colliding metadata key', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
+    mock.on(GetIndexCommand).rejects(notFoundError);
+    mock.on(CreateIndexCommand).resolves({});
+
+    await expect(
+      store.addVectors(
+        [[1, 2]],
+        [new Document({ pageContent: 'x', metadata: { _page_content: 'collides' } })],
+        { ids: ['id-1'] },
+      ),
+    ).rejects.toThrow(/reserved key/);
+
+    expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
+  });
 });

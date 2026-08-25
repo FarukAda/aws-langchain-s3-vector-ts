@@ -114,15 +114,21 @@ if (!env) {
         region: safeEnv.region,
       });
 
-      await expect(
-        store.addVectors([[]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
-      ).rejects.toThrow('Cannot determine vector dimension from empty batch');
+      try {
+        await expect(
+          store.addVectors([[]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
+        ).rejects.toThrow('Cannot determine vector dimension from empty batch');
 
-      const exists = await rawClient
-        .send(new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }))
-        .then(() => true)
-        .catch(() => false);
-      expect(exists).toBe(false);
+        const exists = await rawClient
+          .send(new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }))
+          .then(() => true)
+          .catch(() => false);
+        expect(exists).toBe(false);
+      } finally {
+        // Defensive: if a future regression of the guard above ever lets an
+        // index get created here, don't leak it.
+        await store.delete().catch(() => undefined);
+      }
     }, 60_000);
 
     it('batchSize 0 throws immediately instead of hanging', async () => {

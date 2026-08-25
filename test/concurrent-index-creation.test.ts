@@ -59,6 +59,6 @@ describe('AmazonS3Vectors concurrent index creation', () => {
 
     await expect(
       store.addDocuments([new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
-    ).rejects.toThrow();
+    ).rejects.toThrow('denied');
   });
 });

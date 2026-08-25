@@ -10,6 +10,7 @@ import {
   GetVectorsCommand,
   QueryVectorsCommand,
 } from '@aws-sdk/client-s3vectors';
+import type { Callbacks } from '@langchain/core/callbacks/manager';
 import { Document } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 import { VectorStore } from '@langchain/core/vectorstores';
@@ -37,6 +38,8 @@ import type {
 const DEFAULT_PUT_BATCH_SIZE = 200;
 const DEFAULT_DELETE_BATCH_SIZE = 500;
 const DEFAULT_GET_BATCH_SIZE = 100;
+/** Max number of batch AWS calls (DeleteVectors/GetVectors) in flight at once. */
+const MAX_CONCURRENT_BATCH_CALLS = 10;
 
 /** Default metadata key to store page_content in. */
 const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
@@ -358,9 +361,14 @@ export class AmazonS3Vectors extends VectorStore {
    * Overrides `VectorStore`'s default implementation, which embeds the
    * query with the indexing embedding model. This override routes through
    * {@link similaritySearchWithScore}, so a configured `queryEmbeddings`
-   * model is used for the query, matching {@link asRetriever}'s behavior.
+   * model is used for the query, matching `asRetriever()`'s behavior.
    */
-  async similaritySearch(query: string, k = 4, filter?: this['FilterType']): Promise<Document[]> {
+  async similaritySearch(
+    query: string,
+    k = 4,
+    filter?: this['FilterType'],
+    _callbacks?: Callbacks,
+  ): Promise<Document[]> {
     return (await this.similaritySearchWithScore(query, k, filter)).map(([doc]) => doc);
   }
 
@@ -428,19 +436,21 @@ export class AmazonS3Vectors extends VectorStore {
     } else {
       const batchSize = params?.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
       this._validateBatchSize('delete', batchSize);
-      await Promise.all(
-        chunk(ids, batchSize).map((batchIds) =>
-          this._send('DeleteVectors', () =>
-            this._client.send(
-              new DeleteVectorsCommand({
-                vectorBucketName: this.vectorBucketName,
-                indexName: this.indexName,
-                keys: batchIds,
-              }),
+      for (const group of chunk(chunk(ids, batchSize), MAX_CONCURRENT_BATCH_CALLS)) {
+        await Promise.all(
+          group.map((batchIds) =>
+            this._send('DeleteVectors', () =>
+              this._client.send(
+                new DeleteVectorsCommand({
+                  vectorBucketName: this.vectorBucketName,
+                  indexName: this.indexName,
+                  keys: batchIds,
+                }),
+              ),
             ),
           ),
-        ),
-      );
+        );
+      }
     }
   }
 
@@ -463,50 +473,56 @@ export class AmazonS3Vectors extends VectorStore {
     this._validateBatchSize('getByIds', batchSize);
     const batches = chunk(ids, batchSize);
 
-    const responses = await Promise.all(
-      batches.map((batchIds) =>
-        this._send('GetVectors', () =>
-          this._client.send(
-            new GetVectorsCommand({
-              vectorBucketName: this.vectorBucketName,
-              indexName: this.indexName,
-              keys: batchIds,
-              returnData: false,
-              returnMetadata: true,
-            }),
+    // Bound the number of in-flight GetVectors calls: process batches in
+    // groups, running each group concurrently but awaiting it before
+    // starting the next. Order is preserved — groups run in sequence, and
+    // within a group `Promise.all` resolves in the same order as `.map`.
+    const docs: Document[] = [];
+    for (const group of chunk(batches, MAX_CONCURRENT_BATCH_CALLS)) {
+      const groupResponses = await Promise.all(
+        group.map((batchIds) =>
+          this._send('GetVectors', () =>
+            this._client.send(
+              new GetVectorsCommand({
+                vectorBucketName: this.vectorBucketName,
+                indexName: this.indexName,
+                keys: batchIds,
+                returnData: false,
+                returnMetadata: true,
+              }),
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    const docs: Document[] = [];
-    for (let b = 0; b < batches.length; b++) {
-      const batchIds = batches[b]!;
-      const outputVectors = (responses[b]!.vectors ?? []) as S3OutputVector[];
-      const vectorMap = new Map<string, S3OutputVector>();
-      for (const v of outputVectors) {
-        vectorMap.set(v.key, v);
-      }
-
-      // When duplicate IDs are present, deep-copy metadata to prevent
-      // shared-reference mutations (matches Python behaviour).
-      const hasDuplicateIds = vectorMap.size < batchIds.length;
-
-      // Preserve input order and verify all IDs were found.
-      for (const id of batchIds) {
-        const v = vectorMap.get(id);
-        if (!v) {
-          throw new S3VectorsError(
-            `Id '${id}' not found in vector store.`,
-            S3VectorsErrorCode.NOT_FOUND,
-            {
-              operation: 'getByIds',
-              vectorBucketName: this.vectorBucketName,
-              indexName: this.indexName,
-            },
-          );
+      for (let i = 0; i < group.length; i++) {
+        const batchIds = group[i]!;
+        const outputVectors = (groupResponses[i]!.vectors ?? []) as S3OutputVector[];
+        const vectorMap = new Map<string, S3OutputVector>();
+        for (const v of outputVectors) {
+          vectorMap.set(v.key, v);
         }
-        docs.push(createDocument(v, this.pageContentMetadataKey, hasDuplicateIds));
+
+        // When duplicate IDs are present, deep-copy metadata to prevent
+        // shared-reference mutations (matches Python behaviour).
+        const hasDuplicateIds = vectorMap.size < batchIds.length;
+
+        // Preserve input order and verify all IDs were found.
+        for (const id of batchIds) {
+          const v = vectorMap.get(id);
+          if (!v) {
+            throw new S3VectorsError(
+              `Id '${id}' not found in vector store.`,
+              S3VectorsErrorCode.NOT_FOUND,
+              {
+                operation: 'getByIds',
+                vectorBucketName: this.vectorBucketName,
+                indexName: this.indexName,
+              },
+            );
+          }
+          docs.push(createDocument(v, this.pageContentMetadataKey, hasDuplicateIds));
+        }
       }
     }
 
@@ -639,10 +655,9 @@ export class AmazonS3Vectors extends VectorStore {
     documents: Document[],
     ids: string[],
   ): Promise<void> {
-    if (batchOffset === 0 && this.createIndexIfNotExist) {
-      await this._ensureIndexExists(vectors[0], operation);
-    }
-
+    // Validate metadata (and build the PutVectors payload) BEFORE ever touching
+    // AWS — a collision must not leave a freshly-created, now-permanently-
+    // misconfigured index behind.
     const putVectors = vectors.map((vec, j) => {
       const doc = documents[j]!;
       const id = ids[j]!;
@@ -654,6 +669,10 @@ export class AmazonS3Vectors extends VectorStore {
         metadata: metadata as __DocumentType,
       };
     });
+
+    if (batchOffset === 0 && this.createIndexIfNotExist) {
+      await this._ensureIndexExists(vectors[0], operation);
+    }
 
     await this._send('PutVectors', () =>
       this._client.send(
@@ -727,10 +746,17 @@ export class AmazonS3Vectors extends VectorStore {
 
   /** Create the vector index with the given dimension. */
   private async _createIndex(dimension: number): Promise<void> {
-    const nonFilterableKeys =
+    const MAX_NON_FILTERABLE_KEYS = 10;
+    const withPageContentKey =
       this.pageContentMetadataKey === null
         ? this.nonFilterableMetadataKeys
         : [...new Set([...(this.nonFilterableMetadataKeys ?? []), this.pageContentMetadataKey])];
+    // Don't silently push an existing, working config over AWS's 10-key cap —
+    // fall back to the user's own list unchanged if auto-adding would exceed it.
+    const nonFilterableKeys =
+      withPageContentKey && withPageContentKey.length > MAX_NON_FILTERABLE_KEYS
+        ? this.nonFilterableMetadataKeys
+        : withPageContentKey;
 
     await this._send('CreateIndex', () =>
       this._client.send(

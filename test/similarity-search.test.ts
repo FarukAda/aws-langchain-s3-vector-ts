@@ -240,6 +240,15 @@ describe('AmazonS3Vectors.similaritySearch', () => {
     await store.similaritySearch('q');
     expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.topK).toBe(4);
   });
+
+  it('accepts a 4th callbacks argument without error (matches the base VectorStore signature)', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+
+    await expect(store.similaritySearch('q', 4, undefined, undefined)).resolves.toEqual([]);
+  });
 });
 
 describe('AmazonS3Vectors.asRetriever', () => {

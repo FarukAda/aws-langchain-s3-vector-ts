@@ -8,7 +8,7 @@
 
 > **cosineRelevanceScoreFn**(`distance`): `number`
 
-Defined in: [relevance-scores.ts:15](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/a5f5afba658106f7077f51bead54ffbb17ca175c/src/relevance-scores.ts#L15)
+Defined in: [relevance-scores.ts:15](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4d3f2a0a25b86c939212d8121d2ebf97a7a91fe5/src/relevance-scores.ts#L15)
 
 Convert a **cosine distance** (range [0, 2]) to a relevance score [−1, 1].
 

@@ -146,3 +146,28 @@ describe('AmazonS3Vectors.delete runs batches concurrently', () => {
     await deletePromise;
   });
 });
+
+describe('AmazonS3Vectors.delete bounds concurrent batch calls', () => {
+  it('never has more than 10 DeleteVectors calls in flight at once', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mock.on(DeleteVectorsCommand).callsFake(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      inFlight -= 1;
+      return {};
+    });
+
+    // 25 batches of 1 id each (batchSize 1) — well over the concurrency cap.
+    const ids = Array.from({ length: 25 }, (_, i) => `id-${i}`);
+    await store.delete({ ids, batchSize: 1 });
+
+    expect(mock.commandCalls(DeleteVectorsCommand)).toHaveLength(25);
+    expect(maxInFlight).toBeLessThanOrEqual(10);
+    expect(maxInFlight).toBeGreaterThan(1); // still genuinely concurrent, not accidentally serialized
+  });
+});
