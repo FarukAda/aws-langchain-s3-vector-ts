@@ -5,6 +5,46 @@ import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from '../src/releva
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
 
+/**
+ * Assert that `callMethod` defaults its `k`/topK parameter to 4 when
+ * omitted. Shared across every search method, since they all delegate to
+ * the same `QueryVectorsCommand` default.
+ */
+async function expectDefaultsTopKTo4(
+  callMethod: (store: AmazonS3Vectors) => Promise<unknown>,
+): Promise<void> {
+  const { client, mock } = createMockClient();
+  const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+  mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+
+  await callMethod(store);
+  expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.topK).toBe(4);
+}
+
+/**
+ * Set up a store with separate indexing/query embedding models and a
+ * single-vector QueryVectorsCommand response — the shared scenario used to
+ * prove `queryEmbeddings` routing across `similaritySearchWithScore`,
+ * `similaritySearch`, and `asRetriever`.
+ */
+function setupQueryEmbeddingsScenario() {
+  const { client, mock } = createMockClient();
+  const indexEmb = createMockEmbeddings();
+  const queryEmb = createMockEmbeddings(5);
+  const store = new AmazonS3Vectors(indexEmb, {
+    ...BASE_CONFIG,
+    client,
+    queryEmbeddings: queryEmb,
+  });
+
+  mock.on(QueryVectorsCommand).resolves({
+    vectors: [{ key: 'id-1', metadata: { _page_content: 'r' }, distance: 0.1 }],
+  });
+
+  return { store, indexEmb, queryEmb };
+}
+
 describe('AmazonS3Vectors.similaritySearchVectorWithScore', () => {
   it('returns scored documents from QueryVectors', async () => {
     const { client, mock } = createMockClient();
@@ -160,31 +200,13 @@ describe('AmazonS3Vectors.similaritySearchVectorWithScore fallbacks', () => {
 });
 
 describe('AmazonS3Vectors.similaritySearchWithScore default k', () => {
-  it('defaults topK to 4', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
-
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
-
-    await store.similaritySearchWithScore('q');
-    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.topK).toBe(4);
-  });
+  it('defaults topK to 4', () =>
+    expectDefaultsTopKTo4((store) => store.similaritySearchWithScore('q')));
 });
 
 describe('AmazonS3Vectors.similaritySearchWithScore with queryEmbeddings', () => {
   it('uses the dedicated query-embedding model', async () => {
-    const { client, mock } = createMockClient();
-    const indexEmb = createMockEmbeddings();
-    const queryEmb = createMockEmbeddings(5);
-    const store = new AmazonS3Vectors(indexEmb, {
-      ...BASE_CONFIG,
-      client,
-      queryEmbeddings: queryEmb,
-    });
-
-    mock.on(QueryVectorsCommand).resolves({
-      vectors: [{ key: 'id-1', metadata: { _page_content: 'r' }, distance: 0.1 }],
-    });
+    const { store, indexEmb, queryEmb } = setupQueryEmbeddingsScenario();
 
     await store.similaritySearchWithScore('q', 1);
     expect(queryEmb.embedQuery).toHaveBeenCalledWith('q');
@@ -207,18 +229,7 @@ describe('AmazonS3Vectors.similaritySearchByVector fallbacks', () => {
 
 describe('AmazonS3Vectors.similaritySearch', () => {
   it('uses the dedicated query-embedding model, not the indexing model', async () => {
-    const { client, mock } = createMockClient();
-    const indexEmb = createMockEmbeddings();
-    const queryEmb = createMockEmbeddings(5);
-    const store = new AmazonS3Vectors(indexEmb, {
-      ...BASE_CONFIG,
-      client,
-      queryEmbeddings: queryEmb,
-    });
-
-    mock.on(QueryVectorsCommand).resolves({
-      vectors: [{ key: 'id-1', metadata: { _page_content: 'r' }, distance: 0.1 }],
-    });
+    const { store, indexEmb, queryEmb } = setupQueryEmbeddingsScenario();
 
     const docs = await store.similaritySearch('q', 1);
     expect(docs).toHaveLength(1);
@@ -226,15 +237,7 @@ describe('AmazonS3Vectors.similaritySearch', () => {
     expect(indexEmb.embedQuery).not.toHaveBeenCalled();
   });
 
-  it('defaults topK to 4', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
-
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
-
-    await store.similaritySearch('q');
-    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.topK).toBe(4);
-  });
+  it('defaults topK to 4', () => expectDefaultsTopKTo4((store) => store.similaritySearch('q')));
 
   it('accepts a 4th callbacks argument without error (matches the base VectorStore signature)', async () => {
     const { client, mock } = createMockClient();
@@ -248,18 +251,7 @@ describe('AmazonS3Vectors.similaritySearch', () => {
 
 describe('AmazonS3Vectors.asRetriever', () => {
   it('routes through the dedicated query-embedding model via similaritySearch', async () => {
-    const { client, mock } = createMockClient();
-    const indexEmb = createMockEmbeddings();
-    const queryEmb = createMockEmbeddings(5);
-    const store = new AmazonS3Vectors(indexEmb, {
-      ...BASE_CONFIG,
-      client,
-      queryEmbeddings: queryEmb,
-    });
-
-    mock.on(QueryVectorsCommand).resolves({
-      vectors: [{ key: 'id-1', metadata: { _page_content: 'r' }, distance: 0.1 }],
-    });
+    const { store, indexEmb, queryEmb } = setupQueryEmbeddingsScenario();
 
     const retriever = store.asRetriever(2);
     const docs = await retriever.invoke('q');
@@ -303,15 +295,8 @@ describe('AmazonS3Vectors.similaritySearchWithRelevanceScores', () => {
     expect(results[0]![1]).toBe(97);
   });
 
-  it('defaults k to 4', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
-
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
-
-    await store.similaritySearchWithRelevanceScores('q');
-    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.topK).toBe(4);
-  });
+  it('defaults k to 4', () =>
+    expectDefaultsTopKTo4((store) => store.similaritySearchWithRelevanceScores('q')));
 });
 
 describe('AmazonS3Vectors._selectRelevanceScoreFn', () => {
