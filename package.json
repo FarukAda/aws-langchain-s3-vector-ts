@@ -1,6 +1,6 @@
 {
   "name": "@farukada/aws-langchain-s3-vector-ts",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "license": "MIT",
   "description": "LangChain-compatible Amazon S3 Vectors store for TypeScript",
   "type": "module",
