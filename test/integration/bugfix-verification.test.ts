@@ -143,5 +143,58 @@ if (!env) {
         store.addDocuments([new Document({ pageContent: 'x' })], { batchSize: 0 }),
       ).rejects.toThrow('batchSize must be a positive integer');
     }, 10_000);
+
+    it('does not exceed the 10-key non-filterable cap when the user already configured 10 keys', async () => {
+      const indexName = `bf-tenkeys-${randomUUID().slice(0, 8)}`;
+      const tenKeys = Array.from({ length: 10 }, (_, i) => `key_${i}`);
+      const store = new AmazonS3Vectors(randomEmbeddings(), {
+        vectorBucketName: safeEnv.bucketName,
+        indexName,
+        region: safeEnv.region,
+        nonFilterableMetadataKeys: tenKeys,
+      });
+
+      try {
+        await store.addDocuments([new Document({ pageContent: 'x', metadata: {} })], {
+          ids: ['id-1'],
+        });
+
+        const index = await rawClient.send(
+          new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }),
+        );
+        const keys = index.index?.metadataConfiguration?.nonFilterableMetadataKeys ?? [];
+        expect(new Set(keys)).toEqual(new Set(tenKeys));
+        expect(keys).not.toContain('_page_content');
+      } finally {
+        await store.delete().catch(() => undefined);
+      }
+    }, 60_000);
+
+    it('a colliding metadata key is rejected before the index is created', async () => {
+      const indexName = `bf-collision-${randomUUID().slice(0, 8)}`;
+      const store = new AmazonS3Vectors(randomEmbeddings(), {
+        vectorBucketName: safeEnv.bucketName,
+        indexName,
+        region: safeEnv.region,
+      });
+
+      try {
+        await expect(
+          store.addVectors(
+            [[1, 2, 3, 4]],
+            [new Document({ pageContent: 'x', metadata: { _page_content: 'collides' } })],
+            { ids: ['id-1'] },
+          ),
+        ).rejects.toThrow(/reserved key/);
+
+        const exists = await rawClient
+          .send(new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }))
+          .then(() => true)
+          .catch(() => false);
+        expect(exists).toBe(false);
+      } finally {
+        await store.delete().catch(() => undefined);
+      }
+    }, 60_000);
   });
 }
