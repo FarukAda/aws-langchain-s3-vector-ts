@@ -47,14 +47,19 @@ export function createMockEmbeddings(dimension = 3): EmbeddingsInterface {
   } as unknown as EmbeddingsInterface;
 }
 
+/** Configure `mock` so `GetIndexCommand` rejects as not-found. */
+export function mockIndexNotFound(mock: AwsClientStub<S3VectorsClient>): void {
+  const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
+  mock.on(GetIndexCommand).rejects(notFoundError);
+}
+
 /**
  * Configure `mock` for the common "index doesn't exist yet" scenario:
  * `GetIndexCommand` rejects as not-found, and both `CreateIndexCommand` and
  * `PutVectorsCommand` resolve — i.e. the index gets auto-created on write.
  */
 export function mockIndexAutoCreated(mock: AwsClientStub<S3VectorsClient>): void {
-  const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
-  mock.on(GetIndexCommand).rejects(notFoundError);
+  mockIndexNotFound(mock);
   mock.on(CreateIndexCommand).resolves({});
   mock.on(PutVectorsCommand).resolves({});
 }

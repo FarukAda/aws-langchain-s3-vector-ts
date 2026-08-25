@@ -1,16 +1,19 @@
-import { GetIndexCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect, jest } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  mockIndexNotFound,
+} from './helpers.js';
 
 describe('AmazonS3Vectors empty-batch dimension guard', () => {
   it('throws when embeddings yield no vectors for a non-empty batch', async () => {
     const { client, mock } = createMockClient();
-    const notFound = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
-    mock.on(GetIndexCommand).rejects(notFound);
+    mockIndexNotFound(mock);
 
     const emptyEmbeddings: EmbeddingsInterface = {
       embedDocuments: jest.fn(async () => []),
@@ -28,8 +31,7 @@ describe('AmazonS3Vectors empty-batch dimension guard', () => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 
-    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
-    mock.on(GetIndexCommand).rejects(notFoundError);
+    mockIndexNotFound(mock);
 
     await expect(
       store.addVectors([[]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] }),

@@ -3,7 +3,12 @@ import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  mockIndexNotFound,
+} from './helpers.js';
 
 describe('AmazonS3Vectors concurrent index creation', () => {
   it('only calls CreateIndex once when two addDocuments calls race on a new index', async () => {
@@ -32,9 +37,8 @@ describe('AmazonS3Vectors concurrent index creation', () => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 
-    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
+    mockIndexNotFound(mock);
     const conflictError = Object.assign(new Error('already exists'), { name: 'ConflictException' });
-    mock.on(GetIndexCommand).rejects(notFoundError);
     mock.on(CreateIndexCommand).rejects(conflictError);
     mock.on(PutVectorsCommand).resolves({});
 
@@ -47,9 +51,8 @@ describe('AmazonS3Vectors concurrent index creation', () => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 
-    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
+    mockIndexNotFound(mock);
     const deniedError = Object.assign(new Error('denied'), { name: 'AccessDeniedException' });
-    mock.on(GetIndexCommand).rejects(notFoundError);
     mock.on(CreateIndexCommand).rejects(deniedError);
 
     await expect(

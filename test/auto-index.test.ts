@@ -1,4 +1,4 @@
-import { CreateIndexCommand, GetIndexCommand } from '@aws-sdk/client-s3vectors';
+import { CreateIndexCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
@@ -8,6 +8,7 @@ import {
   createMockClient,
   createMockEmbeddings,
   mockIndexAutoCreated,
+  mockIndexNotFound,
 } from './helpers.js';
 
 describe('AmazonS3Vectors auto-index with nonFilterableMetadataKeys', () => {
@@ -104,8 +105,7 @@ describe('AmazonS3Vectors metadata collision is checked before index creation', 
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 
-    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
-    mock.on(GetIndexCommand).rejects(notFoundError);
+    mockIndexNotFound(mock);
     mock.on(CreateIndexCommand).resolves({});
 
     await expect(
