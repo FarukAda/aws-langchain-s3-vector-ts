@@ -4,23 +4,11 @@ import { Document } from '@langchain/core/documents';
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
-import {
-  BASE_CONFIG,
-  createMockClient,
-  createMockEmbeddings,
-  mockExistingIndex,
-} from './helpers.js';
+import { BASE_CONFIG, createMockClient, createTestStore, mockExistingIndex } from './helpers.js';
 
 describe('AmazonS3Vectors.addDocuments', () => {
   it('embeds documents and calls addVectors', async () => {
-    const { client, mock } = createMockClient();
-    const embeddings = createMockEmbeddings(3);
-
-    const store = new AmazonS3Vectors(embeddings, {
-      ...BASE_CONFIG,
-      client,
-    });
-
+    const { store, mock, embeddings } = createTestStore();
     mockExistingIndex(mock);
 
     const docs = [new Document({ pageContent: 'hello' })];
@@ -33,22 +21,14 @@ describe('AmazonS3Vectors.addDocuments', () => {
 
 describe('AmazonS3Vectors.addDocuments input validation', () => {
   it('returns empty array for empty input', async () => {
-    const { client } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-    });
+    const { store } = createTestStore();
 
     const ids = await store.addDocuments([]);
     expect(ids).toEqual([]);
   });
 
   it('throws when ids count mismatches documents count', async () => {
-    const { client } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-    });
+    const { store } = createTestStore();
 
     await expect(
       store.addDocuments([new Document({ pageContent: 'a' }), new Document({ pageContent: 'b' })], {
@@ -60,14 +40,7 @@ describe('AmazonS3Vectors.addDocuments input validation', () => {
 
 describe('AmazonS3Vectors.addDocuments per-batch embedding', () => {
   it('embeds documents per batch instead of all at once', async () => {
-    const { client, mock } = createMockClient();
-    const embeddings = createMockEmbeddings(3);
-
-    const store = new AmazonS3Vectors(embeddings, {
-      ...BASE_CONFIG,
-      client,
-    });
-
+    const { store, mock, embeddings } = createTestStore();
     mockExistingIndex(mock);
 
     const docs = [
