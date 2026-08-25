@@ -8,6 +8,8 @@ import { jest } from '@jest/globals';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 import { mockClient, type AwsClientStub } from 'aws-sdk-client-mock';
 
+import { AmazonS3Vectors } from '../src/s3-vectors.js';
+
 /** Shared bucket/index config used across unit tests that don't need a different one. */
 export const BASE_CONFIG = {
   vectorBucketName: 'test-bucket',
@@ -45,6 +47,21 @@ export function createMockEmbeddings(dimension = 3): EmbeddingsInterface {
     ),
     embedQuery: jest.fn(async () => Array.from({ length: dimension }, (_, d) => 99 + d * 0.1)),
   } as unknown as EmbeddingsInterface;
+}
+
+/**
+ * Create a store wired to a mocked client with default embeddings and
+ * `BASE_CONFIG` — the common case for tests that don't need a custom
+ * embeddings dimension or config override.
+ */
+export function createTestStore(): {
+  store: AmazonS3Vectors;
+  client: S3VectorsClient;
+  mock: AwsClientStub<S3VectorsClient>;
+} {
+  const { client, mock } = createMockClient();
+  const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+  return { store, client, mock };
 }
 
 /** Configure `mock` so `GetIndexCommand` rejects as not-found. */

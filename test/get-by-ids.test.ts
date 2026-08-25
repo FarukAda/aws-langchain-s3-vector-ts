@@ -1,16 +1,11 @@
 import { GetVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
-import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import { createTestStore } from './helpers.js';
 
 describe('AmazonS3Vectors.getByIds', () => {
   it('retrieves documents in input order', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-    });
+    const { store, mock } = createTestStore();
 
     mock.on(GetVectorsCommand).resolves({
       vectors: [
@@ -29,11 +24,7 @@ describe('AmazonS3Vectors.getByIds', () => {
   });
 
   it('throws when an ID is not found', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-    });
+    const { store, mock } = createTestStore();
 
     mock.on(GetVectorsCommand).resolves({ vectors: [] });
 
@@ -45,11 +36,7 @@ describe('AmazonS3Vectors.getByIds', () => {
 
 describe('AmazonS3Vectors.getByIds with duplicate IDs', () => {
   it('returns independent metadata for duplicate IDs', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-    });
+    const { store, mock } = createTestStore();
 
     mock.on(GetVectorsCommand).resolves({
       vectors: [
@@ -77,11 +64,7 @@ describe('AmazonS3Vectors.getByIds with duplicate IDs', () => {
 
 describe('AmazonS3Vectors.getByIds batching and fallbacks', () => {
   it('honours an explicit batch size', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-    });
+    const { store, mock } = createTestStore();
 
     mock.on(GetVectorsCommand).resolves({
       vectors: [
@@ -97,11 +80,7 @@ describe('AmazonS3Vectors.getByIds batching and fallbacks', () => {
   });
 
   it('throws not found when the response has no vectors field', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-    });
+    const { store, mock } = createTestStore();
 
     mock.on(GetVectorsCommand).resolves({});
 

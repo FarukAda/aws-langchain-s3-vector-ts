@@ -68,19 +68,14 @@ describe('AmazonS3Vectors default batch boundaries', () => {
 });
 
 describe('AmazonS3Vectors rejects an invalid batchSize', () => {
-  it('addVectors throws for batchSize 0', async () => {
+  it.each([
+    ['batchSize 0', 0],
+    ['a non-integer batchSize', 1.5],
+  ])('addVectors throws for %s', async (_label, batchSize) => {
     const { client } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
     await expect(
-      store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { batchSize: 0 }),
-    ).rejects.toThrow('batchSize must be a positive integer');
-  });
-
-  it('addVectors throws for a non-integer batchSize', async () => {
-    const { client } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
-    await expect(
-      store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { batchSize: 1.5 }),
+      store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { batchSize }),
     ).rejects.toThrow('batchSize must be a positive integer');
   });
 
