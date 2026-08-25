@@ -1,11 +1,15 @@
-import { GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  mockExistingIndex,
+} from './helpers.js';
 
 describe('AmazonS3Vectors.addDocuments', () => {
   it('embeds documents and calls addVectors', async () => {
@@ -17,8 +21,7 @@ describe('AmazonS3Vectors.addDocuments', () => {
       client,
     });
 
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     const docs = [new Document({ pageContent: 'hello' })];
     const ids = await store.addDocuments(docs, { ids: ['doc-1'] });
@@ -65,8 +68,7 @@ describe('AmazonS3Vectors.addDocuments per-batch embedding', () => {
       client,
     });
 
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     const docs = [
       new Document({ pageContent: 'a' }),

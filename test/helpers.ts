@@ -1,4 +1,9 @@
-import { S3VectorsClient } from '@aws-sdk/client-s3vectors';
+import {
+  CreateIndexCommand,
+  GetIndexCommand,
+  PutVectorsCommand,
+  S3VectorsClient,
+} from '@aws-sdk/client-s3vectors';
 import { jest } from '@jest/globals';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 import { mockClient, type AwsClientStub } from 'aws-sdk-client-mock';
@@ -40,4 +45,26 @@ export function createMockEmbeddings(dimension = 3): EmbeddingsInterface {
     ),
     embedQuery: jest.fn(async () => Array.from({ length: dimension }, (_, d) => 99 + d * 0.1)),
   } as unknown as EmbeddingsInterface;
+}
+
+/**
+ * Configure `mock` for the common "index doesn't exist yet" scenario:
+ * `GetIndexCommand` rejects as not-found, and both `CreateIndexCommand` and
+ * `PutVectorsCommand` resolve — i.e. the index gets auto-created on write.
+ */
+export function mockIndexAutoCreated(mock: AwsClientStub<S3VectorsClient>): void {
+  const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
+  mock.on(GetIndexCommand).rejects(notFoundError);
+  mock.on(CreateIndexCommand).resolves({});
+  mock.on(PutVectorsCommand).resolves({});
+}
+
+/**
+ * Configure `mock` for the common "index already exists" scenario:
+ * `GetIndexCommand` resolves with an existing index, and `PutVectorsCommand`
+ * resolves.
+ */
+export function mockExistingIndex(mock: AwsClientStub<S3VectorsClient>): void {
+  mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
+  mock.on(PutVectorsCommand).resolves({});
 }

@@ -1,8 +1,13 @@
-import { GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
+import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  mockExistingIndex,
+} from './helpers.js';
 
 describe('AmazonS3Vectors.addTexts', () => {
   it('converts texts and metadatas into documents and stores them', async () => {
@@ -14,8 +19,7 @@ describe('AmazonS3Vectors.addTexts', () => {
       client,
     });
 
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     const ids = await store.addTexts(['hello', 'world'], [{ genre: 'a' }, { genre: 'b' }], {
       ids: ['t-1', 't-2'],
@@ -53,8 +57,7 @@ describe('AmazonS3Vectors.addTexts', () => {
       client,
     });
 
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     const ids = await store.addTexts(['solo'], undefined, { ids: ['t-1'] });
 

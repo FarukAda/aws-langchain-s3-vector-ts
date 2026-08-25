@@ -1,6 +1,5 @@
 import {
   DeleteVectorsCommand,
-  GetIndexCommand,
   GetVectorsCommand,
   PutVectorsCommand,
 } from '@aws-sdk/client-s3vectors';
@@ -8,15 +7,19 @@ import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  mockExistingIndex,
+} from './helpers.js';
 
 describe('AmazonS3Vectors default batch boundaries', () => {
   it('splits addVectors into PutVectors batches of 200', async () => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     const count = 250;
     const vectors = Array.from({ length: count }, () => [1, 2, 3]);

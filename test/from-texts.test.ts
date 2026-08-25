@@ -1,17 +1,21 @@
-import { GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
+import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  mockExistingIndex,
+} from './helpers.js';
 
 describe('AmazonS3Vectors.fromTexts', () => {
   it('creates instance, embeds, and stores texts', async () => {
     const { client, mock } = createMockClient();
     const embeddings = createMockEmbeddings();
 
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     const store = await AmazonS3Vectors.fromTexts(
       ['hello', 'world'],
@@ -30,8 +34,7 @@ describe('AmazonS3Vectors.fromTexts metadata handling', () => {
     const { client, mock } = createMockClient();
     const embeddings = createMockEmbeddings();
 
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     await AmazonS3Vectors.fromTexts(['a', 'b'], { shared: true }, embeddings, {
       ...BASE_CONFIG,
@@ -61,8 +64,7 @@ describe('AmazonS3Vectors.fromDocuments batchSize forwarding', () => {
     const { client, mock } = createMockClient();
     const embeddings = createMockEmbeddings();
 
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     const docs = [
       new Document({ pageContent: 'a' }),

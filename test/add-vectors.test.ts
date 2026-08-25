@@ -9,7 +9,13 @@ import { Document } from '@langchain/core/documents';
 import type { AwsClientStub } from 'aws-sdk-client-mock';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  mockExistingIndex,
+  mockIndexAutoCreated,
+} from './helpers.js';
 
 describe('AmazonS3Vectors.addVectors', () => {
   let store: AmazonS3Vectors;
@@ -26,8 +32,7 @@ describe('AmazonS3Vectors.addVectors', () => {
   });
 
   it('stores vectors with metadata and page_content', async () => {
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     const docs = [new Document({ pageContent: 'hello world', metadata: { genre: 'test' } })];
     const vectors = [[0.1, 0.2, 0.3]];
@@ -50,8 +55,7 @@ describe('AmazonS3Vectors.addVectors', () => {
   });
 
   it('generates UUID IDs when none provided', async () => {
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     const docs = [new Document({ pageContent: 'doc1' })];
     const vectors = [[1, 2, 3]];
@@ -64,8 +68,7 @@ describe('AmazonS3Vectors.addVectors', () => {
   });
 
   it('batches vectors correctly (batch size 2)', async () => {
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     const docs = [
       new Document({ pageContent: 'a' }),
@@ -88,10 +91,7 @@ describe('AmazonS3Vectors.addVectors', () => {
   });
 
   it('auto-creates index when it does not exist', async () => {
-    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
-    mock.on(GetIndexCommand).rejects(notFoundError);
-    mock.on(CreateIndexCommand).resolves({});
-    mock.on(PutVectorsCommand).resolves({});
+    mockIndexAutoCreated(mock);
 
     const docs = [new Document({ pageContent: 'first' })];
     const vectors = [[1, 2, 3]];
@@ -108,8 +108,7 @@ describe('AmazonS3Vectors.addVectors', () => {
   });
 
   it('skips index creation when index exists', async () => {
-    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
-    mock.on(PutVectorsCommand).resolves({});
+    mockExistingIndex(mock);
 
     const docs = [new Document({ pageContent: 'exists' })];
     const vectors = [[1, 2, 3]];

@@ -1,9 +1,14 @@
-import { CreateIndexCommand, GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
+import { CreateIndexCommand, GetIndexCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  mockIndexAutoCreated,
+} from './helpers.js';
 
 describe('AmazonS3Vectors auto-index with nonFilterableMetadataKeys', () => {
   it('passes metadataConfiguration to CreateIndex', async () => {
@@ -14,10 +19,7 @@ describe('AmazonS3Vectors auto-index with nonFilterableMetadataKeys', () => {
       nonFilterableMetadataKeys: ['large_field'],
     });
 
-    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
-    mock.on(GetIndexCommand).rejects(notFoundError);
-    mock.on(CreateIndexCommand).resolves({});
-    mock.on(PutVectorsCommand).resolves({});
+    mockIndexAutoCreated(mock);
 
     await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
 
@@ -34,10 +36,7 @@ describe('AmazonS3Vectors auto-index default pageContentMetadataKey handling', (
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 
-    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
-    mock.on(GetIndexCommand).rejects(notFoundError);
-    mock.on(CreateIndexCommand).resolves({});
-    mock.on(PutVectorsCommand).resolves({});
+    mockIndexAutoCreated(mock);
 
     await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
 
@@ -55,10 +54,7 @@ describe('AmazonS3Vectors auto-index default pageContentMetadataKey handling', (
       pageContentMetadataKey: null,
     });
 
-    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
-    mock.on(GetIndexCommand).rejects(notFoundError);
-    mock.on(CreateIndexCommand).resolves({});
-    mock.on(PutVectorsCommand).resolves({});
+    mockIndexAutoCreated(mock);
 
     await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
 
@@ -75,10 +71,7 @@ describe('AmazonS3Vectors auto-index default pageContentMetadataKey handling', (
       nonFilterableMetadataKeys: ['_page_content'],
     });
 
-    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
-    mock.on(GetIndexCommand).rejects(notFoundError);
-    mock.on(CreateIndexCommand).resolves({});
-    mock.on(PutVectorsCommand).resolves({});
+    mockIndexAutoCreated(mock);
 
     await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
 
@@ -96,10 +89,7 @@ describe('AmazonS3Vectors auto-index default pageContentMetadataKey handling', (
       nonFilterableMetadataKeys: tenKeys,
     });
 
-    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
-    mock.on(GetIndexCommand).rejects(notFoundError);
-    mock.on(CreateIndexCommand).resolves({});
-    mock.on(PutVectorsCommand).resolves({});
+    mockIndexAutoCreated(mock);
 
     await store.addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] });
 
