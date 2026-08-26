@@ -40,7 +40,7 @@ if (!env) {
 
     afterAll(async () => {
       try {
-        await store.delete();
+        await store.delete({ deleteAll: true });
       } catch {
         // Best-effort teardown; the test framework will surface real
         // issues through the main assertions.

@@ -167,7 +167,7 @@ The AWS SDK v3 has built-in retry behaviour (exponential backoff with jitter). Y
 The `delete()` method supports two modes:
 
 - **By IDs:** `await store.delete({ ids: ["id1", "id2"] })` — deletes specific vectors (batched, default 500 per call)
-- **Entire index:** `await store.delete()` — deletes the whole vector index (not the bucket)
+- **Entire index:** `await store.delete({ deleteAll: true })` — deletes the whole vector index (not the bucket). `deleteAll` must be explicit; `delete()` with neither `ids` nor `deleteAll` throws instead of guessing.
 
 ## LangChain Integration
 

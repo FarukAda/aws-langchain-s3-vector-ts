@@ -98,10 +98,10 @@ try {
   const qeResults = await queryEmbStore.similaritySearchWithScore('searchable', 1);
   check('query via a separate queryEmbeddings model returns results', qeResults.length === 1);
 } finally {
-  await store.delete().catch(() => {});
-  await fromDocsStore?.delete().catch(() => {});
-  await fromTextsStore?.delete().catch(() => {});
-  await queryEmbStore?.delete().catch(() => {});
+  await store.delete({ deleteAll: true }).catch(() => {});
+  await fromDocsStore?.delete({ deleteAll: true }).catch(() => {});
+  await fromTextsStore?.delete({ deleteAll: true }).catch(() => {});
+  await queryEmbStore?.delete({ deleteAll: true }).catch(() => {});
 }
 
 summary();

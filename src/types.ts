@@ -136,11 +136,17 @@ export interface S3OutputVector {
 
 /** Options accepted by {@link AmazonS3Vectors.delete}. */
 export interface S3VectorsDeleteParams {
-  /** Vector IDs to delete. When `undefined`, the entire index is deleted. */
+  /** Vector IDs to delete. Omit together with {@link deleteAll} to delete the entire index. */
   readonly ids?: string[];
   /**
    * Batch size for `DeleteVectors` calls.
    * @defaultValue `500`
    */
   readonly batchSize?: number;
+  /**
+   * Must be explicitly `true` to delete the **entire index** (used together
+   * with omitting `ids`). Guards against an accidentally-`undefined` `ids`
+   * array silently wiping the whole index.
+   */
+  readonly deleteAll?: true;
 }

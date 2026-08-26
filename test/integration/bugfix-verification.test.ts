@@ -51,7 +51,7 @@ if (!env) {
           '_page_content',
         );
       } finally {
-        await store.delete().catch(() => undefined);
+        await store.delete({ deleteAll: true }).catch(() => undefined);
       }
     }, 60_000);
 
@@ -73,7 +73,7 @@ if (!env) {
         const docs = await store.getByIds(['a', 'b']);
         expect(docs.map((d) => d.id).sort()).toEqual(['a', 'b']);
       } finally {
-        await store.delete().catch(() => undefined);
+        await store.delete({ deleteAll: true }).catch(() => undefined);
       }
     }, 60_000);
 
@@ -102,7 +102,7 @@ if (!env) {
         expect(scored).toHaveLength(1);
         expect(typeof scored[0]![1]).toBe('number');
       } finally {
-        await store.delete().catch(() => undefined);
+        await store.delete({ deleteAll: true }).catch(() => undefined);
       }
     }, 60_000);
 
@@ -127,7 +127,7 @@ if (!env) {
       } finally {
         // Defensive: if a future regression of the guard above ever lets an
         // index get created here, don't leak it.
-        await store.delete().catch(() => undefined);
+        await store.delete({ deleteAll: true }).catch(() => undefined);
       }
     }, 60_000);
 
@@ -166,7 +166,7 @@ if (!env) {
         expect(new Set(keys)).toEqual(new Set(tenKeys));
         expect(keys).not.toContain('_page_content');
       } finally {
-        await store.delete().catch(() => undefined);
+        await store.delete({ deleteAll: true }).catch(() => undefined);
       }
     }, 60_000);
 
@@ -193,7 +193,7 @@ if (!env) {
           .catch(() => false);
         expect(exists).toBe(false);
       } finally {
-        await store.delete().catch(() => undefined);
+        await store.delete({ deleteAll: true }).catch(() => undefined);
       }
     }, 60_000);
   });

@@ -5,16 +5,24 @@ import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { BASE_CONFIG, createMockClient } from './helpers.js';
 
 describe('AmazonS3Vectors.delete', () => {
-  it('deletes entire index when no IDs provided', async () => {
+  it('deletes entire index when deleteAll is explicitly true', async () => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
 
     mock.on(DeleteIndexCommand).resolves({});
 
-    await store.delete();
+    await store.delete({ deleteAll: true });
 
     expect(mock.commandCalls(DeleteIndexCommand)).toHaveLength(1);
     expect(mock.commandCalls(DeleteVectorsCommand)).toHaveLength(0);
+  });
+
+  it('throws instead of deleting the index when neither ids nor deleteAll are given', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+
+    await expect(store.delete()).rejects.toThrow(/deleteAll/);
+    await expect(store.delete({})).rejects.toThrow(/deleteAll/);
   });
 
   it('deletes vectors by IDs in batches', async () => {

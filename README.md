@@ -426,7 +426,7 @@ const retriever = store.asRetriever({
 | `similaritySearchVectorWithScore(vector, k?, filter?)` | `Promise<[Document, number][]>` | Vector query → documents with distance |
 | `similaritySearchByVector(vector, k?, filter?)` | `Promise<Document[]>` | Vector query → documents |
 | `getByIds(ids, options?)` | `Promise<Document[]>` | Retrieve documents by vector IDs |
-| `delete(params?)` | `Promise<void>` | Delete by IDs, or the entire index when no `ids` are supplied |
+| `delete(params?)` | `Promise<void>` | Delete by IDs, or the entire index when `{ deleteAll: true }` is passed |
 | `asRetriever(options?)` | `VectorStoreRetriever` | Convert to a LangChain retriever |
 
 ### Static Factories

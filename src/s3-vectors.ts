@@ -398,17 +398,26 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
-   * Delete vectors by ID, or delete the entire index when no IDs are given.
+   * Delete vectors by ID, or delete the entire index.
    *
-   * @param params - Optional deletion parameters
-   * @param params.ids - Vector IDs to delete (deletes entire index if omitted)
+   * @param params - Deletion parameters
+   * @param params.ids - Vector IDs to delete
    * @param params.batchSize - Number of IDs per `DeleteVectors` call (default: 500)
+   * @param params.deleteAll - Must be `true` (with `ids` omitted) to delete the entire index
+   * @throws Error if both `ids` and `deleteAll` are omitted — a safety guard against an
+   * accidentally-`undefined` `ids` array silently wiping the whole index
    */
   async delete(params?: S3VectorsDeleteParams): Promise<void> {
     const ids = params?.ids;
 
     if (ids === undefined) {
-      // Delete the entire index.
+      if (params?.deleteAll !== true) {
+        throw this._validationError(
+          'delete',
+          'delete() with no `ids` would delete the entire index. Pass `{ deleteAll: true }` ' +
+            'to confirm, or pass `ids` to delete specific vectors.',
+        );
+      }
       await this._send('DeleteIndex', () =>
         this._client.send(
           new DeleteIndexCommand({

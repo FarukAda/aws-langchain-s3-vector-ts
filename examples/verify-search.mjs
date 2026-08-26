@@ -94,8 +94,8 @@ try {
   check('cosine selects cosine scorer', cosine._selectRelevanceScoreFn()(0) === 1);
   check('euclidean selects euclidean scorer', euclidean._selectRelevanceScoreFn()(0) === 1);
 } finally {
-  await cosine.delete().catch(() => {});
-  await euclidean.delete().catch(() => {});
+  await cosine.delete({ deleteAll: true }).catch(() => {});
+  await euclidean.delete({ deleteAll: true }).catch(() => {});
 }
 
 summary();

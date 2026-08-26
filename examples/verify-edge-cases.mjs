@@ -129,11 +129,11 @@ try {
     S3VectorsErrorCode.NOT_FOUND,
   );
 } finally {
-  await noContentStore.delete().catch(() => {});
-  await rawStore.delete().catch(() => {});
-  await dupStore.delete().catch(() => {});
-  await nonFilterableStore.delete().catch(() => {});
-  await batchStore.delete().catch(() => {});
+  await noContentStore.delete({ deleteAll: true }).catch(() => {});
+  await rawStore.delete({ deleteAll: true }).catch(() => {});
+  await dupStore.delete({ deleteAll: true }).catch(() => {});
+  await nonFilterableStore.delete({ deleteAll: true }).catch(() => {});
+  await batchStore.delete({ deleteAll: true }).catch(() => {});
 }
 
 summary();
