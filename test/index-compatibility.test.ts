@@ -1,11 +1,16 @@
-import { GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
+import { CreateIndexCommand, GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  mockIndexNotFound,
+} from './helpers.js';
 
 describe('AmazonS3Vectors index compatibility validation', () => {
   it('rejects a write when the existing index has a different dimension', async () => {
@@ -100,5 +105,69 @@ describe('AmazonS3Vectors index compatibility validation', () => {
     expect(mock.commandCalls(PutVectorsCommand)[0]!.args[0].input.vectors?.[0]?.key).toBe('id-1');
     // The existence check itself is still shared — one GetIndex, not two.
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
+  });
+
+  it('validates each concurrent caller on the create path too, not just against a pre-existing index', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    mockIndexNotFound(mock);
+    mock.on(CreateIndexCommand).resolves({});
+    mock.on(PutVectorsCommand).resolves({});
+
+    const [matching, mismatched] = await Promise.allSettled([
+      store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'ok' })], { ids: ['id-1'] }),
+      store.addVectors([[1, 2, 3, 4, 5]], [new Document({ pageContent: 'bad' })], {
+        ids: ['id-2'],
+      }),
+    ]);
+
+    expect(matching.status).toBe('fulfilled');
+    expect(mismatched.status).toBe('rejected');
+    if (mismatched.status === 'rejected') {
+      expect(isS3VectorsError(mismatched.reason)).toBe(true);
+      expect((mismatched.reason as { code: S3VectorsErrorCode }).code).toBe(
+        S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+      );
+      expect((mismatched.reason as Error).message).toContain('dimension 5');
+    }
+
+    // The index gets created once, using whichever caller's vector won the
+    // race (here, the 3-dimensional one) — and every caller, including
+    // ones that lost the creation race, is validated against that result.
+    expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(1);
+    expect(mock.commandCalls(CreateIndexCommand)[0]!.args[0].input.dimension).toBe(3);
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
+    expect(mock.commandCalls(PutVectorsCommand)[0]!.args[0].input.vectors?.[0]?.key).toBe('id-1');
+  });
+
+  it("does not blame one concurrent caller's empty batch on a different caller's valid one", async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    mockIndexNotFound(mock);
+    mock.on(CreateIndexCommand).resolves({});
+    mock.on(PutVectorsCommand).resolves({});
+
+    const [empty, valid] = await Promise.allSettled([
+      store.addVectors([[]], [new Document({ pageContent: 'empty' })], { ids: ['id-1'] }),
+      store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'valid' })], { ids: ['id-2'] }),
+    ]);
+
+    expect(empty.status).toBe('rejected');
+    if (empty.status === 'rejected') {
+      expect(isS3VectorsError(empty.reason)).toBe(true);
+      expect((empty.reason as Error).message).toContain(
+        'Cannot determine vector dimension from empty batch',
+      );
+      // Attributed to the caller whose batch was actually empty.
+      expect((empty.reason as { context: { operation: string } }).context.operation).toBe(
+        'addVectors',
+      );
+    }
+    // The valid caller must not be rejected for the other caller's problem.
+    expect(valid.status).toBe('fulfilled');
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
+    expect(mock.commandCalls(PutVectorsCommand)[0]!.args[0].input.vectors?.[0]?.key).toBe('id-2');
   });
 });

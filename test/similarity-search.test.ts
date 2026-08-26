@@ -370,18 +370,35 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(1);
   });
 
-  it('stops immediately on an empty page even if AWS still returns a nextToken', async () => {
+  it('does not stop early on an empty-but-nextToken-bearing page — later pages may still have real results', async () => {
     const { store, mock } = createTestStore();
 
-    // A pathological (or theoretically misbehaving) response: no results on
-    // this page, yet a nextToken that would otherwise keep the loop paging
-    // forever. Zero progress must stop the loop regardless of nextToken.
+    // A heavily-filtered query can legitimately return an empty page with
+    // more still to come — AWS's own documented pagination contract has no
+    // "stop on empty page" rule, so this store must keep paging rather than
+    // silently discarding real results that show up on a later page.
+    mock
+      .on(QueryVectorsCommand)
+      .resolvesOnce({ vectors: [], nextToken: 'page-2-token' })
+      .resolvesOnce({ vectors: [{ key: 'id-1', metadata: { _page_content: 'x' }, distance: 0 }] });
+
+    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 4);
+
+    expect(results).toHaveLength(1);
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(2);
+  });
+
+  it('bounds pagination at MAX_QUERY_PAGES when a response never converges', async () => {
+    const { store, mock } = createTestStore();
+
+    // A response that keeps returning nextToken without ever making
+    // progress must still terminate — bounded, not stopped-on-empty-page.
     mock.on(QueryVectorsCommand).resolves({ vectors: [], nextToken: 'still-more' });
 
     const results = await store.similaritySearchVectorWithScore([1, 2, 3], 500);
 
     expect(results).toEqual([]);
-    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(1);
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(10_000);
   });
 
   it('rejects k values that are not a positive integer', async () => {

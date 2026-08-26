@@ -43,12 +43,13 @@ const MAX_CONCURRENT_BATCH_CALLS = 10;
 
 /**
  * Max `QueryVectors` pages per search — defense-in-depth against a
- * pathological response (or a heavily-filtered index) that keeps returning
- * a `nextToken` without making meaningful progress toward `k`. AWS bounds
- * `topK` at 10,000 and each page at up to 100 results, so this is generous
- * headroom, not a realistic ceiling for normal use.
+ * response that keeps returning `nextToken` without ever satisfying `k`.
+ * Set to AWS's own `topK` ceiling (10,000): even a heavily-filtered index
+ * yielding as little as one real match per page still reaches `k` within
+ * this bound at AWS's maximum `topK`, so a legitimate search is never
+ * truncated by it — it only stops a response that never converges.
  */
-const MAX_QUERY_PAGES = 1000;
+const MAX_QUERY_PAGES = 10_000;
 
 /** Default metadata key to store page_content in. */
 const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
@@ -347,12 +348,17 @@ export class AmazonS3Vectors extends VectorStore {
    *
    * The query string is embedded using the query-embedding model, then
    * {@link similaritySearchVectorWithScore} is called.
+   *
+   * @remarks
+   * Validates `k` before embedding — an invalid `k` shouldn't cost a
+   * billable `embedQuery` call before failing.
    */
   async similaritySearchWithScore(
     query: string,
     k = 4,
     filter?: this['FilterType'],
   ): Promise<[Document, number][]> {
+    this._validateK('similaritySearchWithScore', k);
     const queryVector = await this._getQueryEmbeddings().embedQuery(query);
     return this.similaritySearchVectorWithScore(queryVector, k, filter);
   }
@@ -679,9 +685,13 @@ export class AmazonS3Vectors extends VectorStore {
    * can catch a metric mismatch before silently computing a relevance
    * score against the wrong metric.
    *
-   * Bounded by {@link MAX_QUERY_PAGES} and stops immediately on an empty
-   * page, so a pathological or heavily-filtered result set can't drive an
-   * unbounded number of round trips.
+   * Bounded by {@link MAX_QUERY_PAGES} so a response that never converges
+   * can't drive an unbounded number of round trips. Deliberately does
+   * *not* stop early on an empty-but-`nextToken`-bearing page — AWS's own
+   * documented pagination contract and generated paginator don't treat an
+   * empty page as end-of-results either, and a heavily-filtered query is a
+   * plausible way to get one legitimately, with real results still on a
+   * later page.
    */
   private async _queryVectors(
     operation: string,
@@ -725,8 +735,6 @@ export class AmazonS3Vectors extends VectorStore {
       }
 
       const page = (response.vectors ?? []) as S3OutputVector[];
-      if (page.length === 0) break;
-
       results.push(...page);
       nextToken = response.nextToken;
       pageCount++;
@@ -763,9 +771,20 @@ export class AmazonS3Vectors extends VectorStore {
     });
 
     if (batchOffset === 0 && this.createIndexIfNotExist) {
-      const existing = await this._ensureIndexExists(vectors[0], operation);
+      // Checked per-caller, before joining any shared existence/creation
+      // work below — a caller's own empty batch must never be blamed on a
+      // different, concurrently-racing caller (or vice versa).
+      const firstVector = vectors[0];
+      if (!firstVector || firstVector.length === 0) {
+        throw this._validationError(
+          operation,
+          'Cannot determine vector dimension from empty batch',
+        );
+      }
+
+      const existing = await this._ensureIndexExists(firstVector);
       if (existing !== null) {
-        this._assertIndexCompatible(existing, vectors[0], operation);
+        this._assertIndexCompatible(existing, firstVector, operation);
       }
     }
 
@@ -782,9 +801,12 @@ export class AmazonS3Vectors extends VectorStore {
 
   /**
    * Ensure the configured index exists, creating it if needed, and return
-   * its dimension/distance metric when it already existed (`null` when
-   * freshly created here or by a racing process — there's nothing to
-   * compare a caller's vector against yet).
+   * its dimension/distance metric — from the pre-existing index, or from
+   * the index this call just created — so every concurrent caller sharing
+   * this memo has something to validate its own vector against. Returns
+   * `null` only when a *different* process won a cross-process creation
+   * race: our own `CreateIndex` lost with a `ConflictException`, so we
+   * never learn what dimension/metric the winner actually used.
    *
    * In-flight creation attempts are memoized so concurrent callers share
    * one GetIndex/CreateIndex sequence instead of racing (same-process
@@ -801,10 +823,15 @@ export class AmazonS3Vectors extends VectorStore {
    * different vector dimensions would silently skip validating everyone
    * but the first caller, and could reject a later, genuinely-correct
    * caller with an error describing an earlier caller's vector instead.
+   * `firstVector` is only actually used by whichever caller's invocation
+   * wins the race to start this memo (later concurrent callers get the
+   * already-in-flight promise back before their own argument is ever
+   * consulted) — callers must validate their own vector is non-empty
+   * *before* calling this, which is exactly what makes this function safe
+   * to call with a plain `number[]` instead of `number[] | undefined`.
    */
   private _ensureIndexExists(
-    firstVector: number[] | undefined,
-    operation: string,
+    firstVector: number[],
   ): Promise<{ dimension: number; distanceMetric: DistanceMetric } | null> {
     if (this._ensureIndexPromise) return this._ensureIndexPromise;
 
@@ -815,21 +842,17 @@ export class AmazonS3Vectors extends VectorStore {
           return existing;
         }
 
-        if (!firstVector || firstVector.length === 0) {
-          throw this._validationError(
-            operation,
-            'Cannot determine vector dimension from empty batch',
-          );
-        }
-
         try {
           await this._createIndex(firstVector.length);
         } catch (error: unknown) {
           const cause = (error as { cause?: unknown }).cause;
           if (!isAwsConflictException(cause)) throw error;
-          // Another process created the index between our GetIndex and CreateIndex calls — fine.
+          // Another process created the index between our GetIndex and
+          // CreateIndex calls — fine, but we don't know its actual
+          // dimension/metric, so there's genuinely nothing to return.
+          return null;
         }
-        return null;
+        return { dimension: firstVector.length, distanceMetric: this.distanceMetric };
       } finally {
         this._ensureIndexPromise = null;
       }
@@ -846,10 +869,10 @@ export class AmazonS3Vectors extends VectorStore {
    */
   private _assertIndexCompatible(
     existing: { dimension: number; distanceMetric: DistanceMetric },
-    firstVector: number[] | undefined,
+    firstVector: number[],
     operation: string,
   ): void {
-    if (firstVector && firstVector.length > 0 && existing.dimension !== firstVector.length) {
+    if (existing.dimension !== firstVector.length) {
       throw new S3VectorsError(
         `Index "${this.indexName}" has dimension ${existing.dimension}, but the vector being written has dimension ${firstVector.length}.`,
         S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
