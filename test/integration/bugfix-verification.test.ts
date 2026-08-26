@@ -109,6 +109,42 @@ if (!env) {
       }
     }, 60_000);
 
+    it('does not fail when MORE than two separate store instances race on the same brand-new index', async () => {
+      // The two-instance race above proves the ConflictException recovery
+      // path works at all; this proves it holds up beyond the smallest
+      // possible race (5 concurrent CreateIndex attempts against AWS, only
+      // one of which can win).
+      const indexName = `bf-hiconc-race-${randomUUID().slice(0, 8)}`;
+      const N = 5;
+      const stores = Array.from(
+        { length: N },
+        () =>
+          new AmazonS3Vectors(randomEmbeddings(), {
+            vectorBucketName: safeEnv.bucketName,
+            indexName,
+            region: safeEnv.region,
+          }),
+      );
+
+      try {
+        const results = await Promise.all(
+          stores.map((s, i) =>
+            s.addDocuments([new Document({ pageContent: `doc-${i}`, metadata: {} })], {
+              ids: [`id-${i}`],
+            }),
+          ),
+        );
+        expect(results.flat().sort()).toEqual(
+          Array.from({ length: N }, (_, i) => `id-${i}`).sort(),
+        );
+
+        const docs = await stores[0]!.getByIds(Array.from({ length: N }, (_, i) => `id-${i}`));
+        expect(docs).toHaveLength(N);
+      } finally {
+        await stores[0]!.delete({ deleteAll: true }).catch(() => undefined);
+      }
+    }, 60_000);
+
     it('similaritySearch uses queryEmbeddings; similaritySearchWithRelevanceScores returns scores', async () => {
       const indexName = `bf-search-${randomUUID().slice(0, 8)}`;
       const indexEmb = randomEmbeddings();

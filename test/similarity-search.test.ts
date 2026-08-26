@@ -432,6 +432,36 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
 
     await expect(store.similaritySearchVectorWithScore([1, 2, 3], 10_000)).resolves.toEqual([]);
   });
+
+  // Confirmed live against real AWS: QueryVectors rejects an empty filter
+  // object ({}) with "Invalid filter" — it is NOT treated as "no filter".
+  it('rejects an empty filter object instead of forwarding it to AWS', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+
+    await expect(store.similaritySearchVectorWithScore([1, 2, 3], 4, {})).rejects.toThrow(
+      'filter cannot be an empty object',
+    );
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
+  it('allows an undefined filter (no filtering)', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+
+    await expect(store.similaritySearchVectorWithScore([1, 2, 3], 4, undefined)).resolves.toEqual(
+      [],
+    );
+  });
+
+  it('allows a non-empty filter object', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+
+    await expect(
+      store.similaritySearchVectorWithScore([1, 2, 3], 4, { genre: 'scifi' }),
+    ).resolves.toEqual([]);
+  });
 });
 
 describe('AmazonS3Vectors read-path distance-metric validation', () => {

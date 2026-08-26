@@ -197,6 +197,12 @@ const recent = await store.similaritySearch(
 );
 ```
 
+A few behaviors worth knowing, confirmed live against the real service:
+
+- **Don't pass an empty filter object.** `similaritySearch(query, k, {})` throws locally (AWS itself rejects `{}` with an opaque "Invalid filter" error rather than treating it as "no filter"). Omit the `filter` argument entirely — or pass `undefined` — to search without filtering. This matters if you build a filter dynamically and it can end up with no conditions applied.
+- **A type-mismatched comparison returns zero results, not an error.** Comparing a boolean-valued field against a string (e.g. `{ popular: { $eq: "true" } }` when `popular` is actually stored as the boolean `true`) silently matches nothing rather than failing — the same as filtering on a field that doesn't exist on any document at all.
+- **You can't filter on a non-filterable key.** Filtering on `pageContentMetadataKey` (or any key listed in `nonFilterableMetadataKeys`) fails with an "Invalid use of non-filterable metadata in filter" error — expected, since that's the whole point of the non-filterable list, but easy to hit by accident if you filter on the same key you excluded for index-size reasons.
+
 ### Use as a LangChain Retriever
 
 ```typescript
@@ -416,6 +422,12 @@ If a document's own metadata already uses the reserved `pageContentMetadataKey` 
 ### Deep-Copy Metadata on Duplicate-ID Fetches
 
 When `getByIds` is called with duplicate IDs, returned documents get independently-cloned metadata (via `structuredClone`) so mutating one does not affect the other — matching the Python reference implementation's behaviour exactly.
+
+### Concurrency
+
+Multiple concurrent writers — whether separate calls on the same store instance, or entirely separate `AmazonS3Vectors` instances (different processes) — can safely race to create the same new index: whichever one loses the creation race gets a benign `ConflictException` from AWS, which this library recovers from automatically, re-validating against whichever writer actually won. This is verified against real AWS with more than two concurrent instances racing at once, not just two.
+
+`delete({ deleteAll: true })` running concurrently with an in-progress write is not specially handled — if the delete wins the race, the write's remaining batches fail with a plain "index not found" error rather than being coordinated. This has been verified to fail cleanly (no data corruption, no hang) rather than silently, but if your application deletes and writes to the same index concurrently, treat that write's failure as expected and handle it, rather than assuming both always succeed independently.
 
 ### Custom Retriever Configuration
 

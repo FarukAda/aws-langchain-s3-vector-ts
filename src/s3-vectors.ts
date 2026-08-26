@@ -720,6 +720,31 @@ export class AmazonS3Vectors extends VectorStore {
     }
   }
 
+  /**
+   * Reject an empty filter object before it reaches AWS. Confirmed live:
+   * S3 Vectors rejects `{}` with an opaque "Invalid filter"
+   * `ValidationException` rather than treating it as "no filter" — a
+   * caller building a filter dynamically (e.g. only adding conditions when
+   * a UI field is set) can easily end up passing `{}` by accident when no
+   * condition ends up applying. Omit the `filter` argument entirely
+   * (`undefined`) to search without filtering.
+   */
+  private _validateFilter(operation: string, filter: __DocumentType | undefined): void {
+    if (
+      filter !== undefined &&
+      typeof filter === 'object' &&
+      filter !== null &&
+      !Array.isArray(filter) &&
+      Object.keys(filter).length === 0
+    ) {
+      throw this._validationError(
+        operation,
+        'filter cannot be an empty object ({}) — AWS rejects this as an invalid filter. ' +
+          'Omit the filter argument entirely to search without filtering.',
+      );
+    }
+  }
+
   /** Run an AWS call, surfacing any failure as a coded {@link S3VectorsError}. */
   private async _send<T>(operation: string, send: () => Promise<T>): Promise<T> {
     try {
@@ -770,6 +795,7 @@ export class AmazonS3Vectors extends VectorStore {
     },
   ): Promise<S3OutputVector[]> {
     this._validateK(operation, k);
+    this._validateFilter(operation, input.filter);
 
     const results: S3OutputVector[] = [];
     let nextToken: string | undefined;
