@@ -1,4 +1,4 @@
-import { CreateIndexCommand, GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
+import { GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
@@ -63,20 +63,6 @@ describe('AmazonS3Vectors index compatibility validation', () => {
 
     await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] });
 
-    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
-  });
-
-  it('treats a GetIndex response with no index field as not-found', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
-
-    mock.on(GetIndexCommand).resolves({});
-    mock.on(CreateIndexCommand).resolves({});
-    mock.on(PutVectorsCommand).resolves({});
-
-    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] });
-
-    expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(1);
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
   });
 });

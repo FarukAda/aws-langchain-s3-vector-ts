@@ -788,7 +788,6 @@ export class AmazonS3Vectors extends VectorStore {
           indexName: this.indexName,
         }),
       );
-      if (!result.index) return null;
       const { dimension, distanceMetric } = result.index as {
         dimension: number;
         distanceMetric: DistanceMetric;
