@@ -3,6 +3,8 @@ import { describe, it, expect } from '@jest/globals';
 
 import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from '../src/relevance-scores.js';
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
+import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
+import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import { BASE_CONFIG, createMockClient, createMockEmbeddings, createTestStore } from './helpers.js';
 
 /**
@@ -366,5 +368,84 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
 
     expect(results).toHaveLength(1);
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(1);
+  });
+
+  it('stops immediately on an empty page even if AWS still returns a nextToken', async () => {
+    const { store, mock } = createTestStore();
+
+    // A pathological (or theoretically misbehaving) response: no results on
+    // this page, yet a nextToken that would otherwise keep the loop paging
+    // forever. Zero progress must stop the loop regardless of nextToken.
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], nextToken: 'still-more' });
+
+    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 500);
+
+    expect(results).toEqual([]);
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(1);
+  });
+
+  it('rejects k values that are not a positive integer', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+
+    await expect(store.similaritySearchVectorWithScore([1, 2, 3], 0)).rejects.toThrow(
+      'k must be a positive integer',
+    );
+    await expect(store.similaritySearchByVector([1, 2, 3], -1)).rejects.toThrow(
+      'k must be a positive integer',
+    );
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+});
+
+describe('AmazonS3Vectors read-path distance-metric validation', () => {
+  it('rejects a query when the index metric differs from the configured metric', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+      distanceMetric: 'cosine',
+    });
+
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'id-1', metadata: { _page_content: 'x' }, distance: 0.2 }],
+      distanceMetric: 'euclidean',
+    });
+
+    const error = await store
+      .similaritySearchVectorWithScore([1, 2, 3], 4)
+      .catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+    );
+    expect((error as Error).message).toContain('euclidean');
+  });
+
+  it('allows a query when the index metric matches the configured metric', async () => {
+    const { store, mock } = createTestStore();
+
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'id-1', metadata: { _page_content: 'x' }, distance: 0.2 }],
+      distanceMetric: 'cosine',
+    });
+
+    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 4);
+    expect(results).toHaveLength(1);
+  });
+
+  it('does not validate the metric when AWS omits it from the response', async () => {
+    const { store, mock } = createTestStore();
+
+    // Existing mocked tests throughout this suite don't set distanceMetric
+    // on their QueryVectorsCommand responses — this proves that omission
+    // stays backward-compatible rather than spuriously throwing.
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'id-1', metadata: { _page_content: 'x' }, distance: 0.2 }],
+    });
+
+    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 4);
+    expect(results).toHaveLength(1);
   });
 });

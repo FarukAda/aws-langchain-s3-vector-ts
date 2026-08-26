@@ -65,4 +65,40 @@ describe('AmazonS3Vectors index compatibility validation', () => {
 
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
   });
+
+  it('validates each concurrent caller against its own vector, not a shared verdict', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    mock.on(GetIndexCommand).resolves({
+      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+    });
+    mock.on(PutVectorsCommand).resolves({});
+
+    const [matching, mismatched] = await Promise.allSettled([
+      store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'ok' })], { ids: ['id-1'] }),
+      store.addVectors([[1, 2, 3, 4, 5]], [new Document({ pageContent: 'bad' })], {
+        ids: ['id-2'],
+      }),
+    ]);
+
+    expect(matching.status).toBe('fulfilled');
+    expect(mismatched.status).toBe('rejected');
+    if (mismatched.status === 'rejected') {
+      expect(isS3VectorsError(mismatched.reason)).toBe(true);
+      expect((mismatched.reason as { code: S3VectorsErrorCode }).code).toBe(
+        S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+      );
+      // Must describe the rejected caller's own dimension (5), never the
+      // concurrently-validated caller's dimension (3) — a shared verdict
+      // would either let this one through or blame the wrong vector.
+      expect((mismatched.reason as Error).message).toContain('dimension 5');
+    }
+
+    // Only the matching call's vector should ever have reached PutVectors.
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
+    expect(mock.commandCalls(PutVectorsCommand)[0]!.args[0].input.vectors?.[0]?.key).toBe('id-1');
+    // The existence check itself is still shared — one GetIndex, not two.
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
+  });
 });
