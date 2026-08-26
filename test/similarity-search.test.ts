@@ -297,3 +297,74 @@ describe('AmazonS3Vectors._selectRelevanceScoreFn', () => {
     expect(store._selectRelevanceScoreFn()(1)).toBe(41);
   });
 });
+
+describe('AmazonS3Vectors QueryVectors pagination', () => {
+  it('follows nextToken until k results are collected', async () => {
+    const { store, mock } = createTestStore();
+
+    const page1 = Array.from({ length: 100 }, (_, i) => ({
+      key: `id-${i}`,
+      metadata: { _page_content: `doc-${i}` },
+      distance: i / 1000,
+    }));
+    const page2 = Array.from({ length: 50 }, (_, i) => ({
+      key: `id-${100 + i}`,
+      metadata: { _page_content: `doc-${100 + i}` },
+      distance: (100 + i) / 1000,
+    }));
+
+    mock
+      .on(QueryVectorsCommand)
+      .resolvesOnce({ vectors: page1, nextToken: 'page-2-token' })
+      .resolvesOnce({ vectors: page2 });
+
+    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 150);
+
+    expect(results).toHaveLength(150);
+    expect(results[0]![0].pageContent).toBe('doc-0');
+    expect(results[149]![0].pageContent).toBe('doc-149');
+
+    const calls = mock.commandCalls(QueryVectorsCommand);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.args[0].input.nextToken).toBeUndefined();
+    expect(calls[1]!.args[0].input.nextToken).toBe('page-2-token');
+  });
+
+  it('stops paging once the result set is exhausted, even below k', async () => {
+    const { store, mock } = createTestStore();
+
+    const page1 = Array.from({ length: 100 }, (_, i) => ({
+      key: `id-${i}`,
+      metadata: { _page_content: `doc-${i}` },
+      distance: i / 1000,
+    }));
+    const page2 = Array.from({ length: 20 }, (_, i) => ({
+      key: `id-${100 + i}`,
+      metadata: { _page_content: `doc-${100 + i}` },
+      distance: (100 + i) / 1000,
+    }));
+
+    mock
+      .on(QueryVectorsCommand)
+      .resolvesOnce({ vectors: page1, nextToken: 'page-2-token' })
+      .resolvesOnce({ vectors: page2 });
+
+    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 500);
+
+    expect(results).toHaveLength(120);
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(2);
+  });
+
+  it('does not page when the first response has no nextToken', async () => {
+    const { store, mock } = createTestStore();
+
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'id-1', metadata: { _page_content: 'only' }, distance: 0 }],
+    });
+
+    const results = await store.similaritySearchByVector([1, 2, 3], 4);
+
+    expect(results).toHaveLength(1);
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(1);
+  });
+});

@@ -316,21 +316,13 @@ export class AmazonS3Vectors extends VectorStore {
     k: number,
     filter?: this['FilterType'],
   ): Promise<[Document, number][]> {
-    const response = await this._send('QueryVectors', () =>
-      this._client.send(
-        new QueryVectorsCommand({
-          vectorBucketName: this.vectorBucketName,
-          indexName: this.indexName,
-          topK: k,
-          queryVector: { float32: query },
-          filter: filter as __DocumentType | undefined,
-          returnMetadata: true,
-          returnDistance: true,
-        }),
-      ),
-    );
+    const outputVectors = await this._queryVectors(k, {
+      queryVector: { float32: query },
+      filter: filter as __DocumentType | undefined,
+      returnMetadata: true,
+      returnDistance: true,
+    });
 
-    const outputVectors = (response.vectors ?? []) as S3OutputVector[];
     return outputVectors.map((v) => [
       createDocument(v, this.pageContentMetadataKey),
       v.distance ?? 0,
@@ -380,21 +372,13 @@ export class AmazonS3Vectors extends VectorStore {
     k = 4,
     filter?: this['FilterType'],
   ): Promise<Document[]> {
-    const response = await this._send('QueryVectors', () =>
-      this._client.send(
-        new QueryVectorsCommand({
-          vectorBucketName: this.vectorBucketName,
-          indexName: this.indexName,
-          topK: k,
-          queryVector: { float32: embedding },
-          filter: filter as __DocumentType | undefined,
-          returnMetadata: true,
-          returnDistance: false,
-        }),
-      ),
-    );
+    const outputVectors = await this._queryVectors(k, {
+      queryVector: { float32: embedding },
+      filter: filter as __DocumentType | undefined,
+      returnMetadata: true,
+      returnDistance: false,
+    });
 
-    const outputVectors = (response.vectors ?? []) as S3OutputVector[];
     return outputVectors.map((v) => createDocument(v, this.pageContentMetadataKey));
   }
 
@@ -641,6 +625,47 @@ export class AmazonS3Vectors extends VectorStore {
         indexName: this.indexName,
       });
     }
+  }
+
+  /**
+   * Runs `QueryVectors`, following AWS's `nextToken` pagination until `k`
+   * vectors are collected or the result set is exhausted.
+   *
+   * @remarks
+   * S3 Vectors caps each `QueryVectors` response at ~100 results even when
+   * `topK` (`k`) is larger (AWS allows `topK` up to 10,000). Without paging
+   * through `nextToken`, a caller requesting `k > 100` would silently get
+   * back fewer than `k` documents.
+   */
+  private async _queryVectors(
+    k: number,
+    input: {
+      queryVector: { float32: number[] };
+      filter: __DocumentType | undefined;
+      returnMetadata: boolean;
+      returnDistance: boolean;
+    },
+  ): Promise<S3OutputVector[]> {
+    const results: S3OutputVector[] = [];
+    let nextToken: string | undefined;
+
+    do {
+      const response = await this._send('QueryVectors', () =>
+        this._client.send(
+          new QueryVectorsCommand({
+            vectorBucketName: this.vectorBucketName,
+            indexName: this.indexName,
+            topK: k,
+            nextToken,
+            ...input,
+          }),
+        ),
+      );
+      results.push(...((response.vectors ?? []) as S3OutputVector[]));
+      nextToken = response.nextToken;
+    } while (nextToken && results.length < k);
+
+    return results.slice(0, k);
   }
 
   /**
