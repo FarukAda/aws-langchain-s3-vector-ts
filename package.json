@@ -61,7 +61,7 @@
     "similarity-search"
   ],
   "engines": {
-    "node": ">=22.14.0",
+    "node": ">=20",
     "npm": ">=10.0.0"
   },
   "peerDependencies": {

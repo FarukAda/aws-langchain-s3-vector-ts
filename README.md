@@ -95,7 +95,7 @@ npm install @farukada/aws-langchain-s3-vector-ts @aws-sdk/client-s3vectors @lang
 
 ### Runtime Requirements
 
-- **Node.js** `>= 22.14.0` (required minimum for npm Trusted Publishing; also ensures modern `Intl` and `fetch` are available).
+- **Node.js** `>= 20` — matches the minimum required by both peer dependencies (`@aws-sdk/client-s3vectors`, `@langchain/core`). (Publishing this package to npm separately requires Node ≥24, for npm Trusted Publishing's npm-CLI requirement — that's a CI/release-only constraint and doesn't affect consumers.)
 - **npm** `>= 10.0.0`.
 - **Module format:** ESM only. If you consume this package from a CommonJS project, use dynamic `import()`.
 
@@ -602,7 +602,7 @@ examples/                         # Standalone real-AWS verification scripts (.m
 └── verify-core / verify-search / verify-edge-cases
 
 .github/workflows/
-├── ci.yml                        # Push-to-main CI (3 OS × Node 22/24)
+├── ci.yml                        # CI on push/PR to main (3 OS × Node 20/22/24)
 ├── integration-live.yml          # Nightly + workflow_dispatch live-AWS smoke via OIDC
 └── release.yml                   # Tag-triggered publish via npm Trusted Publishing
 
