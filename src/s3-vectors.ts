@@ -144,7 +144,6 @@ export class AmazonS3Vectors extends VectorStore {
     } else {
       this._client = new S3VectorsClient({
         region: config.region,
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- AWS credential types are complex and vary by SDK version
         credentials: config.credentials,
         endpoint: config.endpoint,
         maxAttempts: config.maxAttempts,

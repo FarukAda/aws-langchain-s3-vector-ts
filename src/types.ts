@@ -1,5 +1,6 @@
 import type { S3VectorsClient } from '@aws-sdk/client-s3vectors';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
+import type { AwsCredentialIdentity, AwsCredentialIdentityProvider } from '@smithy/types';
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -102,11 +103,10 @@ export interface AmazonS3VectorsConfig {
   readonly region?: string;
 
   /**
-   * AWS credentials configuration. Accepts any shape compatible with
-   * the AWS SDK credential provider chain.
+   * AWS credentials: either a static credential object or an async
+   * provider function — the same shape `S3VectorsClient` itself accepts.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AWS credential types are complex and vary by SDK version
-  readonly credentials?: any;
+  readonly credentials?: AwsCredentialIdentity | AwsCredentialIdentityProvider;
 
   /** Custom endpoint URL to use instead of the default regional endpoint. */
   readonly endpoint?: string;

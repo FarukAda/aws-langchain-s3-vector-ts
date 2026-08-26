@@ -82,4 +82,14 @@ describe('AmazonS3Vectors constructor', () => {
 
     expect(store).toBeInstanceOf(AmazonS3Vectors);
   });
+
+  it('forwards static credentials to the SDK client', () => {
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      region: 'us-east-1',
+      credentials: { accessKeyId: 'AKIAEXAMPLE', secretAccessKey: 'secret' },
+    });
+
+    expect(store).toBeInstanceOf(AmazonS3Vectors);
+  });
 });
