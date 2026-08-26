@@ -38,6 +38,15 @@ import type {
 const DEFAULT_PUT_BATCH_SIZE = 200;
 const DEFAULT_DELETE_BATCH_SIZE = 500;
 const DEFAULT_GET_BATCH_SIZE = 100;
+/**
+ * Per-call ceilings enforced by AWS itself (confirmed live: exceeding these
+ * fails with a `ValidationException` naming the same limit). Checked
+ * locally so an oversized `batchSize` fails fast with a clear message
+ * instead of an AWS round trip.
+ */
+const MAX_PUT_BATCH_SIZE = 500;
+const MAX_DELETE_BATCH_SIZE = 500;
+const MAX_GET_BATCH_SIZE = 100;
 /** Max number of batch AWS calls (DeleteVectors/GetVectors) in flight at once. */
 const MAX_CONCURRENT_BATCH_CALLS = 10;
 
@@ -51,6 +60,9 @@ const MAX_CONCURRENT_BATCH_CALLS = 10;
  * search could ever need. This only stops a response that never converges.
  */
 const MAX_QUERY_PAGES = 100;
+
+/** AWS's own ceiling for `topK` (confirmed live: `QueryVectors` rejects anything above this). */
+const MAX_TOP_K = 10_000;
 
 /** Default metadata key to store page_content in. */
 const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
@@ -211,18 +223,21 @@ export class AmazonS3Vectors extends VectorStore {
         `Number of vectors (${vectors.length}) must match number of documents (${documents.length})`,
       );
     }
-    if (vectors.length === 0) return [];
-
-    const batchSize = options?.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
-    this._validateBatchSize('addVectors', batchSize);
+    // Checked before the empty-batch short-circuit below — a caller passing
+    // a stale/mismatched `ids` array alongside an empty `vectors` array is
+    // still a real caller mistake and shouldn't be silently swallowed into
+    // a no-op success.
     const ids = options?.ids ?? vectors.map(() => randomUUID().replace(/-/g, ''));
-
     if (ids.length !== vectors.length) {
       throw this._validationError(
         'addVectors',
         `Number of IDs (${ids.length}) must match number of vectors (${vectors.length})`,
       );
     }
+    if (vectors.length === 0) return [];
+
+    const batchSize = options?.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
+    this._validateBatchSize('addVectors', batchSize, MAX_PUT_BATCH_SIZE);
 
     let offset = 0;
     for (const slice of chunk(vectors, batchSize)) {
@@ -257,18 +272,21 @@ export class AmazonS3Vectors extends VectorStore {
     documents: Document[],
     options?: { ids?: string[]; batchSize?: number },
   ): Promise<string[]> {
-    if (documents.length === 0) return [];
-
-    const batchSize = options?.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
-    this._validateBatchSize('addDocuments', batchSize);
+    // Checked before the empty-batch short-circuit below — a caller passing
+    // a stale/mismatched `ids` array alongside an empty `documents` array is
+    // still a real caller mistake and shouldn't be silently swallowed into
+    // a no-op success.
     const ids = options?.ids ?? documents.map(() => randomUUID().replace(/-/g, ''));
-
     if (ids.length !== documents.length) {
       throw this._validationError(
         'addDocuments',
         `Number of IDs (${ids.length}) must match number of documents (${documents.length})`,
       );
     }
+    if (documents.length === 0) return [];
+
+    const batchSize = options?.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
+    this._validateBatchSize('addDocuments', batchSize, MAX_PUT_BATCH_SIZE);
 
     const embeddings = this._getIndexEmbeddings();
     let offset = 0;
@@ -483,7 +501,7 @@ export class AmazonS3Vectors extends VectorStore {
       this._validatedIndexInfo = null;
     } else {
       const batchSize = params?.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
-      this._validateBatchSize('delete', batchSize);
+      this._validateBatchSize('delete', batchSize, MAX_DELETE_BATCH_SIZE);
       for (const group of chunk(chunk(ids, batchSize), MAX_CONCURRENT_BATCH_CALLS)) {
         await Promise.all(
           group.map((batchIds) =>
@@ -518,7 +536,7 @@ export class AmazonS3Vectors extends VectorStore {
    */
   async getByIds(ids: string[], options?: { batchSize?: number }): Promise<Document[]> {
     const batchSize = options?.batchSize ?? DEFAULT_GET_BATCH_SIZE;
-    this._validateBatchSize('getByIds', batchSize);
+    this._validateBatchSize('getByIds', batchSize, MAX_GET_BATCH_SIZE);
     const batches = chunk(ids, batchSize);
 
     // Bound the number of in-flight GetVectors calls: process batches in
@@ -671,17 +689,34 @@ export class AmazonS3Vectors extends VectorStore {
     });
   }
 
-  /** Reject a non-positive batchSize before it can drive an infinite loop. */
-  private _validateBatchSize(operation: string, batchSize: number): void {
+  /**
+   * Reject a non-positive batchSize before it can drive an infinite loop,
+   * and one that exceeds AWS's own per-call limit for this operation
+   * before spending a round trip to discover the same thing from AWS.
+   */
+  private _validateBatchSize(operation: string, batchSize: number, max: number): void {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw this._validationError(operation, 'batchSize must be a positive integer');
     }
+    if (batchSize > max) {
+      throw this._validationError(
+        operation,
+        `batchSize (${batchSize}) exceeds AWS's limit of ${max} per call for this operation.`,
+      );
+    }
   }
 
-  /** Reject a non-positive k before it can drive excessive QueryVectors pagination. */
+  /**
+   * Reject a non-positive k before it can drive excessive QueryVectors
+   * pagination, and one above AWS's own `topK` ceiling before spending a
+   * round trip to discover the same thing from AWS.
+   */
   private _validateK(operation: string, k: number): void {
     if (!Number.isInteger(k) || k <= 0) {
       throw this._validationError(operation, 'k must be a positive integer');
+    }
+    if (k > MAX_TOP_K) {
+      throw this._validationError(operation, `k (${k}) exceeds AWS's topK limit of ${MAX_TOP_K}.`);
     }
   }
 

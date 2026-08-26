@@ -1,3 +1,4 @@
+import { GetIndexCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
@@ -35,6 +36,15 @@ describe('AmazonS3Vectors.addDocuments input validation', () => {
         ids: ['only-one'],
       }),
     ).rejects.toThrow('Number of IDs (1) must match number of documents (2)');
+  });
+
+  it('throws for mismatched ids even when documents is empty, instead of silently returning []', async () => {
+    const { store, mock } = createTestStore();
+
+    await expect(store.addDocuments([], { ids: ['stale-id-1', 'stale-id-2'] })).rejects.toThrow(
+      'Number of IDs (2) must match number of documents (0)',
+    );
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(0);
   });
 });
 

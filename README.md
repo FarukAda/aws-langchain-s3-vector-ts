@@ -388,6 +388,17 @@ AWS caps `nonFilterableMetadataKeys` at 10 keys per index. If your own list is a
 
 This configuration applies at index-creation time — it cannot be changed after the index exists.
 
+### Metadata Value Types
+
+S3 Vectors only accepts metadata values that are strings, numbers, booleans, or arrays of strings/numbers (an array mixing types, e.g. a boolean alongside strings, is rejected). `null` and nested objects are rejected outright by AWS with a `PutVectors` validation error.
+
+Two JavaScript types are **silently converted** rather than rejected — worth knowing before you rely on round-tripping them:
+
+- A `Date` value is stored (and read back) as a **number** — Unix epoch **seconds**, not milliseconds, and not an ISO string. Reading it back gives you a plain number, not a `Date`.
+- `NaN` is stored (and read back) as the **string** `"NaN"`.
+
+A key whose value is `undefined` is silently dropped rather than stored as `null` or rejected. If you need `Date`/`NaN` values preserved as such, convert them yourself (e.g. `date.toISOString()`) before passing metadata in.
+
 ### Disabling Page-Content Round-Tripping
 
 By default the page content is stored as `_page_content` in metadata so it can be restored on reads. Set `pageContentMetadataKey` to `null` to skip this (e.g. when you only need embeddings + metadata, not the original text):

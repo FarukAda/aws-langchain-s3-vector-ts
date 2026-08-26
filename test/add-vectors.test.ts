@@ -147,6 +147,13 @@ describe('AmazonS3Vectors.addVectors', () => {
     ).rejects.toThrow('Number of IDs (1) must match number of vectors (2)');
   });
 
+  it('throws for mismatched ids even when vectors and documents are both empty, instead of silently returning []', async () => {
+    await expect(store.addVectors([], [], { ids: ['stale-id-1', 'stale-id-2'] })).rejects.toThrow(
+      'Number of IDs (2) must match number of vectors (0)',
+    );
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(0);
+  });
+
   it('never auto-creates when createIndexIfNotExist is false, but still validates against the existing index — once, cached', async () => {
     const localStore = new AmazonS3Vectors(createMockEmbeddings(), {
       ...BASE_CONFIG,

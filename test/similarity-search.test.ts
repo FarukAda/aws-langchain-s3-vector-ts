@@ -413,6 +413,25 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     );
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
   });
+
+  // Confirmed live against real AWS: QueryVectors rejects topK above 10,000
+  // with a ValidationException — checked locally before spending the round trip.
+  it("rejects a k above AWS's topK limit of 10,000", async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+
+    await expect(store.similaritySearchVectorWithScore([1, 2, 3], 10_001)).rejects.toThrow(
+      "k (10001) exceeds AWS's topK limit of 10000",
+    );
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
+  it('accepts a k exactly at the 10,000 topK limit', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+
+    await expect(store.similaritySearchVectorWithScore([1, 2, 3], 10_000)).resolves.toEqual([]);
+  });
 });
 
 describe('AmazonS3Vectors read-path distance-metric validation', () => {

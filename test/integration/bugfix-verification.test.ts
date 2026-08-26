@@ -77,6 +77,38 @@ if (!env) {
       }
     }, 60_000);
 
+    it('does not fail when two SEPARATE store instances race on creating the same brand-new index', async () => {
+      // Unlike the same-instance race above (which never leaves this
+      // process — `_ensureIndexPromise` memoizes it to a single CreateIndex
+      // call), two independent instances genuinely both attempt CreateIndex
+      // against AWS, so this is the one that actually exercises the real
+      // cross-process ConflictException recovery path against live AWS.
+      const indexName = `bf-cross-race-${randomUUID().slice(0, 8)}`;
+      const storeA = new AmazonS3Vectors(randomEmbeddings(), {
+        vectorBucketName: safeEnv.bucketName,
+        indexName,
+        region: safeEnv.region,
+      });
+      const storeB = new AmazonS3Vectors(randomEmbeddings(), {
+        vectorBucketName: safeEnv.bucketName,
+        indexName,
+        region: safeEnv.region,
+      });
+
+      try {
+        const results = await Promise.all([
+          storeA.addDocuments([new Document({ pageContent: 'a', metadata: {} })], { ids: ['a'] }),
+          storeB.addDocuments([new Document({ pageContent: 'b', metadata: {} })], { ids: ['b'] }),
+        ]);
+        expect(results).toEqual([['a'], ['b']]);
+
+        const docs = await storeA.getByIds(['a', 'b']);
+        expect(docs.map((d) => d.id).sort()).toEqual(['a', 'b']);
+      } finally {
+        await storeA.delete({ deleteAll: true }).catch(() => undefined);
+      }
+    }, 60_000);
+
     it('similaritySearch uses queryEmbeddings; similaritySearchWithRelevanceScores returns scores', async () => {
       const indexName = `bf-search-${randomUUID().slice(0, 8)}`;
       const indexEmb = randomEmbeddings();

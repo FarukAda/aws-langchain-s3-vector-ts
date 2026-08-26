@@ -104,6 +104,61 @@ describe('AmazonS3Vectors rejects an invalid batchSize', () => {
   });
 });
 
+describe("AmazonS3Vectors rejects a batchSize above AWS's per-call ceiling", () => {
+  // Confirmed live against real AWS: PutVectors/DeleteVectors reject above
+  // 500, GetVectors above 100 — same ValidationException either way, so
+  // this checks it locally before spending the round trip.
+  it('addVectors throws for batchSize 501 (PutVectors cap is 500)', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    await expect(
+      store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { batchSize: 501 }),
+    ).rejects.toThrow("batchSize (501) exceeds AWS's limit of 500 per call");
+  });
+
+  it('addDocuments throws for batchSize 501 (PutVectors cap is 500)', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    await expect(
+      store.addDocuments([new Document({ pageContent: 'x' })], { batchSize: 501 }),
+    ).rejects.toThrow("batchSize (501) exceeds AWS's limit of 500 per call");
+  });
+
+  it('addVectors accepts batchSize exactly at the 500 cap', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    await expect(
+      store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { batchSize: 500 }),
+    ).resolves.toEqual(expect.any(Array));
+  });
+
+  it('delete throws for batchSize 501 (DeleteVectors cap is 500)', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+    await expect(store.delete({ ids: ['a'], batchSize: 501 })).rejects.toThrow(
+      "batchSize (501) exceeds AWS's limit of 500 per call",
+    );
+  });
+
+  it('getByIds throws for batchSize 101 (GetVectors cap is 100)', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    await expect(store.getByIds(['a'], { batchSize: 101 })).rejects.toThrow(
+      "batchSize (101) exceeds AWS's limit of 100 per call",
+    );
+  });
+
+  it('getByIds accepts batchSize exactly at the 100 cap', async () => {
+    const { client, mock } = createMockClient();
+    mock.on(GetVectorsCommand).callsFake((input) => ({
+      vectors: (input.keys ?? []).map((k: string) => ({ key: k, metadata: { _page_content: k } })),
+    }));
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    await expect(store.getByIds(['a'], { batchSize: 100 })).resolves.toEqual(expect.any(Array));
+  });
+});
+
 describe('AmazonS3Vectors.delete runs batches concurrently', () => {
   it('starts every DeleteVectors batch before waiting for any of them to settle', async () => {
     const { client, mock } = createMockClient();
