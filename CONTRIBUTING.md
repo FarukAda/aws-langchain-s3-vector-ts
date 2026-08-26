@@ -1,0 +1,42 @@
+# Contributing
+
+Contributions are welcome — please open an issue to discuss non-trivial changes before submitting a PR.
+
+## Local Development
+
+```bash
+git clone https://github.com/FarukAda/aws-langchain-s3-vector-ts.git
+cd aws-langchain-s3-vector-ts
+nvm use                # reads .nvmrc → Node 22 (the package itself supports Node >=20; see engines.node)
+npm ci
+npm test               # unit tests, enforced at 100% coverage
+npm run build
+```
+
+## Before Opening a PR
+
+- `npm run lint` and `npm run typecheck` must pass with no output.
+- `npm test` must pass with 100% statement/branch/function/line coverage (enforced by the Jest `coverageThreshold` in `jest.config.cjs` — a PR that drops coverage fails CI).
+- `npm run build` must succeed.
+- New behavior needs new tests; behavioral changes need a `CHANGELOG.md` entry under `## [Unreleased]` ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format).
+- CI (`.github/workflows/ci.yml`) runs lint, typecheck, the full test matrix (3 OS × Node 20/22/24), a production-dependency `npm audit`, and a build — on every push to `main` and every PR targeting it.
+
+## Coding Standards
+
+- **TypeScript strict mode** plus `noUncheckedIndexedAccess`, `noUnusedLocals`, `noUnusedParameters`.
+- **ESLint flat config** (`eslint.config.ts`) with `typescript-eslint` recommended-type-checked rules, Prettier, and import sorting via `eslint-plugin-perfectionist`.
+- **No-`instanceof` rule** enforced — use brand symbols or type guards instead (see `src/shared/stub-embeddings.ts` and `src/shared/errors/s3-vectors-error.ts` for the pattern).
+- **Commit style:** Conventional Commits (`feat`, `fix`, `refactor`, `test`, `chore`, `docs`).
+- No unused exports/files (`npm run unused`, backed by `knip`), no unused/missing dependencies (`npx depcheck .`), and no duplicated code blocks (`npm run cpd`, backed by `jscpd`) — run these in addition to lint/typecheck before opening a PR.
+
+## Behavioural Parity with Python
+
+This package tracks [`langchain_aws.vectorstores.s3_vectors.base.AmazonS3Vectors`](https://github.com/langchain-ai/langchain-aws/blob/main/libs/aws/langchain_aws/vectorstores/s3_vectors/base.py) for behaviour. Batch sizes, metadata conventions, and duplicate-ID deep-copy semantics all match the Python reference. If upstream Python fixes a bug or adds a feature, please open an issue so we can port it here — and if a deliberate divergence from Python is needed (e.g. a safety guard Python doesn't have), call it out explicitly in the PR description.
+
+## Reporting Bugs
+
+Use [GitHub Issues](https://github.com/FarukAda/aws-langchain-s3-vector-ts/issues). Include: package version, Node version, a minimal reproduction, and the actual vs. expected behavior. For security vulnerabilities, see [`SECURITY.md`](./SECURITY.md) instead — do not open a public issue.
+
+## Code of Conduct
+
+This project follows the [Contributor Covenant](./CODE_OF_CONDUCT.md).

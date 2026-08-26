@@ -611,31 +611,9 @@ docs/                             # TypeDoc-generated API docs (checked in)
 
 ## 🤝 Contributing
 
-Contributions are welcome — please open an issue or PR on [GitHub](https://github.com/FarukAda/aws-langchain-s3-vector-ts).
+Contributions are welcome — please open an issue to discuss non-trivial changes before submitting a PR. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for local development setup, coding standards, and PR expectations, and [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) for community expectations.
 
-### Local Development
-
-```bash
-git clone https://github.com/FarukAda/aws-langchain-s3-vector-ts.git
-cd aws-langchain-s3-vector-ts
-nvm use                # reads .nvmrc → Node 22
-npm ci
-npm test               # unit tests at 100% coverage
-npm run build
-```
-
-### Coding Standards
-
-- **TypeScript strict mode** plus `noUncheckedIndexedAccess`, `noUnusedLocals`, `noUnusedParameters`.
-- **ESLint flat config** (`eslint.config.ts`) with `typescript-eslint` recommended-type-checked rules, Prettier, and import sorting via `eslint-plugin-perfectionist`.
-- **No-`instanceof` rule** enforced — use brand symbols or type guards instead (see `src/shared/stub-embeddings.ts` for the pattern).
-- **Commit style:** Conventional Commits (`feat`, `fix`, `refactor`, `test`, `chore`, `docs`).
-
-See [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) for community expectations.
-
-### Behavioural Parity with Python
-
-This package tracks [`langchain_aws.vectorstores.s3_vectors.base.AmazonS3Vectors`](https://github.com/langchain-ai/langchain-aws/blob/main/libs/aws/langchain_aws/vectorstores/s3_vectors/base.py) for behaviour. Batch sizes, metadata conventions, duplicate-ID deep-copy semantics, and index auto-creation all match the Python reference. If upstream Python fixes a bug or adds a feature, please open an issue so we can port it here.
+Found a security issue? See [`SECURITY.md`](./SECURITY.md) instead of opening a public issue.
 
 ## 📄 License
 
