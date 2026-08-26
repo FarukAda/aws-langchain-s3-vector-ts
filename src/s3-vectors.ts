@@ -404,9 +404,16 @@ export class AmazonS3Vectors extends VectorStore {
    * @param params.batchSize - Number of IDs per `DeleteVectors` call (default: 500)
    * @param params.deleteAll - Must be `true` (with `ids` omitted) to delete the entire index
    * @throws Error if both `ids` and `deleteAll` are omitted — a safety guard against an
-   * accidentally-`undefined` `ids` array silently wiping the whole index
+   * accidentally-`undefined` `ids` array silently wiping the whole index — or if both `ids`
+   * and `deleteAll` are passed together
    */
   async delete(params?: S3VectorsDeleteParams): Promise<void> {
+    if (params?.ids !== undefined && params?.deleteAll === true) {
+      throw this._validationError(
+        'delete',
+        'delete() cannot take both `ids` and `deleteAll: true` — pass one or the other.',
+      );
+    }
     const ids = params?.ids;
 
     if (ids === undefined) {

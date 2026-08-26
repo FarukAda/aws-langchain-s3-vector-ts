@@ -53,4 +53,11 @@ describe('AmazonS3Vectors.delete', () => {
     expect(deleteCalls).toHaveLength(1);
     expect(deleteCalls[0]!.args[0].input.keys).toEqual(['a', 'b']);
   });
+
+  it('throws when both ids and deleteAll are provided', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+
+    await expect(store.delete({ ids: ['a'], deleteAll: true })).rejects.toThrow(/cannot take both/);
+  });
 });

@@ -37,6 +37,10 @@ This package tracks [`langchain_aws.vectorstores.s3_vectors.base.AmazonS3Vectors
 
 Use [GitHub Issues](https://github.com/FarukAda/aws-langchain-s3-vector-ts/issues). Include: package version, Node version, a minimal reproduction, and the actual vs. expected behavior. For security vulnerabilities, see [`SECURITY.md`](./SECURITY.md) instead — do not open a public issue.
 
+## Release Process
+
+Releases are handled by the maintainer via a tag-triggered GitHub Actions workflow (`.github/workflows/release.yml`) using npm Trusted Publishing (OIDC) — no manual `npm publish` or long-lived npm token involved. Version numbers follow [Semantic Versioning](https://semver.org/); for a `0.x` package, breaking changes bump the minor version.
+
 ## Code of Conduct
 
 This project follows the [Contributor Covenant](./CODE_OF_CONDUCT.md).
