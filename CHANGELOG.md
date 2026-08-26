@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-26
+
 ### Added
 
 - `AbortSignal` support on every method that calls AWS — `addVectors`, `addDocuments`, `addTexts`, `delete`, `getByIds`, all `similaritySearch*` methods, and the `fromTexts`/`fromDocuments` static factories. An aborted operation rejects with a new coded error, `S3VectorsErrorCode.ABORTED`, distinct from `AWS_REQUEST_FAILED`. Confirmed live: aborting mid-write cancels the AWS request actually in flight rather than waiting for it to finish, and a signal that's already aborted before the call starts rejects immediately with no network call. `embedDocuments`/`embedQuery` have no cancellation support in LangChain's `EmbeddingsInterface`, so a batch already being embedded when the signal fires still completes; `addDocuments` checks the signal before starting the next batch's embedding so it doesn't pay for that expensive, uncancellable call for a write nobody wants anymore.
