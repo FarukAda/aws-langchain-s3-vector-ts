@@ -3,6 +3,8 @@ import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
+import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
+import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import {
   BASE_CONFIG,
   createMockClient,
@@ -45,6 +47,35 @@ describe('AmazonS3Vectors concurrent index creation', () => {
     const ids = await store.addDocuments([new Document({ pageContent: 'x' })], { ids: ['id-1'] });
     expect(ids).toEqual(['id-1']);
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
+  });
+
+  it("re-fetches and validates against the winning process's actual committed index after a ConflictException", async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    // First GetIndex: not found (so we attempt to create). After our
+    // CreateIndex loses to a ConflictException, the second GetIndex call
+    // reveals what the winning process actually committed — a different
+    // dimension than our own vector.
+    const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
+    mock
+      .on(GetIndexCommand)
+      .rejectsOnce(notFoundError)
+      .resolves({ index: { indexName: 'test-index', dimension: 5, distanceMetric: 'cosine' } });
+    const conflictError = Object.assign(new Error('already exists'), { name: 'ConflictException' });
+    mock.on(CreateIndexCommand).rejects(conflictError);
+
+    const error = await store
+      .addDocuments([new Document({ pageContent: 'x' })], { ids: ['id-1'] })
+      .catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+    );
+    expect((error as Error).message).toContain('dimension 5');
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
   });
 
   it('still surfaces a non-conflict CreateIndex failure', async () => {

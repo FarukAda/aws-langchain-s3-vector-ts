@@ -147,20 +147,65 @@ describe('AmazonS3Vectors.addVectors', () => {
     ).rejects.toThrow('Number of IDs (1) must match number of vectors (2)');
   });
 
-  it('skips the index existence check when createIndexIfNotExist is false', async () => {
+  it('never auto-creates when createIndexIfNotExist is false, but still validates against the existing index — once, cached', async () => {
     const localStore = new AmazonS3Vectors(createMockEmbeddings(), {
       ...BASE_CONFIG,
       client,
       createIndexIfNotExist: false,
+    });
+    mock.on(GetIndexCommand).resolves({
+      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
     });
     mock.on(PutVectorsCommand).resolves({});
 
     await localStore.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], {
       ids: ['id-1'],
     });
+    // A second write should reuse the cached validation, not re-fetch.
+    await localStore.addVectors([[4, 5, 6]], [new Document({ pageContent: 'y' })], {
+      ids: ['id-2'],
+    });
 
-    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(0);
+    expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(2);
+  });
+
+  it('lets PutVectors fail naturally when createIndexIfNotExist is false and the index genuinely does not exist', async () => {
+    const localStore = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+      createIndexIfNotExist: false,
+    });
+    const notFound = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
+    mock.on(GetIndexCommand).rejects(notFound);
+    mock
+      .on(PutVectorsCommand)
+      .rejects(Object.assign(new Error('no such index'), { name: 'NotFoundException' }));
+
+    await expect(
+      localStore.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
+    ).rejects.toThrow();
+
+    expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
+  });
+
+  it('rejects a mismatched write against an existing index even when createIndexIfNotExist is false', async () => {
+    const localStore = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+      createIndexIfNotExist: false,
+    });
+    mock.on(GetIndexCommand).resolves({
+      index: { indexName: 'test-index', dimension: 5, distanceMetric: 'cosine' },
+    });
+
+    await expect(
+      localStore.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
+    ).rejects.toThrow('dimension 5');
+
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
   });
 
   it('rethrows non-NotFound errors when checking for existing index', async () => {

@@ -115,6 +115,16 @@ export class AmazonS3Vectors extends VectorStore {
     dimension: number;
     distanceMetric: DistanceMetric;
   } | null> | null = null;
+  /**
+   * Cached result of the one-time `GetIndex` fetch performed under
+   * `createIndexIfNotExist: false` to validate against — that flag means
+   * "the caller manages the index lifecycle, don't check on every write,"
+   * so this is fetched once and reused, not memoized per-call like
+   * {@link _ensureIndexPromise}. Cleared by {@link delete} when the whole
+   * index is deleted, so a later write re-fetches instead of validating
+   * against a now-stale index.
+   */
+  private _validatedIndexInfo: { dimension: number; distanceMetric: DistanceMetric } | null = null;
 
   // ── Constructor ───────────────────────────────────────────────────────
 
@@ -454,6 +464,9 @@ export class AmazonS3Vectors extends VectorStore {
           }),
         ),
       );
+      // The index no longer exists — a cached compatibility check against
+      // it would validate a later write against a now-deleted index.
+      this._validatedIndexInfo = null;
     } else {
       const batchSize = params?.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
       this._validateBatchSize('delete', batchSize);
@@ -766,7 +779,7 @@ export class AmazonS3Vectors extends VectorStore {
       };
     });
 
-    if (batchOffset === 0 && this.createIndexIfNotExist) {
+    if (batchOffset === 0) {
       // Checked per-caller, before joining any shared existence/creation
       // work below — a caller's own empty batch must never be blamed on a
       // different, concurrently-racing caller (or vice versa).
@@ -778,10 +791,7 @@ export class AmazonS3Vectors extends VectorStore {
         );
       }
 
-      const existing = await this._ensureIndexExists(firstVector);
-      if (existing !== null) {
-        this._assertIndexCompatible(existing, firstVector, operation);
-      }
+      await this._validateBeforeWrite(firstVector, operation);
     }
 
     await this._send('PutVectors', () =>
@@ -796,13 +806,57 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
+   * Validate the first batch's vector against the index's actual
+   * dimension/distance metric before any write — checked regardless of
+   * {@link createIndexIfNotExist}, so a caller relying on an
+   * externally-managed index (`createIndexIfNotExist: false`) still gets
+   * an early, friendly `INDEX_CONFIG_MISMATCH` instead of an opaque AWS
+   * error when the index's actual configuration doesn't match this
+   * store's.
+   *
+   * @remarks
+   * When `createIndexIfNotExist` is `false`, this flag means "the caller
+   * manages the index lifecycle" — not "skip validation" — so the index's
+   * dimension/metric is fetched via `GetIndex` once and cached in
+   * {@link _validatedIndexInfo} (cleared by {@link delete} on a full-index
+   * delete), rather than re-fetched on every write the way the auto-create
+   * path's memoized existence-check naturally already is. If the index
+   * genuinely doesn't exist yet, this deliberately does *not* throw —
+   * `PutVectors` still fails naturally below, matching this flag's
+   * pre-existing behavior for a missing index (it never auto-creates one).
+   */
+  private async _validateBeforeWrite(firstVector: number[], operation: string): Promise<void> {
+    if (this.createIndexIfNotExist) {
+      const existing = await this._ensureIndexExists(firstVector);
+      if (existing !== null) {
+        this._assertIndexCompatible(existing, firstVector, operation);
+      }
+      return;
+    }
+
+    if (this._validatedIndexInfo !== null) {
+      this._assertIndexCompatible(this._validatedIndexInfo, firstVector, operation);
+      return;
+    }
+
+    const existing = await this._getIndex();
+    if (existing !== null) {
+      this._validatedIndexInfo = existing;
+      this._assertIndexCompatible(existing, firstVector, operation);
+    }
+  }
+
+  /**
    * Ensure the configured index exists, creating it if needed, and return
-   * its dimension/distance metric — from the pre-existing index, or from
-   * the index this call just created — so every concurrent caller sharing
-   * this memo has something to validate its own vector against. Returns
-   * `null` only when a *different* process won a cross-process creation
-   * race: our own `CreateIndex` lost with a `ConflictException`, so we
-   * never learn what dimension/metric the winner actually used.
+   * its dimension/distance metric — from the pre-existing index, from the
+   * index this call just created, or (after losing a cross-process
+   * creation race) re-fetched so the winning process's actual committed
+   * dimension/metric is still known — so every concurrent caller sharing
+   * this memo has something to validate its own vector against. `null` is
+   * only possible if that post-race re-fetch itself finds nothing (the
+   * index was deleted again in the brief window since the conflict) —
+   * an already-negligible race made one step more negligible, not a gap
+   * left standing.
    *
    * In-flight creation attempts are memoized so concurrent callers share
    * one GetIndex/CreateIndex sequence instead of racing (same-process
@@ -844,9 +898,10 @@ export class AmazonS3Vectors extends VectorStore {
           const cause = (error as { cause?: unknown }).cause;
           if (!isAwsConflictException(cause)) throw error;
           // Another process created the index between our GetIndex and
-          // CreateIndex calls — fine, but we don't know its actual
-          // dimension/metric, so there's genuinely nothing to return.
-          return null;
+          // CreateIndex calls. Fetch what it actually committed — without
+          // this, every caller sharing this memo would skip validation
+          // entirely, exactly the race this method exists to close.
+          return await this._getIndex();
         }
         return { dimension: firstVector.length, distanceMetric: this.distanceMetric };
       } finally {

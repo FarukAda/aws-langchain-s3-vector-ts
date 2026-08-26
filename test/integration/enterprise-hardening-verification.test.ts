@@ -134,6 +134,46 @@ if (!env) {
       }
     }, 120_000);
 
+    it('rejects a mismatched write even with createIndexIfNotExist: false', async () => {
+      const indexName = `eh-noautocreate-${randomUUID().slice(0, 8)}`;
+      const creator = new AmazonS3Vectors(randomEmbeddings(4), {
+        vectorBucketName: safeEnv.bucketName,
+        indexName,
+        region: safeEnv.region,
+      });
+
+      try {
+        await creator.addVectors([[1, 2, 3, 4]], [new Document({ pageContent: 'x' })], {
+          ids: ['id-1'],
+        });
+
+        const manualStore = new AmazonS3Vectors(randomEmbeddings(8), {
+          vectorBucketName: safeEnv.bucketName,
+          indexName,
+          region: safeEnv.region,
+          createIndexIfNotExist: false,
+        });
+
+        const error = await manualStore
+          .addVectors([[1, 2, 3, 4, 5, 6, 7, 8]], [new Document({ pageContent: 'y' })], {
+            ids: ['id-2'],
+          })
+          .catch((e: unknown) => e);
+
+        expect(isS3VectorsError(error)).toBe(true);
+        expect((error as { code: S3VectorsErrorCode }).code).toBe(
+          S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+        );
+
+        // Confirms it was rejected locally, before any write reached AWS.
+        const docs = await creator.getByIds(['id-1']);
+        expect(docs).toHaveLength(1);
+        await expect(creator.getByIds(['id-2'])).rejects.toThrow('not found');
+      } finally {
+        await creator.delete({ deleteAll: true }).catch(() => undefined);
+      }
+    }, 60_000);
+
     it('delete() requires deleteAll:true to actually remove the index', async () => {
       const indexName = `eh-deleteguard-${randomUUID().slice(0, 8)}`;
       const store = new AmazonS3Vectors(randomEmbeddings(4), {
