@@ -68,14 +68,12 @@
     "@aws-sdk/client-s3vectors": "^3.1117.0",
     "@langchain/core": "^1.2.9"
   },
-  "dependencies": {
-    "@aws-sdk/client-s3vectors": "^3.1117.0",
-    "@langchain/core": "^1.2.9"
-  },
   "devDependencies": {
+    "@aws-sdk/client-s3vectors": "^3.1117.0",
     "@eslint/js": "^10.0.1",
     "@jest/globals": "^30.4.1",
     "@langchain/aws": "^1.4.4",
+    "@langchain/core": "^1.2.9",
     "@smithy/types": "^4.17.2",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.2.0",
