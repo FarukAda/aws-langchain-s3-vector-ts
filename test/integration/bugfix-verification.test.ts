@@ -144,7 +144,7 @@ if (!env) {
       ).rejects.toThrow('batchSize must be a positive integer');
     }, 10_000);
 
-    it('does not exceed the 10-key non-filterable cap when the user already configured 10 keys', async () => {
+    it('throws instead of creating an index that would silently make page content filterable, at the 10-key cap', async () => {
       const indexName = `bf-tenkeys-${randomUUID().slice(0, 8)}`;
       const tenKeys = Array.from({ length: 10 }, (_, i) => `key_${i}`);
       const store = new AmazonS3Vectors(randomEmbeddings(), {
@@ -152,6 +152,33 @@ if (!env) {
         indexName,
         region: safeEnv.region,
         nonFilterableMetadataKeys: tenKeys,
+      });
+
+      try {
+        await expect(
+          store.addDocuments([new Document({ pageContent: 'x', metadata: {} })], {
+            ids: ['id-1'],
+          }),
+        ).rejects.toThrow('10-key');
+
+        const exists = await rawClient
+          .send(new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }))
+          .then(() => true)
+          .catch(() => false);
+        expect(exists).toBe(false);
+      } finally {
+        await store.delete({ deleteAll: true }).catch(() => undefined);
+      }
+    }, 60_000);
+
+    it('includes the page-content key at the boundary — 9 configured keys plus the auto-added one', async () => {
+      const indexName = `bf-nineplusone-${randomUUID().slice(0, 8)}`;
+      const nineKeys = Array.from({ length: 9 }, (_, i) => `key_${i}`);
+      const store = new AmazonS3Vectors(randomEmbeddings(), {
+        vectorBucketName: safeEnv.bucketName,
+        indexName,
+        region: safeEnv.region,
+        nonFilterableMetadataKeys: nineKeys,
       });
 
       try {
@@ -163,8 +190,7 @@ if (!env) {
           new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }),
         );
         const keys = index.index?.metadataConfiguration?.nonFilterableMetadataKeys ?? [];
-        expect(new Set(keys)).toEqual(new Set(tenKeys));
-        expect(keys).not.toContain('_page_content');
+        expect(new Set(keys)).toEqual(new Set([...nineKeys, '_page_content']));
       } finally {
         await store.delete({ deleteAll: true }).catch(() => undefined);
       }

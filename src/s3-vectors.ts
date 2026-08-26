@@ -44,12 +44,13 @@ const MAX_CONCURRENT_BATCH_CALLS = 10;
 /**
  * Max `QueryVectors` pages per search — defense-in-depth against a
  * response that keeps returning `nextToken` without ever satisfying `k`.
- * Set to AWS's own `topK` ceiling (10,000): even a heavily-filtered index
- * yielding as little as one real match per page still reaches `k` within
- * this bound at AWS's maximum `topK`, so a legitimate search is never
- * truncated by it — it only stops a response that never converges.
+ * AWS's page size is fixed (confirmed live: `topK` of 101, 1,000, and
+ * 10,000 each still return exactly 100 vectors per page — it isn't a
+ * caller-tunable or query-content-dependent value), and `topK` itself
+ * caps at 10,000, so 100 pages (10,000 / 100) is the most any legitimate
+ * search could ever need. This only stops a response that never converges.
  */
-const MAX_QUERY_PAGES = 10_000;
+const MAX_QUERY_PAGES = 100;
 
 /** Default metadata key to store page_content in. */
 const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
@@ -274,6 +275,19 @@ export class AmazonS3Vectors extends VectorStore {
     for (const batchDocs of chunk(documents, batchSize)) {
       const batchTexts = batchDocs.map((d) => d.pageContent);
       const batchVectors = await embeddings.embedDocuments(batchTexts);
+
+      // An embeddings model that drops or adds entries (e.g. one that
+      // silently skips empty strings) would otherwise re-pair a vector with
+      // the wrong document/id below, via the shared index-based zip in
+      // _ensureIndexAndPut — addVectors already guards this exact invariant
+      // for caller-supplied vectors; this is the same guard for the
+      // embeddings-model-supplied case.
+      if (batchVectors.length !== batchDocs.length) {
+        throw this._validationError(
+          'addDocuments',
+          `Embeddings model returned ${batchVectors.length} vectors for ${batchDocs.length} documents — it must return exactly one vector per document.`,
+        );
+      }
 
       await this._ensureIndexAndPut(
         'addDocuments',
@@ -974,19 +988,47 @@ export class AmazonS3Vectors extends VectorStore {
     }
   }
 
-  /** Create the vector index with the given dimension. */
+  /**
+   * Create the vector index with the given dimension.
+   *
+   * @throws {S3VectorsError} If auto-adding {@link pageContentMetadataKey}
+   * to {@link nonFilterableMetadataKeys} would exceed AWS's 10-key cap.
+   * @remarks
+   * This must throw rather than silently create the index with page
+   * content left out of the non-filterable list: page content would then
+   * count as *filterable* metadata, capped at 2 KB per vector by AWS —
+   * and S3 Vectors has no `UpdateIndex`, so a document over that size
+   * would only fail at write time, against an index that can never be
+   * fixed without deleting it (and every vector already in it).
+   */
   private async _createIndex(dimension: number): Promise<void> {
     const MAX_NON_FILTERABLE_KEYS = 10;
+    const configuredKeys = this.nonFilterableMetadataKeys ?? [];
     const withPageContentKey =
       this.pageContentMetadataKey === null
         ? this.nonFilterableMetadataKeys
-        : [...new Set([...(this.nonFilterableMetadataKeys ?? []), this.pageContentMetadataKey])];
-    // Don't silently push an existing, working config over AWS's 10-key cap —
-    // fall back to the user's own list unchanged if auto-adding would exceed it.
-    const nonFilterableKeys =
-      withPageContentKey && withPageContentKey.length > MAX_NON_FILTERABLE_KEYS
-        ? this.nonFilterableMetadataKeys
-        : withPageContentKey;
+        : [...new Set([...configuredKeys, this.pageContentMetadataKey])];
+
+    // Scoped to "adding the page-content key specifically is what pushes
+    // this over the cap" — a caller-configured list that already exceeds
+    // the cap on its own (pageContentMetadataKey: null included) is a
+    // different, pre-existing user error that AWS's own CreateIndex
+    // validation already rejects clearly; this message would be
+    // misleading for that case since no page-content key is being added.
+    if (
+      this.pageContentMetadataKey !== null &&
+      withPageContentKey &&
+      withPageContentKey.length > MAX_NON_FILTERABLE_KEYS
+    ) {
+      throw this._validationError(
+        'createIndex',
+        `Cannot add pageContentMetadataKey ("${this.pageContentMetadataKey}") to ` +
+          `nonFilterableMetadataKeys — that would exceed AWS's ${MAX_NON_FILTERABLE_KEYS}-key ` +
+          `cap (currently ${configuredKeys.length} configured). Reduce ` +
+          `nonFilterableMetadataKeys, or set pageContentMetadataKey: null to store page content ` +
+          `as filterable metadata instead (capped at 2 KB per vector by AWS).`,
+      );
+    }
 
     await this._send('CreateIndex', () =>
       this._client.send(
@@ -996,8 +1038,8 @@ export class AmazonS3Vectors extends VectorStore {
           dataType: this.dataType,
           dimension,
           distanceMetric: this.distanceMetric,
-          ...(nonFilterableKeys && nonFilterableKeys.length > 0
-            ? { metadataConfiguration: { nonFilterableMetadataKeys: nonFilterableKeys } }
+          ...(withPageContentKey && withPageContentKey.length > 0
+            ? { metadataConfiguration: { nonFilterableMetadataKeys: withPageContentKey } }
             : {}),
         }),
       ),

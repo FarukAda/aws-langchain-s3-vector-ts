@@ -398,7 +398,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     const results = await store.similaritySearchVectorWithScore([1, 2, 3], 500);
 
     expect(results).toEqual([]);
-    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(10_000);
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(100);
   });
 
   it('rejects k values that are not a positive integer', async () => {

@@ -146,12 +146,12 @@ for (const [doc, distance] of results) {
 
 ### Relevance Scores (for LangChain retrievers)
 
-LangChain expects a *relevance score* (higher is better, normalized to ~[0, 1]). This package ships with built-in converters:
+LangChain expects a *relevance score* (higher is better). This package ships with built-in converters:
 
 ```typescript
 import {
-  cosineRelevanceScoreFn,       // 1.0 - distance
-  euclideanRelevanceScoreFn,    // 1.0 - distance / sqrt(4096)
+  cosineRelevanceScoreFn,       // 1.0 - distance — bounded to [-1, 1]
+  euclideanRelevanceScoreFn,    // 1.0 - distance / sqrt(4096) — see note below
 } from "@farukada/aws-langchain-s3-vector-ts";
 
 // Or supply your own:
@@ -161,6 +161,8 @@ const store = new AmazonS3Vectors(embeddings, {
   relevanceScoreFn: (d) => Math.exp(-d),
 });
 ```
+
+`cosineRelevanceScoreFn` is reliably bounded ([-1, 1], typically [0, 1] for normalized embeddings). `euclideanRelevanceScoreFn` is **not** reliably bounded to [0, 1]: S3 Vectors' `euclidean` metric is actually *squared* L2 distance, not linear L2, so this heuristic (inherited from the Python `langchain-aws` reference for parity) divides a squared value by a linear scale — for unit-normalized embeddings the score lands in a narrow band close to 1 rather than spanning [0, 1], and for unnormalized or high-magnitude embeddings it can go negative. Pass your own `relevanceScoreFn` if you need threshold-able scores on a euclidean index.
 
 Use it via `similaritySearchWithRelevanceScores`:
 
@@ -380,7 +382,9 @@ const store = new AmazonS3Vectors(embeddings, {
 });
 ```
 
-By default, the configured `pageContentMetadataKey` (`_page_content` unless changed) is automatically included in this list when this library creates the index — document text is exactly the kind of large value this feature exists for, and filterable metadata is capped at 2 KB per vector versus 40 KB total. Pass your own `nonFilterableMetadataKeys` alongside it as shown above; the two lists are merged (deduplicated), not replaced.
+By default, the configured `pageContentMetadataKey` (`_page_content` unless changed) is automatically included in this list when this library creates the index — document text is exactly the kind of large value this feature exists for, and filterable metadata is capped at 2 KB per vector versus 40 KB total. Pass your own `nonFilterableMetadataKeys` alongside it as shown above; the two lists are merged (deduplicated).
+
+AWS caps `nonFilterableMetadataKeys` at 10 keys per index. If your own list is already at 10 and `pageContentMetadataKey` would push it to 11, index creation throws a validation error rather than silently creating the index with page content left out of the list — a `10`-and-under-with-page-content-included list would otherwise make page content *filterable* metadata (the 2 KB cap) instead of non-filterable (40 KB), with no way to fix it afterward (S3 Vectors has no way to reconfigure an existing index's metadata configuration). If you hit this, either trim your own list to 9 keys or fewer, or set `pageContentMetadataKey: null` to store page content as filterable metadata deliberately.
 
 This configuration applies at index-creation time — it cannot be changed after the index exists.
 
