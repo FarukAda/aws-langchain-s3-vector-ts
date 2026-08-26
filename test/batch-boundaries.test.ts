@@ -219,3 +219,112 @@ describe('AmazonS3Vectors.delete bounds concurrent batch calls', () => {
     expect(maxInFlight).toBeGreaterThan(1); // still genuinely concurrent, not accidentally serialized
   });
 });
+
+describe('AmazonS3Vectors.addVectors runs batches after the first concurrently', () => {
+  it('starts every batch after the first before waiting for any of them to settle', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    mockExistingIndex(mock);
+
+    const started: string[] = [];
+    let resolveFirstRest: (() => void) | undefined;
+    const firstRestGate = new Promise<void>((resolve) => {
+      resolveFirstRest = resolve;
+    });
+
+    mock.on(PutVectorsCommand).callsFake(async (input) => {
+      const key = input.vectors?.[0]?.key;
+      started.push(`start:${key}`);
+      if (key === 'id-1') {
+        await firstRestGate; // deliberately blocks the first "rest" batch
+      }
+      return {};
+    });
+
+    const vectors = Array.from({ length: 4 }, () => [1, 2, 3]);
+    const docs = Array.from({ length: 4 }, (_, i) => new Document({ pageContent: `d-${i}` }));
+    const ids = ['id-0', 'id-1', 'id-2', 'id-3'];
+
+    const addPromise = store.addVectors(vectors, docs, { ids, batchSize: 1 });
+
+    // Let the event loop tick so every dispatched batch has a chance to start.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Batch 0 (the first, serial one — it creates/validates the index)
+    // always completes before the rest start. Once it's done, batches
+    // 1/2/3 should all be dispatched together — batch 1 is blocked on
+    // firstRestGate, so a sequential-loop implementation would never have
+    // started batch 2 or 3 yet.
+    expect(started).toEqual(['start:id-0', 'start:id-1', 'start:id-2', 'start:id-3']);
+
+    resolveFirstRest?.();
+    await addPromise;
+  });
+
+  it('never has more than 10 PutVectors calls in flight at once', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    mockExistingIndex(mock);
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mock.on(PutVectorsCommand).callsFake(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      inFlight -= 1;
+      return {};
+    });
+
+    // 25 batches of 1 vector each (batchSize 1) — well over the concurrency cap.
+    const vectors = Array.from({ length: 25 }, () => [1, 2, 3]);
+    const docs = Array.from({ length: 25 }, (_, i) => new Document({ pageContent: `d-${i}` }));
+    const ids = Array.from({ length: 25 }, (_, i) => `id-${i}`);
+
+    await store.addVectors(vectors, docs, { ids, batchSize: 1 });
+
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(25);
+    expect(maxInFlight).toBeLessThanOrEqual(10);
+    expect(maxInFlight).toBeGreaterThan(1);
+  });
+});
+
+describe('AmazonS3Vectors.addDocuments runs PutVectors concurrently but embedDocuments strictly sequentially', () => {
+  it('never calls embedDocuments concurrently, even while PutVectors batches run concurrently', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+
+    let putInFlight = 0;
+    let maxPutInFlight = 0;
+    mock.on(PutVectorsCommand).callsFake(async () => {
+      putInFlight += 1;
+      maxPutInFlight = Math.max(maxPutInFlight, putInFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      putInFlight -= 1;
+      return {};
+    });
+
+    let embedInFlight = 0;
+    let maxEmbedInFlight = 0;
+    const embeddings = {
+      embedDocuments: async (texts: string[]) => {
+        embedInFlight += 1;
+        maxEmbedInFlight = Math.max(maxEmbedInFlight, embedInFlight);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        embedInFlight -= 1;
+        return texts.map(() => [1, 2, 3]);
+      },
+      embedQuery: async () => [1, 2, 3],
+    };
+
+    const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+
+    const docs = Array.from({ length: 25 }, (_, i) => new Document({ pageContent: `d-${i}` }));
+    await store.addDocuments(docs, { batchSize: 1 });
+
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(25);
+    expect(maxPutInFlight).toBeGreaterThan(1); // PutVectors: genuinely concurrent
+    expect(maxPutInFlight).toBeLessThanOrEqual(10);
+    expect(maxEmbedInFlight).toBe(1); // embedDocuments: never concurrent
+  });
+});

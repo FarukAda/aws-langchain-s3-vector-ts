@@ -18,6 +18,7 @@ import type { DocumentType as __DocumentType } from '@smithy/types';
 
 import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './relevance-scores.js';
 import { chunk } from './shared/batching.js';
+import { isAbortError } from './shared/errors/aws-abort.js';
 import { isAwsConflictException } from './shared/errors/aws-conflict.js';
 import { isAwsNotFoundException } from './shared/errors/aws-not-found.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
@@ -209,13 +210,17 @@ export class AmazonS3Vectors extends VectorStore {
    * @param options - Optional settings
    * @param options.ids - Custom IDs for each vector (auto-generated if omitted)
    * @param options.batchSize - Number of vectors per `PutVectors` call (default: 200)
+   * @param options.signal - Abort an in-progress write. Cancels the AWS SDK
+   * request currently in flight and stops any further `PutVectors` calls
+   * from starting; a batch's `PutVectors` call already in flight when the
+   * signal fires is cancelled mid-request, not allowed to complete.
    * @returns The IDs assigned to each stored vector
    * @throws Error if counts of vectors, documents, or IDs don't match
    */
   async addVectors(
     vectors: number[][],
     documents: Document[],
-    options?: { ids?: string[]; batchSize?: number },
+    options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
     if (vectors.length !== documents.length) {
       throw this._validationError(
@@ -238,18 +243,18 @@ export class AmazonS3Vectors extends VectorStore {
 
     const batchSize = options?.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
     this._validateBatchSize('addVectors', batchSize, MAX_PUT_BATCH_SIZE);
+    const signal = options?.signal;
 
-    let offset = 0;
-    for (const slice of chunk(vectors, batchSize)) {
-      await this._ensureIndexAndPut(
+    await this._runBatchesConcurrently(chunk(vectors, batchSize), (batch, offset) =>
+      this._ensureIndexAndPut(
         'addVectors',
         offset,
-        slice,
-        documents.slice(offset, offset + slice.length),
-        ids.slice(offset, offset + slice.length),
-      );
-      offset += slice.length;
-    }
+        batch,
+        documents.slice(offset, offset + batch.length),
+        ids.slice(offset, offset + batch.length),
+        signal,
+      ),
+    );
 
     return ids;
   }
@@ -258,19 +263,35 @@ export class AmazonS3Vectors extends VectorStore {
    * Embed documents and store them in the vector index.
    *
    * @remarks
-   * Documents are embedded **per batch** to keep peak memory usage low
-   * for large document sets (matching the Python `langchain-aws` implementation).
+   * Documents are embedded **per batch, one batch at a time** to keep peak
+   * embedding-provider load low for large document sets (matching the
+   * Python `langchain-aws` implementation) — `embedDocuments` is never
+   * called concurrently for two batches, since most embedding providers
+   * rate-limit aggressively and this library gives no retry/backoff
+   * guarantee for that call. Once a batch is embedded, its `PutVectors`
+   * call is dispatched without waiting for it to finish before embedding
+   * the next batch, up to 10 `PutVectors` calls in flight at once — AWS's
+   * own SDK already retries throttling there. Peak memory for in-flight
+   * vectors is therefore bounded by roughly `10 × batchSize`, not
+   * `batchSize` alone, in exchange for meaningfully higher write
+   * throughput on large ingests.
    *
    * @param documents - Array of documents to embed and store
    * @param options - Optional settings
    * @param options.ids - Custom IDs for each vector (auto-generated if omitted)
    * @param options.batchSize - Number of documents per embedding + put batch (default: 200)
+   * @param options.signal - Abort an in-progress write. `embedDocuments`
+   * itself can't be cancelled mid-call (LangChain's `EmbeddingsInterface`
+   * has no signal support), so a batch already being embedded when the
+   * signal fires still completes — but no further batch is embedded or put
+   * afterward, and any `PutVectors` call already in flight is cancelled
+   * mid-request.
    * @returns The IDs assigned to each stored vector
    * @throws Error if count of IDs doesn't match count of documents
    */
   async addDocuments(
     documents: Document[],
-    options?: { ids?: string[]; batchSize?: number },
+    options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
     // Checked before the empty-batch short-circuit below — a caller passing
     // a stale/mismatched `ids` array alongside an empty `documents` array is
@@ -287,12 +308,11 @@ export class AmazonS3Vectors extends VectorStore {
 
     const batchSize = options?.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
     this._validateBatchSize('addDocuments', batchSize, MAX_PUT_BATCH_SIZE);
+    const signal = options?.signal;
 
     const embeddings = this._getIndexEmbeddings();
-    let offset = 0;
-    for (const batchDocs of chunk(documents, batchSize)) {
-      const batchTexts = batchDocs.map((d) => d.pageContent);
-      const batchVectors = await embeddings.embedDocuments(batchTexts);
+    const embedBatch = async (batchDocs: Document[]): Promise<number[][]> => {
+      const batchVectors = await embeddings.embedDocuments(batchDocs.map((d) => d.pageContent));
 
       // An embeddings model that drops or adds entries (e.g. one that
       // silently skips empty strings) would otherwise re-pair a vector with
@@ -306,15 +326,57 @@ export class AmazonS3Vectors extends VectorStore {
           `Embeddings model returned ${batchVectors.length} vectors for ${batchDocs.length} documents — it must return exactly one vector per document.`,
         );
       }
-
-      await this._ensureIndexAndPut(
+      return batchVectors;
+    };
+    const putBatch = (batch: Document[], offset: number, batchVectors: number[][]) =>
+      this._ensureIndexAndPut(
         'addDocuments',
         offset,
         batchVectors,
-        batchDocs,
-        ids.slice(offset, offset + batchDocs.length),
+        batch,
+        ids.slice(offset, offset + batch.length),
+        signal,
       );
-      offset += batchDocs.length;
+
+    // documents.length === 0 already returned above, so chunk() here always
+    // yields at least one non-empty batch — batches[0] is never undefined.
+    const batches = chunk(documents, batchSize);
+    const firstBatch = batches[0]!;
+
+    // The first batch is embedded and put alone, awaited before anything
+    // else starts — it's the one that creates or validates the index
+    // (batchOffset === 0 inside _ensureIndexAndPut), so every later batch
+    // depends on it having already happened.
+    let offset = firstBatch.length;
+    await putBatch(firstBatch, 0, await embedBatch(firstBatch));
+
+    const rest: { batch: Document[]; offset: number }[] = [];
+    for (const batch of batches.slice(1)) {
+      rest.push({ batch, offset });
+      offset += batch.length;
+    }
+
+    for (const group of chunk(rest, MAX_CONCURRENT_BATCH_CALLS)) {
+      // embedDocuments has no signal support, so it can't self-cancel the
+      // way _send()'s AWS calls do — check explicitly before spending an
+      // expensive, uncancellable call on a batch nobody wants anymore.
+      this._checkAborted('addDocuments', signal);
+
+      // Embed every batch in the group sequentially — embedDocuments is
+      // never called concurrently for two batches, since most embedding
+      // providers rate-limit aggressively and this library gives no
+      // retry/backoff guarantee for that call — then dispatch the whole
+      // group's PutVectors calls together, since AWS's SDK already
+      // retries throttling there.
+      const withVectors: { batch: Document[]; offset: number; vectors: number[][] }[] = [];
+      for (const { batch, offset: batchOffset } of group) {
+        withVectors.push({ batch, offset: batchOffset, vectors: await embedBatch(batch) });
+      }
+      await Promise.all(
+        withVectors.map(({ batch, offset: batchOffset, vectors }) =>
+          putBatch(batch, batchOffset, vectors),
+        ),
+      );
     }
 
     return ids;
@@ -332,13 +394,14 @@ export class AmazonS3Vectors extends VectorStore {
    * @param options - Optional settings
    * @param options.ids - Custom IDs for each vector (auto-generated if omitted)
    * @param options.batchSize - Number of documents per batch (default: 200)
+   * @param options.signal - Forwarded to {@link addDocuments}.
    * @returns The IDs assigned to each stored vector
    * @throws Error if count of metadatas doesn't match count of texts
    */
   async addTexts(
     texts: string[],
     metadatas?: Record<string, unknown>[],
-    options?: { ids?: string[]; batchSize?: number },
+    options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
     if (metadatas && metadatas.length !== texts.length) {
       throw this._validationError(
@@ -363,19 +426,27 @@ export class AmazonS3Vectors extends VectorStore {
    * @param query - Embedding vector to search against
    * @param k - Number of results to return
    * @param filter - Optional metadata filter (S3 Vectors filter syntax)
+   * @param signal - Abort an in-progress search. Cancels the `QueryVectors`
+   * call currently in flight and stops any further pagination.
    * @returns Array of `[Document, distance]` tuples, ordered by similarity
    */
   async similaritySearchVectorWithScore(
     query: number[],
     k: number,
     filter?: this['FilterType'],
+    signal?: AbortSignal,
   ): Promise<[Document, number][]> {
-    const outputVectors = await this._queryVectors('similaritySearchVectorWithScore', k, {
-      queryVector: { float32: query },
-      filter: filter as __DocumentType | undefined,
-      returnMetadata: true,
-      returnDistance: true,
-    });
+    const outputVectors = await this._queryVectors(
+      'similaritySearchVectorWithScore',
+      k,
+      {
+        queryVector: { float32: query },
+        filter: filter as __DocumentType | undefined,
+        returnMetadata: true,
+        returnDistance: true,
+      },
+      signal,
+    );
 
     return outputVectors.map((v) => [
       createDocument(v, this.pageContentMetadataKey),
@@ -399,10 +470,15 @@ export class AmazonS3Vectors extends VectorStore {
     query: string,
     k = 4,
     filter?: this['FilterType'],
+    _callbacks?: Callbacks,
+    signal?: AbortSignal,
   ): Promise<[Document, number][]> {
     this._validateK('similaritySearchWithScore', k);
+    // embedQuery has no signal support (LangChain's EmbeddingsInterface
+    // doesn't accept one), so it can't be cancelled mid-call — only the
+    // QueryVectors call after it can.
     const queryVector = await this._getQueryEmbeddings().embedQuery(query);
-    return this.similaritySearchVectorWithScore(queryVector, k, filter);
+    return this.similaritySearchVectorWithScore(queryVector, k, filter, signal);
   }
 
   /**
@@ -419,24 +495,35 @@ export class AmazonS3Vectors extends VectorStore {
     k = 4,
     filter?: this['FilterType'],
     _callbacks?: Callbacks,
+    signal?: AbortSignal,
   ): Promise<Document[]> {
-    return (await this.similaritySearchWithScore(query, k, filter)).map(([doc]) => doc);
+    return (await this.similaritySearchWithScore(query, k, filter, undefined, signal)).map(
+      ([doc]) => doc,
+    );
   }
 
   /**
    * Return documents most similar to a raw embedding vector (no scores).
+   *
+   * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
    */
   async similaritySearchByVector(
     embedding: number[],
     k = 4,
     filter?: this['FilterType'],
+    signal?: AbortSignal,
   ): Promise<Document[]> {
-    const outputVectors = await this._queryVectors('similaritySearchByVector', k, {
-      queryVector: { float32: embedding },
-      filter: filter as __DocumentType | undefined,
-      returnMetadata: true,
-      returnDistance: false,
-    });
+    const outputVectors = await this._queryVectors(
+      'similaritySearchByVector',
+      k,
+      {
+        queryVector: { float32: embedding },
+        filter: filter as __DocumentType | undefined,
+        returnMetadata: true,
+        returnDistance: false,
+      },
+      signal,
+    );
 
     return outputVectors.map((v) => createDocument(v, this.pageContentMetadataKey));
   }
@@ -445,14 +532,17 @@ export class AmazonS3Vectors extends VectorStore {
    * Run a text-based similarity search and return documents with
    * *relevance scores* (higher is better), converted from S3 Vectors'
    * raw distance via {@link _selectRelevanceScoreFn}.
+   *
+   * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
    */
   async similaritySearchWithRelevanceScores(
     query: string,
     k = 4,
     filter?: this['FilterType'],
+    signal?: AbortSignal,
   ): Promise<[Document, number][]> {
     const scoreFn = this._selectRelevanceScoreFn();
-    const results = await this.similaritySearchWithScore(query, k, filter);
+    const results = await this.similaritySearchWithScore(query, k, filter, undefined, signal);
     return results.map(([doc, distance]) => [doc, scoreFn(distance)]);
   }
 
@@ -463,6 +553,9 @@ export class AmazonS3Vectors extends VectorStore {
    * @param params.ids - Vector IDs to delete
    * @param params.batchSize - Number of IDs per `DeleteVectors` call (default: 500)
    * @param params.deleteAll - Must be `true` (with `ids` omitted) to delete the entire index
+   * @param params.signal - Abort an in-progress delete. Cancels the
+   * `DeleteVectors`/`DeleteIndex` call currently in flight and stops any
+   * further batches from starting.
    * @throws Error if both `ids` and `deleteAll` are omitted — a safety guard against an
    * accidentally-`undefined` `ids` array silently wiping the whole index — or if both `ids`
    * and `deleteAll` are passed together
@@ -470,6 +563,7 @@ export class AmazonS3Vectors extends VectorStore {
   async delete(params?: S3VectorsDeleteParams): Promise<void> {
     const ids = params?.ids;
     const deleteAll = params?.deleteAll === true;
+    const signal = params?.signal;
 
     // Both validation checks up front, flat — everything below this point
     // is action dispatch, not validation.
@@ -494,6 +588,7 @@ export class AmazonS3Vectors extends VectorStore {
             vectorBucketName: this.vectorBucketName,
             indexName: this.indexName,
           }),
+          { abortSignal: signal },
         ),
       );
       // The index no longer exists — a cached compatibility check against
@@ -512,6 +607,7 @@ export class AmazonS3Vectors extends VectorStore {
                   indexName: this.indexName,
                   keys: batchIds,
                 }),
+                { abortSignal: signal },
               ),
             ),
           ),
@@ -531,12 +627,19 @@ export class AmazonS3Vectors extends VectorStore {
    * @param ids - Array of vector IDs to retrieve
    * @param options - Optional settings
    * @param options.batchSize - Number of IDs per `GetVectors` call (default: 100)
+   * @param options.signal - Abort an in-progress fetch. Cancels the
+   * `GetVectors` calls currently in flight and stops any further batches
+   * from starting.
    * @returns Array of documents in the same order as the input IDs
    * @throws Error if any ID is not found in the vector store
    */
-  async getByIds(ids: string[], options?: { batchSize?: number }): Promise<Document[]> {
+  async getByIds(
+    ids: string[],
+    options?: { batchSize?: number; signal?: AbortSignal },
+  ): Promise<Document[]> {
     const batchSize = options?.batchSize ?? DEFAULT_GET_BATCH_SIZE;
     this._validateBatchSize('getByIds', batchSize, MAX_GET_BATCH_SIZE);
+    const signal = options?.signal;
     const batches = chunk(ids, batchSize);
 
     // Bound the number of in-flight GetVectors calls: process batches in
@@ -556,6 +659,7 @@ export class AmazonS3Vectors extends VectorStore {
                 returnData: false,
                 returnMetadata: true,
               }),
+              { abortSignal: signal },
             ),
           ),
         ),
@@ -603,7 +707,7 @@ export class AmazonS3Vectors extends VectorStore {
     texts: string[],
     metadatas: Record<string, unknown>[] | Record<string, unknown>,
     embeddings: EmbeddingsInterface,
-    config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number },
+    config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<AmazonS3Vectors> {
     if (Array.isArray(metadatas) && metadatas.length !== texts.length) {
       throw new S3VectorsError(
@@ -629,10 +733,14 @@ export class AmazonS3Vectors extends VectorStore {
   static async fromDocuments(
     docs: Document[],
     embeddings: EmbeddingsInterface,
-    config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number },
+    config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<AmazonS3Vectors> {
     const instance = new AmazonS3Vectors(embeddings, config);
-    await instance.addDocuments(docs, { ids: config.ids, batchSize: config.batchSize });
+    await instance.addDocuments(docs, {
+      ids: config.ids,
+      batchSize: config.batchSize,
+      signal: config.signal,
+    });
     return instance;
   }
 
@@ -745,12 +853,39 @@ export class AmazonS3Vectors extends VectorStore {
     }
   }
 
-  /** Run an AWS call, surfacing any failure as a coded {@link S3VectorsError}. */
+  /**
+   * Throw an `ABORTED` error if `signal` has already fired. Used before a
+   * step the AWS SDK can't cancel on its own (embedding a batch of
+   * documents), so an aborted operation doesn't pay for one more expensive,
+   * uncancellable call it no longer needs.
+   */
+  private _checkAborted(operation: string, signal: AbortSignal | undefined): void {
+    if (!signal?.aborted) return;
+    throw new S3VectorsError(
+      `${operation} was aborted.`,
+      S3VectorsErrorCode.ABORTED,
+      { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
+      signal.reason,
+    );
+  }
+
+  /**
+   * Run an AWS call, surfacing any failure as a coded {@link S3VectorsError}.
+   * An `AbortSignal` firing before or during the call surfaces as `ABORTED`
+   * rather than `AWS_REQUEST_FAILED` — it wasn't AWS that failed, the caller
+   * cancelled. The signal itself is threaded into the AWS request by the
+   * caller (via `{ abortSignal: signal }` in the `send` closure); the AWS
+   * SDK's HTTP handler already rejects immediately, without a network call,
+   * for a signal that's already aborted by the time a request is issued.
+   */
   private async _send<T>(operation: string, send: () => Promise<T>): Promise<T> {
     try {
       return await send();
     } catch (error: unknown) {
-      throw wrapAwsError(error, S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+      const code = isAbortError(error)
+        ? S3VectorsErrorCode.ABORTED
+        : S3VectorsErrorCode.AWS_REQUEST_FAILED;
+      throw wrapAwsError(error, code, {
         operation,
         vectorBucketName: this.vectorBucketName,
         indexName: this.indexName,
@@ -793,6 +928,7 @@ export class AmazonS3Vectors extends VectorStore {
       returnMetadata: boolean;
       returnDistance: boolean;
     },
+    signal?: AbortSignal,
   ): Promise<S3OutputVector[]> {
     this._validateK(operation, k);
     this._validateFilter(operation, input.filter);
@@ -811,6 +947,7 @@ export class AmazonS3Vectors extends VectorStore {
             nextToken,
             ...input,
           }),
+          { abortSignal: signal },
         ),
       );
 
@@ -828,6 +965,42 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
+   * Run a per-batch write `action` across pre-chunked batches. The FIRST
+   * batch is always awaited alone — it's the one that creates or validates
+   * the index (`batchOffset === 0` inside {@link _ensureIndexAndPut}), so
+   * every later batch's write depends on it having already happened. Every
+   * batch after that is independent and is dispatched concurrently, in
+   * groups of at most {@link MAX_CONCURRENT_BATCH_CALLS} in flight at once
+   * — the same concurrency pattern {@link delete} and {@link getByIds}
+   * already use for `DeleteVectors`/`GetVectors`.
+   *
+   * @internal Used by `addVectors`. `addDocuments` needs its embedding
+   * step to stay strictly sequential across batches (unlike this helper's
+   * concurrent dispatch), so it doesn't route through here — see its own
+   * batching loop.
+   */
+  private async _runBatchesConcurrently<T>(
+    batches: T[][],
+    action: (batch: T[], offset: number) => Promise<void>,
+  ): Promise<void> {
+    // addVectors (this helper's only caller) returns early on an empty
+    // vectors array before ever reaching here, so batches is never empty.
+    const firstBatch = batches[0]!;
+    await action(firstBatch, 0);
+
+    const rest: { batch: T[]; offset: number }[] = [];
+    let offset = firstBatch.length;
+    for (const batch of batches.slice(1)) {
+      rest.push({ batch, offset });
+      offset += batch.length;
+    }
+
+    for (const group of chunk(rest, MAX_CONCURRENT_BATCH_CALLS)) {
+      await Promise.all(group.map(({ batch, offset: batchOffset }) => action(batch, batchOffset)));
+    }
+  }
+
+  /**
    * Auto-create the index (on the first batch) and send a single PutVectors batch.
    *
    * @internal Shared helper extracted from `addVectors` / `addDocuments`.
@@ -838,6 +1011,7 @@ export class AmazonS3Vectors extends VectorStore {
     vectors: number[][],
     documents: Document[],
     ids: string[],
+    signal?: AbortSignal,
   ): Promise<void> {
     // Validate metadata (and build the PutVectors payload) BEFORE ever touching
     // AWS — a collision must not leave a freshly-created, now-permanently-
@@ -866,7 +1040,7 @@ export class AmazonS3Vectors extends VectorStore {
         );
       }
 
-      await this._validateBeforeWrite(firstVector, operation);
+      await this._validateBeforeWrite(firstVector, operation, signal);
     }
 
     await this._send('PutVectors', () =>
@@ -876,6 +1050,7 @@ export class AmazonS3Vectors extends VectorStore {
           indexName: this.indexName,
           vectors: putVectors,
         }),
+        { abortSignal: signal },
       ),
     );
   }
@@ -900,9 +1075,13 @@ export class AmazonS3Vectors extends VectorStore {
    * `PutVectors` still fails naturally below, matching this flag's
    * pre-existing behavior for a missing index (it never auto-creates one).
    */
-  private async _validateBeforeWrite(firstVector: number[], operation: string): Promise<void> {
+  private async _validateBeforeWrite(
+    firstVector: number[],
+    operation: string,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
     if (this.createIndexIfNotExist) {
-      const existing = await this._ensureIndexExists(firstVector);
+      const existing = await this._ensureIndexExists(firstVector, signal);
       if (existing !== null) {
         this._assertIndexCompatible(existing, firstVector, operation);
       }
@@ -914,7 +1093,7 @@ export class AmazonS3Vectors extends VectorStore {
       return;
     }
 
-    const existing = await this._getIndex();
+    const existing = await this._getIndex(signal);
     if (existing !== null) {
       this._validatedIndexInfo = existing;
       this._assertIndexCompatible(existing, firstVector, operation);
@@ -948,27 +1127,30 @@ export class AmazonS3Vectors extends VectorStore {
    * different vector dimensions would silently skip validating everyone
    * but the first caller, and could reject a later, genuinely-correct
    * caller with an error describing an earlier caller's vector instead.
-   * `firstVector` is only actually used by whichever caller's invocation
-   * wins the race to start this memo (later concurrent callers get the
-   * already-in-flight promise back before their own argument is ever
-   * consulted) — callers must validate their own vector is non-empty
+   * `firstVector` — and, likewise, `signal` — is only actually used by
+   * whichever caller's invocation wins the race to start this memo (later
+   * concurrent callers get the already-in-flight promise back before their
+   * own arguments are ever consulted); a later caller's own signal firing
+   * doesn't cancel a GetIndex/CreateIndex another caller's write is also
+   * depending on. Callers must validate their own vector is non-empty
    * *before* calling this, which is exactly what makes this function safe
    * to call with a plain `number[]` instead of `number[] | undefined`.
    */
   private _ensureIndexExists(
     firstVector: number[],
+    signal: AbortSignal | undefined,
   ): Promise<{ dimension: number; distanceMetric: DistanceMetric } | null> {
     if (this._ensureIndexPromise) return this._ensureIndexPromise;
 
     this._ensureIndexPromise = (async () => {
       try {
-        const existing = await this._getIndex();
+        const existing = await this._getIndex(signal);
         if (existing !== null) {
           return existing;
         }
 
         try {
-          await this._createIndex(firstVector.length);
+          await this._createIndex(firstVector.length, signal);
         } catch (error: unknown) {
           const cause = (error as { cause?: unknown }).cause;
           if (!isAwsConflictException(cause)) throw error;
@@ -976,7 +1158,7 @@ export class AmazonS3Vectors extends VectorStore {
           // CreateIndex calls. Fetch what it actually committed — without
           // this, every caller sharing this memo would skip validation
           // entirely, exactly the race this method exists to close.
-          return await this._getIndex();
+          return await this._getIndex(signal);
         }
         return { dimension: firstVector.length, distanceMetric: this.distanceMetric };
       } finally {
@@ -1026,13 +1208,16 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /** Check whether the configured index already exists, returning its dimension/metric if so. */
-  private async _getIndex(): Promise<{ dimension: number; distanceMetric: DistanceMetric } | null> {
+  private async _getIndex(
+    signal?: AbortSignal,
+  ): Promise<{ dimension: number; distanceMetric: DistanceMetric } | null> {
     try {
       const result = await this._client.send(
         new GetIndexCommand({
           vectorBucketName: this.vectorBucketName,
           indexName: this.indexName,
         }),
+        { abortSignal: signal },
       );
       const { dimension, distanceMetric } = result.index as {
         dimension: number;
@@ -1041,7 +1226,10 @@ export class AmazonS3Vectors extends VectorStore {
       return { dimension, distanceMetric };
     } catch (error: unknown) {
       if (isAwsNotFoundException(error)) return null;
-      throw wrapAwsError(error, S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+      const code = isAbortError(error)
+        ? S3VectorsErrorCode.ABORTED
+        : S3VectorsErrorCode.AWS_REQUEST_FAILED;
+      throw wrapAwsError(error, code, {
         operation: 'GetIndex',
         vectorBucketName: this.vectorBucketName,
         indexName: this.indexName,
@@ -1057,12 +1245,12 @@ export class AmazonS3Vectors extends VectorStore {
    * @remarks
    * This must throw rather than silently create the index with page
    * content left out of the non-filterable list: page content would then
-   * count as *filterable* metadata, capped at 2 KB per vector by AWS —
+   * count as *filterable* metadata, capped at 2048 bytes per vector by AWS —
    * and S3 Vectors has no `UpdateIndex`, so a document over that size
    * would only fail at write time, against an index that can never be
    * fixed without deleting it (and every vector already in it).
    */
-  private async _createIndex(dimension: number): Promise<void> {
+  private async _createIndex(dimension: number, signal?: AbortSignal): Promise<void> {
     const MAX_NON_FILTERABLE_KEYS = 10;
     const configuredKeys = this.nonFilterableMetadataKeys ?? [];
     const withPageContentKey =
@@ -1087,7 +1275,7 @@ export class AmazonS3Vectors extends VectorStore {
           `nonFilterableMetadataKeys — that would exceed AWS's ${MAX_NON_FILTERABLE_KEYS}-key ` +
           `cap (currently ${configuredKeys.length} configured). Reduce ` +
           `nonFilterableMetadataKeys, or set pageContentMetadataKey: null to store page content ` +
-          `as filterable metadata instead (capped at 2 KB per vector by AWS).`,
+          `as filterable metadata instead (capped at 2048 bytes per vector by AWS).`,
       );
     }
 
@@ -1103,6 +1291,7 @@ export class AmazonS3Vectors extends VectorStore {
             ? { metadataConfiguration: { nonFilterableMetadataKeys: withPageContentKey } }
             : {}),
         }),
+        { abortSignal: signal },
       ),
     );
   }

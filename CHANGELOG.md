@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `AbortSignal` support on every method that calls AWS — `addVectors`, `addDocuments`, `addTexts`, `delete`, `getByIds`, all `similaritySearch*` methods, and the `fromTexts`/`fromDocuments` static factories. An aborted operation rejects with a new coded error, `S3VectorsErrorCode.ABORTED`, distinct from `AWS_REQUEST_FAILED`. Confirmed live: aborting mid-write cancels the AWS request actually in flight rather than waiting for it to finish, and a signal that's already aborted before the call starts rejects immediately with no network call. `embedDocuments`/`embedQuery` have no cancellation support in LangChain's `EmbeddingsInterface`, so a batch already being embedded when the signal fires still completes; `addDocuments` checks the signal before starting the next batch's embedding so it doesn't pay for that expensive, uncancellable call for a write nobody wants anymore.
+- `addVectors` and `addDocuments` now dispatch `PutVectors` calls for batches after the first concurrently (up to 10 in flight at once, the same concurrency `delete()`/`getByIds()` already use), instead of awaiting each batch sequentially in a loop. `addDocuments` keeps `embedDocuments` strictly sequential across batches — never called concurrently for two batches, since most embedding providers rate-limit aggressively and this library gives no retry/backoff guarantee for that call — while still dispatching that batch's `PutVectors` call without waiting for it to finish before embedding the next one. Confirmed live with 2,500 documents, including correct id/pageContent/metadata pairing preserved across concurrent batches.
+- Published sourcemaps (`dist/*.js.map`) now embed the original TypeScript source directly (`inlineSources: true`) instead of pointing at `../src/*.ts`, a path that doesn't exist in the published package (`files` in `package.json` only ships `dist`, `LICENSE`, `README.md`). Previously, stepping into this library's code in a debugger produced a dead link; source is now available without also having to ship `src/` in the package.
+- Documented the exact metadata size limits confirmed live — 2048 bytes filterable per vector, 40,960 bytes total per vector (both KiB-exact, matching AWS's own error text) — along with why no client-side pre-flight check exists for them: probing shows the true byte count AWS measures isn't a simple `JSON.stringify(...).length` of the metadata object or of the value alone, and reproducing an unpublished algorithm risks rejecting metadata AWS would have accepted.
+
+- CI hardening: `CodeQL` (`.github/workflows/codeql.yml`) runs static analysis on every push/PR to `main` plus a weekly schedule; `Dependency Review` (`.github/workflows/dependency-review.yml`) fails a PR that introduces a high-severity-or-worse vulnerable dependency; `OpenSSF Scorecard` (`.github/workflows/scorecard.yml`) publishes a security-practices score to the public Scorecard dataset weekly and on push to `main`. The release workflow now also generates a CycloneDX SBOM (via npm's own built-in `npm sbom`, no extra third-party action) for the exact package version being published and attaches it to the GitHub Release.
+
+### Fixed
+
+- The `README.md` retriever example suggested `searchType: "similarity_score_threshold"` as a configurable option in a comment. That value isn't valid for `@langchain/core@1.2.9`'s `asRetriever()` (`"similarity" | "mmr"` are the only two), and the only real alternative, `"mmr"`, throws at call time in this store specifically (Maximal Marginal Relevance is intentionally not implemented). Replaced with an accurate note instead of a misleading example.
+- The README's Node.js version badge said `>=22.14` — stale since the `engines.node` floor was lowered to `>=20` in a previous release; the "Runtime Requirements" section already had the correct value.
+
 ## [0.4.0] - 2026-08-26
 
 ### Changed

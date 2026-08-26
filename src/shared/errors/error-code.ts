@@ -10,4 +10,6 @@ export enum S3VectorsErrorCode {
   AWS_REQUEST_FAILED = 'AWS_REQUEST_FAILED',
   /** An existing index's dimension or distance metric doesn't match this store's configuration. */
   INDEX_CONFIG_MISMATCH = 'INDEX_CONFIG_MISMATCH',
+  /** The caller-supplied `AbortSignal` fired before or during the operation. */
+  ABORTED = 'ABORTED',
 }

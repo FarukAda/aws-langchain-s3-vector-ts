@@ -1,4 +1,4 @@
-[**AWS LangChain S3 Vector TypeScript v0.3.2**](../README.md)
+[**AWS LangChain S3 Vector TypeScript v0.4.0**](../README.md)
 
 ***
 
@@ -6,7 +6,7 @@
 
 # Interface: S3OutputVector
 
-Defined in: [types.ts:129](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/cca4252ae9440b395772203f51ad85a117733cc5/src/types.ts#L129)
+Defined in: [types.ts:129](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/d7575aa8ad569378d6f3a49b62cfadee23c132c5/src/types.ts#L129)
 
 Shape of a single vector as returned by QueryVectors / GetVectors.
 
@@ -16,7 +16,7 @@ Shape of a single vector as returned by QueryVectors / GetVectors.
 
 > `readonly` `optional` **data?**: `object`
 
-Defined in: [types.ts:133](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/cca4252ae9440b395772203f51ad85a117733cc5/src/types.ts#L133)
+Defined in: [types.ts:133](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/d7575aa8ad569378d6f3a49b62cfadee23c132c5/src/types.ts#L133)
 
 #### float32?
 
@@ -28,7 +28,7 @@ Defined in: [types.ts:133](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` `optional` **distance?**: `number`
 
-Defined in: [types.ts:132](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/cca4252ae9440b395772203f51ad85a117733cc5/src/types.ts#L132)
+Defined in: [types.ts:132](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/d7575aa8ad569378d6f3a49b62cfadee23c132c5/src/types.ts#L132)
 
 ***
 
@@ -36,7 +36,7 @@ Defined in: [types.ts:132](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` **key**: `string`
 
-Defined in: [types.ts:130](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/cca4252ae9440b395772203f51ad85a117733cc5/src/types.ts#L130)
+Defined in: [types.ts:130](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/d7575aa8ad569378d6f3a49b62cfadee23c132c5/src/types.ts#L130)
 
 ***
 
@@ -44,4 +44,4 @@ Defined in: [types.ts:130](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [types.ts:131](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/cca4252ae9440b395772203f51ad85a117733cc5/src/types.ts#L131)
+Defined in: [types.ts:131](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/d7575aa8ad569378d6f3a49b62cfadee23c132c5/src/types.ts#L131)

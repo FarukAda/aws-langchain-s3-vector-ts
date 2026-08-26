@@ -148,4 +148,9 @@ export interface S3VectorsDeleteParams {
    * array silently wiping the whole index.
    */
   readonly deleteAll?: true;
+  /**
+   * Abort an in-progress delete. Cancels the `DeleteVectors`/`DeleteIndex`
+   * call currently in flight and stops any further batches from starting.
+   */
+  readonly signal?: AbortSignal;
 }
