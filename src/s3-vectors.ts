@@ -426,22 +426,26 @@ export class AmazonS3Vectors extends VectorStore {
    * and `deleteAll` are passed together
    */
   async delete(params?: S3VectorsDeleteParams): Promise<void> {
-    if (params?.ids !== undefined && params?.deleteAll === true) {
+    const ids = params?.ids;
+    const deleteAll = params?.deleteAll === true;
+
+    // Both validation checks up front, flat — everything below this point
+    // is action dispatch, not validation.
+    if (ids !== undefined && deleteAll) {
       throw this._validationError(
         'delete',
         'delete() cannot take both `ids` and `deleteAll: true` — pass one or the other.',
       );
     }
-    const ids = params?.ids;
+    if (ids === undefined && !deleteAll) {
+      throw this._validationError(
+        'delete',
+        'delete() with no `ids` would delete the entire index. Pass `{ deleteAll: true }` ' +
+          'to confirm, or pass `ids` to delete specific vectors.',
+      );
+    }
 
     if (ids === undefined) {
-      if (params?.deleteAll !== true) {
-        throw this._validationError(
-          'delete',
-          'delete() with no `ids` would delete the entire index. Pass `{ deleteAll: true }` ' +
-            'to confirm, or pass `ids` to delete specific vectors.',
-        );
-      }
       await this._send('DeleteIndex', () =>
         this._client.send(
           new DeleteIndexCommand({
@@ -722,16 +726,8 @@ export class AmazonS3Vectors extends VectorStore {
         ),
       );
 
-      if (
-        pageCount === 0 &&
-        response.distanceMetric !== undefined &&
-        response.distanceMetric !== this.distanceMetric
-      ) {
-        throw new S3VectorsError(
-          `Index "${this.indexName}" uses distance metric "${response.distanceMetric}", but this store is configured for "${this.distanceMetric}". Relevance scores would be computed against the wrong metric.`,
-          S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
-          { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
-        );
+      if (pageCount === 0 && response.distanceMetric !== undefined) {
+        this._assertMetricMatches(response.distanceMetric, operation);
       }
 
       const page = (response.vectors ?? []) as S3OutputVector[];
@@ -879,9 +875,20 @@ export class AmazonS3Vectors extends VectorStore {
         { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
       );
     }
-    if (existing.distanceMetric !== this.distanceMetric) {
+    this._assertMetricMatches(existing.distanceMetric, operation);
+  }
+
+  /**
+   * Reject a mismatch between an actual (existing-index or query-response)
+   * distance metric and this store's configured one. Shared by the write
+   * path ({@link _assertIndexCompatible}) and the read path
+   * ({@link _queryVectors}) — a metric mismatch would silently compute
+   * relevance scores against the wrong metric either way.
+   */
+  private _assertMetricMatches(actualMetric: DistanceMetric, operation: string): void {
+    if (actualMetric !== this.distanceMetric) {
       throw new S3VectorsError(
-        `Index "${this.indexName}" uses distance metric "${existing.distanceMetric}", but this store is configured for "${this.distanceMetric}". Relevance scores would be computed against the wrong metric.`,
+        `Index "${this.indexName}" uses distance metric "${actualMetric}", but this store is configured for "${this.distanceMetric}". Relevance scores would be computed against the wrong metric.`,
         S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
         { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
       );

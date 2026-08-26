@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Lowered the `engines.node` floor from `>=22.14.0` to `>=20`. The `>=22.14.0` floor was mistakenly justified by an unrelated *publish-time* requirement (npm Trusted Publishing needs npm CLI ≥11.5.1, which ships with Node ≥24 — that only affects the release workflow, never the published package's runtime). Both peer dependencies already require only Node ≥20, and no code in this package uses a Node 22+-only API. CI now also tests against Node 20.
 - CI (`ci.yml`) now also runs on pull requests targeting `main`, not just pushes to `main`.
 - `k` must now be a positive integer for every similarity-search method — matches the existing `batchSize` guard's pattern, and for the string-query methods (`similaritySearch`, `similaritySearchWithScore`, `similaritySearchWithRelevanceScores`) is checked before the query is embedded, so an invalid `k` doesn't cost a billable embedding call.
+- The constructor now validates `vectorBucketName` against AWS's own documented naming rules (3–63 characters; lowercase letters, numbers, and hyphens only) instead of only rejecting an empty string — a malformed bucket name now fails fast and locally instead of surfacing as an opaque AWS `ValidationException` on the first API call.
+- CI workflows now pin every third-party GitHub Action to a specific commit SHA (with the release version as a trailing comment) instead of a floating major-version tag. Dependabot's existing `github-actions` update job keeps these current automatically.
 
 ### Added
 

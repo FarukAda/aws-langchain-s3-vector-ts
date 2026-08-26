@@ -19,17 +19,33 @@ describe('assertValidIndexConfig', () => {
     }
   });
 
+  it('rejects a bucket name that is too short', () => {
+    expect(() => assertValidIndexConfig('bb', 'my-index')).toThrow('3–63 characters');
+  });
+
+  it('rejects a bucket name that is too long', () => {
+    expect(() => assertValidIndexConfig('a'.repeat(64), 'my-index')).toThrow('3–63 characters');
+  });
+
+  it('rejects malformed bucket names', () => {
+    expect(() => assertValidIndexConfig('-bad', 'my-index')).toThrow('lowercase');
+    expect(() => assertValidIndexConfig('bad-', 'my-index')).toThrow('lowercase');
+    expect(() => assertValidIndexConfig('UPPER', 'my-index')).toThrow('lowercase');
+    // Dots are valid in index names but not in bucket names.
+    expect(() => assertValidIndexConfig('has.dot', 'my-index')).toThrow('lowercase');
+  });
+
   it('rejects an index name that is too short', () => {
-    expect(() => assertValidIndexConfig('b', 'ab')).toThrow('3–63 characters');
+    expect(() => assertValidIndexConfig('my-bucket', 'ab')).toThrow('3–63 characters');
   });
 
   it('rejects an index name that is too long', () => {
-    expect(() => assertValidIndexConfig('b', 'a'.repeat(64))).toThrow('3–63 characters');
+    expect(() => assertValidIndexConfig('my-bucket', 'a'.repeat(64))).toThrow('3–63 characters');
   });
 
   it('rejects malformed index names', () => {
-    expect(() => assertValidIndexConfig('b', '-bad')).toThrow('lowercase');
-    expect(() => assertValidIndexConfig('b', 'bad-')).toThrow('lowercase');
-    expect(() => assertValidIndexConfig('b', 'UPPER')).toThrow('lowercase');
+    expect(() => assertValidIndexConfig('my-bucket', '-bad')).toThrow('lowercase');
+    expect(() => assertValidIndexConfig('my-bucket', 'bad-')).toThrow('lowercase');
+    expect(() => assertValidIndexConfig('my-bucket', 'UPPER')).toThrow('lowercase');
   });
 });
