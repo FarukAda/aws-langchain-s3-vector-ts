@@ -688,8 +688,11 @@ examples/                         # Standalone real-AWS verification scripts (.m
 
 .github/workflows/
 ├── ci.yml                        # CI on push/PR to main (3 OS × Node 20/22/24)
+├── codeql.yml                    # Static analysis on push/PR to main + weekly
+├── dependency-review.yml         # Fails a PR introducing a high-severity+ vulnerable dependency
+├── scorecard.yml                 # OpenSSF Scorecard, published weekly + on push to main
 ├── integration-live.yml          # Nightly + workflow_dispatch live-AWS smoke via OIDC
-└── release.yml                   # Tag-triggered publish via npm Trusted Publishing
+└── release.yml                   # Tag-triggered publish via npm Trusted Publishing (+ SBOM)
 
 docs/                             # TypeDoc-generated API docs (checked in)
 ```

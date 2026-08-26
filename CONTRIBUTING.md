@@ -19,7 +19,7 @@ npm run build
 - `npm test` must pass with 100% statement/branch/function/line coverage (enforced by the Jest `coverageThreshold` in `jest.config.cjs` — a PR that drops coverage fails CI).
 - `npm run build` must succeed.
 - New behavior needs new tests; behavioral changes need a `CHANGELOG.md` entry under `## [Unreleased]` ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format).
-- CI (`.github/workflows/ci.yml`) runs lint, typecheck, the full test matrix (3 OS × Node 20/22/24), a production-dependency `npm audit`, and a build — on every push to `main` and every PR targeting it.
+- CI (`.github/workflows/ci.yml`) runs lint, typecheck, the full test matrix (3 OS × Node 20/22/24), a production-dependency `npm audit`, and a build — on every push to `main` and every PR targeting it. `codeql.yml` (static analysis) and `dependency-review.yml` (fails on a newly-introduced high-severity+ vulnerable dependency) run alongside it on PRs targeting `main`; `scorecard.yml` runs weekly and on push to `main`, publishing a security-practices score to the public [OpenSSF Scorecard](https://scorecard.dev/) dataset.
 
 ## Coding Standards
 
