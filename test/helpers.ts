@@ -91,6 +91,8 @@ export function mockIndexAutoCreated(mock: AwsClientStub<S3VectorsClient>): void
  * resolves.
  */
 export function mockExistingIndex(mock: AwsClientStub<S3VectorsClient>): void {
-  mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } });
+  mock.on(GetIndexCommand).resolves({
+    index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+  });
   mock.on(PutVectorsCommand).resolves({});
 }

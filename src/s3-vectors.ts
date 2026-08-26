@@ -725,7 +725,10 @@ export class AmazonS3Vectors extends VectorStore {
     this._ensureIndexPromise = (async () => {
       try {
         const existing = await this._getIndex();
-        if (existing !== null) return;
+        if (existing !== null) {
+          this._assertIndexCompatible(existing, firstVector, operation);
+          return;
+        }
 
         if (!firstVector || firstVector.length === 0) {
           throw this._validationError(
@@ -749,8 +752,35 @@ export class AmazonS3Vectors extends VectorStore {
     return this._ensureIndexPromise;
   }
 
-  /** Check whether the configured index already exists. */
-  private async _getIndex(): Promise<Record<string, unknown> | null> {
+  /**
+   * Reject a write against an existing index whose dimension or distance
+   * metric doesn't match this store's configuration — otherwise a dimension
+   * mismatch surfaces later as an opaque `PutVectors` error, and a metric
+   * mismatch would silently compute relevance scores against the wrong metric.
+   */
+  private _assertIndexCompatible(
+    existing: { dimension: number; distanceMetric: DistanceMetric },
+    firstVector: number[] | undefined,
+    operation: string,
+  ): void {
+    if (firstVector && firstVector.length > 0 && existing.dimension !== firstVector.length) {
+      throw new S3VectorsError(
+        `Index "${this.indexName}" has dimension ${existing.dimension}, but the vector being written has dimension ${firstVector.length}.`,
+        S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+        { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
+      );
+    }
+    if (existing.distanceMetric !== this.distanceMetric) {
+      throw new S3VectorsError(
+        `Index "${this.indexName}" uses distance metric "${existing.distanceMetric}", but this store is configured for "${this.distanceMetric}". Relevance scores would be computed against the wrong metric.`,
+        S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+        { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
+      );
+    }
+  }
+
+  /** Check whether the configured index already exists, returning its dimension/metric if so. */
+  private async _getIndex(): Promise<{ dimension: number; distanceMetric: DistanceMetric } | null> {
     try {
       const result = await this._client.send(
         new GetIndexCommand({
@@ -758,7 +788,12 @@ export class AmazonS3Vectors extends VectorStore {
           indexName: this.indexName,
         }),
       );
-      return result as unknown as Record<string, unknown>;
+      if (!result.index) return null;
+      const { dimension, distanceMetric } = result.index as {
+        dimension: number;
+        distanceMetric: DistanceMetric;
+      };
+      return { dimension, distanceMetric };
     } catch (error: unknown) {
       if (isAwsNotFoundException(error)) return null;
       throw wrapAwsError(error, S3VectorsErrorCode.AWS_REQUEST_FAILED, {

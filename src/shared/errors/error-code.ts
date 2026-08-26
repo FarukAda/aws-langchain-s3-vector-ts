@@ -8,4 +8,6 @@ export enum S3VectorsErrorCode {
   EMBEDDINGS_MISSING = 'EMBEDDINGS_MISSING',
   /** An underlying AWS S3 Vectors request failed. */
   AWS_REQUEST_FAILED = 'AWS_REQUEST_FAILED',
+  /** An existing index's dimension or distance metric doesn't match this store's configuration. */
+  INDEX_CONFIG_MISMATCH = 'INDEX_CONFIG_MISMATCH',
 }

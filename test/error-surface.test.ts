@@ -10,7 +10,7 @@ import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.j
 describe('AmazonS3Vectors error surface', () => {
   it('wraps AWS failures as S3VectorsError with operation context', async () => {
     const { client, mock } = createMockClient();
-    mock.on(GetIndexCommand).resolves({ index: {} });
+    mock.on(GetIndexCommand).resolves({ index: { dimension: 3, distanceMetric: 'cosine' } });
     mock
       .on(PutVectorsCommand)
       .rejects(Object.assign(new Error('denied'), { name: 'AccessDeniedException' }));
