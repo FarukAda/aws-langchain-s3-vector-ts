@@ -18,7 +18,7 @@ async function expectDefaultsTopKTo4(
   const { client, mock } = createMockClient();
   const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 
-  mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+  mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
 
   await callMethod(store);
   expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.topK).toBe(4);
@@ -42,6 +42,7 @@ function setupQueryEmbeddingsScenario() {
 
   mock.on(QueryVectorsCommand).resolves({
     vectors: [{ key: 'id-1', metadata: { _page_content: 'r' }, distance: 0.1 }],
+    distanceMetric: 'cosine',
   });
 
   return { store, indexEmb, queryEmb };
@@ -56,6 +57,7 @@ describe('AmazonS3Vectors.similaritySearchVectorWithScore', () => {
         { key: 'id-1', metadata: { _page_content: 'hello', genre: 'test' }, distance: 0.1 },
         { key: 'id-2', metadata: { _page_content: 'world', genre: 'test' }, distance: 0.5 },
       ],
+      distanceMetric: 'cosine',
     });
 
     const results = await store.similaritySearchVectorWithScore([1, 2, 3], 2);
@@ -82,6 +84,7 @@ describe('AmazonS3Vectors.similaritySearchWithScore', () => {
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { _page_content: 'result' }, distance: 0.2 }],
+      distanceMetric: 'cosine',
     });
 
     const results = await store.similaritySearchWithScore('query text', 1);
@@ -99,6 +102,7 @@ describe('AmazonS3Vectors.similaritySearchByVector', () => {
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { _page_content: 'doc' } }],
+      distanceMetric: 'cosine',
     });
 
     const results = await store.similaritySearchByVector([1, 2, 3], 1);
@@ -120,6 +124,7 @@ describe('AmazonS3Vectors page_content handling', () => {
       vectors: [
         { key: 'id-1', metadata: { _page_content: 'the content', other: 'meta' }, distance: 0 },
       ],
+      distanceMetric: 'cosine',
     });
 
     const results = await store.similaritySearchVectorWithScore([1], 1);
@@ -133,6 +138,7 @@ describe('AmazonS3Vectors page_content handling', () => {
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { some_field: 'value' }, distance: 0 }],
+      distanceMetric: 'cosine',
     });
 
     const results = await store.similaritySearchVectorWithScore([1], 1);
@@ -159,7 +165,7 @@ describe('AmazonS3Vectors.similaritySearchVectorWithScore fallbacks', () => {
   it('returns an empty array when the response has no vectors field', async () => {
     const { store, mock } = createTestStore();
 
-    mock.on(QueryVectorsCommand).resolves({});
+    mock.on(QueryVectorsCommand).resolves({ distanceMetric: 'cosine' });
 
     const results = await store.similaritySearchVectorWithScore([1], 1);
     expect(results).toEqual([]);
@@ -170,6 +176,7 @@ describe('AmazonS3Vectors.similaritySearchVectorWithScore fallbacks', () => {
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { _page_content: 'x' } }],
+      distanceMetric: 'cosine',
     });
 
     const results = await store.similaritySearchVectorWithScore([1], 1);
@@ -196,7 +203,7 @@ describe('AmazonS3Vectors.similaritySearchByVector fallbacks', () => {
   it('defaults topK to 4 and handles a missing vectors field', async () => {
     const { store, mock } = createTestStore();
 
-    mock.on(QueryVectorsCommand).resolves({});
+    mock.on(QueryVectorsCommand).resolves({ distanceMetric: 'cosine' });
 
     const results = await store.similaritySearchByVector([1]);
     expect(results).toEqual([]);
@@ -219,7 +226,7 @@ describe('AmazonS3Vectors.similaritySearch', () => {
   it('accepts a 4th callbacks argument without error (matches the base VectorStore signature)', async () => {
     const { store, mock } = createTestStore();
 
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
 
     await expect(store.similaritySearch('q', 4, undefined, undefined)).resolves.toEqual([]);
   });
@@ -246,6 +253,7 @@ describe('AmazonS3Vectors.similaritySearchWithRelevanceScores', () => {
         { key: 'id-1', metadata: { _page_content: 'a' }, distance: 0 },
         { key: 'id-2', metadata: { _page_content: 'b' }, distance: 1 },
       ],
+      distanceMetric: 'cosine',
     });
 
     const results = await store.similaritySearchWithRelevanceScores('q', 2);
@@ -259,6 +267,7 @@ describe('AmazonS3Vectors.similaritySearchWithRelevanceScores', () => {
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { _page_content: 'a' }, distance: 3 }],
+      distanceMetric: 'cosine',
     });
 
     const results = await store.similaritySearchWithRelevanceScores('q', 1);
@@ -317,7 +326,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
 
     mock
       .on(QueryVectorsCommand)
-      .resolvesOnce({ vectors: page1, nextToken: 'page-2-token' })
+      .resolvesOnce({ vectors: page1, nextToken: 'page-2-token', distanceMetric: 'cosine' })
       .resolvesOnce({ vectors: page2 });
 
     const results = await store.similaritySearchVectorWithScore([1, 2, 3], 150);
@@ -348,7 +357,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
 
     mock
       .on(QueryVectorsCommand)
-      .resolvesOnce({ vectors: page1, nextToken: 'page-2-token' })
+      .resolvesOnce({ vectors: page1, nextToken: 'page-2-token', distanceMetric: 'cosine' })
       .resolvesOnce({ vectors: page2 });
 
     const results = await store.similaritySearchVectorWithScore([1, 2, 3], 500);
@@ -362,6 +371,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
 
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { _page_content: 'only' }, distance: 0 }],
+      distanceMetric: 'cosine',
     });
 
     const results = await store.similaritySearchByVector([1, 2, 3], 4);
@@ -379,7 +389,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     // silently discarding real results that show up on a later page.
     mock
       .on(QueryVectorsCommand)
-      .resolvesOnce({ vectors: [], nextToken: 'page-2-token' })
+      .resolvesOnce({ vectors: [], nextToken: 'page-2-token', distanceMetric: 'cosine' })
       .resolvesOnce({ vectors: [{ key: 'id-1', metadata: { _page_content: 'x' }, distance: 0 }] });
 
     const results = await store.similaritySearchVectorWithScore([1, 2, 3], 4);
@@ -393,7 +403,9 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
 
     // A response that keeps returning nextToken without ever making
     // progress must still terminate — bounded, not stopped-on-empty-page.
-    mock.on(QueryVectorsCommand).resolves({ vectors: [], nextToken: 'still-more' });
+    mock
+      .on(QueryVectorsCommand)
+      .resolves({ vectors: [], nextToken: 'still-more', distanceMetric: 'cosine' });
 
     const results = await store.similaritySearchVectorWithScore([1, 2, 3], 500);
 
@@ -403,7 +415,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
 
   it('rejects k values that are not a positive integer', async () => {
     const { store, mock } = createTestStore();
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
 
     await expect(store.similaritySearchVectorWithScore([1, 2, 3], 0)).rejects.toThrow(
       'k must be a positive integer',
@@ -418,7 +430,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
   // with a ValidationException — checked locally before spending the round trip.
   it("rejects a k above AWS's topK limit of 10,000", async () => {
     const { store, mock } = createTestStore();
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
 
     await expect(store.similaritySearchVectorWithScore([1, 2, 3], 10_001)).rejects.toThrow(
       "k (10001) exceeds AWS's topK limit of 10000",
@@ -428,7 +440,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
 
   it('accepts a k exactly at the 10,000 topK limit', async () => {
     const { store, mock } = createTestStore();
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
 
     await expect(store.similaritySearchVectorWithScore([1, 2, 3], 10_000)).resolves.toEqual([]);
   });
@@ -437,7 +449,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
   // object ({}) with "Invalid filter" — it is NOT treated as "no filter".
   it('rejects an empty filter object instead of forwarding it to AWS', async () => {
     const { store, mock } = createTestStore();
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
 
     await expect(store.similaritySearchVectorWithScore([1, 2, 3], 4, {})).rejects.toThrow(
       'filter cannot be an empty object',
@@ -447,7 +459,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
 
   it('allows an undefined filter (no filtering)', async () => {
     const { store, mock } = createTestStore();
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
 
     await expect(store.similaritySearchVectorWithScore([1, 2, 3], 4, undefined)).resolves.toEqual(
       [],
@@ -456,7 +468,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
 
   it('allows a non-empty filter object', async () => {
     const { store, mock } = createTestStore();
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
 
     await expect(
       store.similaritySearchVectorWithScore([1, 2, 3], 4, { genre: 'scifi' }),
@@ -501,17 +513,26 @@ describe('AmazonS3Vectors read-path distance-metric validation', () => {
     expect(results).toHaveLength(1);
   });
 
-  it('does not validate the metric when AWS omits it from the response', async () => {
+  // Confirmed live against real AWS: distanceMetric was present in every
+  // response tested (empty index, filtered to zero results, and a normal
+  // match), so a response that omits it is treated as "can't verify" and
+  // rejected — fail closed, not fail open — rather than silently skipping
+  // the check and risking a silently-wrong relevance score.
+  it('rejects (fails closed) when AWS omits distanceMetric from the response', async () => {
     const { store, mock } = createTestStore();
 
-    // Existing mocked tests throughout this suite don't set distanceMetric
-    // on their QueryVectorsCommand responses — this proves that omission
-    // stays backward-compatible rather than spuriously throwing.
     mock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: 'id-1', metadata: { _page_content: 'x' }, distance: 0.2 }],
     });
 
-    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 4);
-    expect(results).toHaveLength(1);
+    const error = await store
+      .similaritySearchVectorWithScore([1, 2, 3], 4)
+      .catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+    );
+    expect((error as Error).message).toContain('did not include a distanceMetric');
   });
 });

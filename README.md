@@ -70,7 +70,7 @@ graph LR
 
 1. Documents are chunked into batches of 200 (configurable).
 2. Each batch is embedded via the supplied `EmbeddingsInterface`.
-3. On the first batch, if `createIndexIfNotExist` is enabled (default), the library checks whether the index exists (via `GetIndexCommand`) and creates it (via `CreateIndexCommand`) with the correct `dimension` inferred from the first vector.
+3. On the first write this store instance makes (not just the first batch of *this* call), if `createIndexIfNotExist` is enabled (default), the library checks whether the index exists (via `GetIndexCommand`) and creates it (via `CreateIndexCommand`) with the correct `dimension` inferred from the first vector. The result is cached for the instance's lifetime — every write after that is a single `PutVectorsCommand` call, no repeated `GetIndexCommand` round trip, regardless of `createIndexIfNotExist`.
 4. Vectors plus metadata are sent via `PutVectorsCommand` — one SDK call per batch.
 5. Page content is stored as a special metadata key (`_page_content` by default) and transparently extracted on reads.
 
@@ -358,7 +358,29 @@ Throttling (`TooManyRequestsException`) and transient 5xx failures are retried a
 
 ### Errors
 
-Every failure — validation, not-found, or an underlying AWS error — is surfaced as a single typed `S3VectorsError` carrying a `code` (`S3VectorsErrorCode`), a `context` (`{ operation, vectorBucketName, indexName }`), and the original `cause`. Detect it with the exported `isS3VectorsError()` guard.
+Every failure — validation, not-found, or an underlying AWS error — is surfaced as a single typed `S3VectorsError` carrying a `code` (`S3VectorsErrorCode`), a `context` (`{ operation, vectorBucketName, indexName }`), and the original `cause`. Detect it with the exported `isS3VectorsError()` guard — it's a proper TypeScript type guard, so a caught `unknown` narrows to `S3VectorsError` without a cast:
+
+```typescript
+try {
+  await store.addDocuments(docs);
+} catch (e) {
+  if (isS3VectorsError(e)) {
+    console.error(e.code, e.message); // e is narrowed, no `as S3VectorsError` needed
+  }
+}
+```
+
+**Partial-batch failures report what already succeeded.** If `addVectors`/`addDocuments` fails partway through a multi-batch write (a later batch throttled, hit a transient error, etc.), earlier batches are already durably committed in AWS — the thrown error's `context.writtenIds` lists every id confirmed written before the failure, including any concurrent batch that happened to succeed alongside the one that failed. This matters most with auto-generated ids: without `context.writtenIds`, those vectors would be undiscoverable and impossible to clean up or reconcile, since nothing else records what id they landed under. `delete({ ids })` reports the equivalent `context.deletedIds` on a partial failure — lower-stakes since delete is idempotent (a blind retry of the full `ids` list is always safe), but still useful to know exactly what happened.
+
+```typescript
+try {
+  await store.addDocuments(manyDocuments); // ids auto-generated
+} catch (e) {
+  if (isS3VectorsError(e) && e.context.writtenIds?.length) {
+    console.warn(`${e.context.writtenIds.length} vectors already written before the failure:`, e.context.writtenIds);
+  }
+}
+```
 
 ### Maximal Marginal Relevance (MMR)
 
@@ -430,6 +452,18 @@ If a document's own metadata already uses the reserved `pageContentMetadataKey` 
 ### Deep-Copy Metadata on Duplicate-ID Fetches
 
 When `getByIds` is called with duplicate IDs, returned documents get independently-cloned metadata (via `structuredClone`) so mutating one does not affect the other — matching the Python reference implementation's behaviour exactly.
+
+### Read-Modify-Write Upserts via `Document.id`
+
+`addVectors`/`addDocuments` use each document's own `id` as the vector's key when `options.ids` is omitted — a fresh UUID is generated only for documents that have no `id` of their own. A document fetched via `getByIds` already has `id` set (`vector.key`), so a natural read-modify-write round-trip upserts instead of creating a duplicate:
+
+```typescript
+const [doc] = await store.getByIds(["existing-id"]);
+doc.metadata.reviewed = true;
+await store.addDocuments([doc]); // overwrites "existing-id", doesn't create a new vector
+```
+
+An explicit `options.ids` always takes priority over `document.id` when both are present. This is a deliberate departure from the Python `langchain-aws` reference (which only ever uses `options.ids` or a fresh UUID, never inspecting the document itself) — not a parity gap, since the improvement doesn't affect wire format or stored data shape.
 
 ### Concurrency
 

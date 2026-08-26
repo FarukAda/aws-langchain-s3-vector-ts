@@ -22,7 +22,7 @@ import { isAbortError } from './shared/errors/aws-abort.js';
 import { isAwsConflictException } from './shared/errors/aws-conflict.js';
 import { isAwsNotFoundException } from './shared/errors/aws-not-found.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
-import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
+import { isS3VectorsError, S3VectorsError } from './shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from './shared/errors/wrap-error.js';
 import { buildPutMetadata, createDocument } from './shared/metadata.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
@@ -130,13 +130,13 @@ export class AmazonS3Vectors extends VectorStore {
     distanceMetric: DistanceMetric;
   } | null> | null = null;
   /**
-   * Cached result of the one-time `GetIndex` fetch performed under
-   * `createIndexIfNotExist: false` to validate against — that flag means
-   * "the caller manages the index lifecycle, don't check on every write,"
-   * so this is fetched once and reused, not memoized per-call like
-   * {@link _ensureIndexPromise}. Cleared by {@link delete} when the whole
-   * index is deleted, so a later write re-fetches instead of validating
-   * against a now-stale index.
+   * Cached dimension/metric of this instance's index, populated by the
+   * first successful write (via {@link _validateBeforeWrite}) regardless
+   * of {@link createIndexIfNotExist} — every write after that validates
+   * against this cache instead of paying for another `GetIndex` round
+   * trip, not just memoized per-call like {@link _ensureIndexPromise}.
+   * Cleared by {@link delete} when the whole index is deleted, so a later
+   * write re-fetches instead of validating against a now-stale index.
    */
   private _validatedIndexInfo: { dimension: number; distanceMetric: DistanceMetric } | null = null;
 
@@ -208,14 +208,22 @@ export class AmazonS3Vectors extends VectorStore {
    * @param vectors - Array of embedding vectors (one per document)
    * @param documents - Array of documents corresponding to each vector
    * @param options - Optional settings
-   * @param options.ids - Custom IDs for each vector (auto-generated if omitted)
+   * @param options.ids - Custom IDs for each vector. When omitted, each
+   * document's own `id` is used if it has one (e.g. a `Document` returned
+   * by {@link getByIds}, enabling a natural read-modify-write upsert); a
+   * fresh UUID is generated only for documents with no `id` of their own.
    * @param options.batchSize - Number of vectors per `PutVectors` call (default: 200)
    * @param options.signal - Abort an in-progress write. Cancels the AWS SDK
    * request currently in flight and stops any further `PutVectors` calls
    * from starting; a batch's `PutVectors` call already in flight when the
    * signal fires is cancelled mid-request, not allowed to complete.
    * @returns The IDs assigned to each stored vector
-   * @throws Error if counts of vectors, documents, or IDs don't match
+   * @throws Error if counts of vectors, documents, or IDs don't match. On a
+   * partial-write failure (a later batch fails after earlier ones already
+   * committed), the thrown {@link S3VectorsError}'s `context.writtenIds`
+   * lists every id that was durably written before the failure — check it
+   * before retrying, especially for auto-generated ids, which would
+   * otherwise be impossible to find or reconcile again.
    */
   async addVectors(
     vectors: number[][],
@@ -232,7 +240,7 @@ export class AmazonS3Vectors extends VectorStore {
     // a stale/mismatched `ids` array alongside an empty `vectors` array is
     // still a real caller mistake and shouldn't be silently swallowed into
     // a no-op success.
-    const ids = options?.ids ?? vectors.map(() => randomUUID().replace(/-/g, ''));
+    const ids = options?.ids ?? documents.map((doc) => doc.id ?? randomUUID().replace(/-/g, ''));
     if (ids.length !== vectors.length) {
       throw this._validationError(
         'addVectors',
@@ -245,15 +253,19 @@ export class AmazonS3Vectors extends VectorStore {
     this._validateBatchSize('addVectors', batchSize, MAX_PUT_BATCH_SIZE);
     const signal = options?.signal;
 
-    await this._runBatchesConcurrently(chunk(vectors, batchSize), (batch, offset) =>
-      this._ensureIndexAndPut(
-        'addVectors',
-        offset,
-        batch,
-        documents.slice(offset, offset + batch.length),
-        ids.slice(offset, offset + batch.length),
-        signal,
-      ),
+    await this._runBatchesConcurrently(
+      'addVectors',
+      chunk(vectors, batchSize),
+      ids,
+      (batch, offset) =>
+        this._ensureIndexAndPut(
+          'addVectors',
+          offset,
+          batch,
+          documents.slice(offset, offset + batch.length),
+          ids.slice(offset, offset + batch.length),
+          signal,
+        ),
     );
 
     return ids;
@@ -278,7 +290,10 @@ export class AmazonS3Vectors extends VectorStore {
    *
    * @param documents - Array of documents to embed and store
    * @param options - Optional settings
-   * @param options.ids - Custom IDs for each vector (auto-generated if omitted)
+   * @param options.ids - Custom IDs for each vector. When omitted, each
+   * document's own `id` is used if it has one (e.g. a `Document` returned
+   * by {@link getByIds}, enabling a natural read-modify-write upsert); a
+   * fresh UUID is generated only for documents with no `id` of their own.
    * @param options.batchSize - Number of documents per embedding + put batch (default: 200)
    * @param options.signal - Abort an in-progress write. `embedDocuments`
    * itself can't be cancelled mid-call (LangChain's `EmbeddingsInterface`
@@ -287,7 +302,12 @@ export class AmazonS3Vectors extends VectorStore {
    * afterward, and any `PutVectors` call already in flight is cancelled
    * mid-request.
    * @returns The IDs assigned to each stored vector
-   * @throws Error if count of IDs doesn't match count of documents
+   * @throws Error if count of IDs doesn't match count of documents. On a
+   * partial-write failure (a later batch fails after earlier ones already
+   * committed), the thrown {@link S3VectorsError}'s `context.writtenIds`
+   * lists every id that was durably written before the failure — check it
+   * before retrying, especially for auto-generated ids, which would
+   * otherwise be impossible to find or reconcile again.
    */
   async addDocuments(
     documents: Document[],
@@ -297,7 +317,7 @@ export class AmazonS3Vectors extends VectorStore {
     // a stale/mismatched `ids` array alongside an empty `documents` array is
     // still a real caller mistake and shouldn't be silently swallowed into
     // a no-op success.
-    const ids = options?.ids ?? documents.map(() => randomUUID().replace(/-/g, ''));
+    const ids = options?.ids ?? documents.map((doc) => doc.id ?? randomUUID().replace(/-/g, ''));
     if (ids.length !== documents.length) {
       throw this._validationError(
         'addDocuments',
@@ -346,11 +366,20 @@ export class AmazonS3Vectors extends VectorStore {
     // The first batch is embedded and put alone, awaited before anything
     // else starts — it's the one that creates or validates the index
     // (batchOffset === 0 inside _ensureIndexAndPut), so every later batch
-    // depends on it having already happened.
-    let offset = firstBatch.length;
-    await putBatch(firstBatch, 0, await embedBatch(firstBatch));
+    // depends on it having already happened. writtenIds tracks every id
+    // confirmed durably written so far, so a failure anywhere below can
+    // report exactly what's already landed instead of losing that
+    // information the moment the error propagates.
+    let writtenIds: string[] = [];
+    try {
+      await putBatch(firstBatch, 0, await embedBatch(firstBatch));
+      writtenIds = ids.slice(0, firstBatch.length);
+    } catch (error: unknown) {
+      throw this._attachPartialIds(error, 'addDocuments', 'writtenIds', writtenIds);
+    }
 
     const rest: { batch: Document[]; offset: number }[] = [];
+    let offset = firstBatch.length;
     for (const batch of batches.slice(1)) {
       rest.push({ batch, offset });
       offset += batch.length;
@@ -367,16 +396,45 @@ export class AmazonS3Vectors extends VectorStore {
       // providers rate-limit aggressively and this library gives no
       // retry/backoff guarantee for that call — then dispatch the whole
       // group's PutVectors calls together, since AWS's SDK already
-      // retries throttling there.
+      // retries throttling there. embedBatch can throw here (a raw error
+      // from the caller's embeddings model, not wrapped by _send); caught
+      // below alongside a PutVectors failure so both report writtenIds.
       const withVectors: { batch: Document[]; offset: number; vectors: number[][] }[] = [];
-      for (const { batch, offset: batchOffset } of group) {
-        withVectors.push({ batch, offset: batchOffset, vectors: await embedBatch(batch) });
+      try {
+        for (const { batch, offset: batchOffset } of group) {
+          withVectors.push({ batch, offset: batchOffset, vectors: await embedBatch(batch) });
+        }
+      } catch (error: unknown) {
+        throw this._attachPartialIds(error, 'addDocuments', 'writtenIds', writtenIds);
       }
-      await Promise.all(
+
+      // allSettled, not all — waiting out every sibling in the group
+      // before reporting a failure is what makes writtenIds accurate: a
+      // slower sibling that succeeds *after* another one rejects would
+      // otherwise never make it into the reported set.
+      const results = await Promise.allSettled(
         withVectors.map(({ batch, offset: batchOffset, vectors }) =>
-          putBatch(batch, batchOffset, vectors),
+          putBatch(batch, batchOffset, vectors).then(() => ({
+            offset: batchOffset,
+            length: batch.length,
+          })),
         ),
       );
+      let firstError: unknown;
+      let hasError = false;
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          writtenIds.push(
+            ...ids.slice(result.value.offset, result.value.offset + result.value.length),
+          );
+        } else if (!hasError) {
+          hasError = true;
+          firstError = result.reason;
+        }
+      }
+      if (hasError) {
+        throw this._attachPartialIds(firstError, 'addDocuments', 'writtenIds', writtenIds);
+      }
     }
 
     return ids;
@@ -558,7 +616,12 @@ export class AmazonS3Vectors extends VectorStore {
    * further batches from starting.
    * @throws Error if both `ids` and `deleteAll` are omitted — a safety guard against an
    * accidentally-`undefined` `ids` array silently wiping the whole index — or if both `ids`
-   * and `deleteAll` are passed together
+   * and `deleteAll` are passed together. On a partial-delete failure (a
+   * later batch fails after earlier ones already succeeded), the thrown
+   * {@link S3VectorsError}'s `context.deletedIds` lists every id confirmed
+   * deleted before the failure — deleting is idempotent, so a blind retry
+   * of the full `ids` list is always safe regardless, but `deletedIds`
+   * tells you exactly what already happened.
    */
   async delete(params?: S3VectorsDeleteParams): Promise<void> {
     const ids = params?.ids;
@@ -597,8 +660,13 @@ export class AmazonS3Vectors extends VectorStore {
     } else {
       const batchSize = params?.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
       this._validateBatchSize('delete', batchSize, MAX_DELETE_BATCH_SIZE);
+      const deletedIds: string[] = [];
       for (const group of chunk(chunk(ids, batchSize), MAX_CONCURRENT_BATCH_CALLS)) {
-        await Promise.all(
+        // allSettled, not all — waiting out every sibling in the group
+        // before reporting a failure is what makes deletedIds accurate: a
+        // slower sibling that succeeds *after* another one rejects would
+        // otherwise never make it into the reported set.
+        const results = await Promise.allSettled(
           group.map((batchIds) =>
             this._send('DeleteVectors', () =>
               this._client.send(
@@ -609,9 +677,20 @@ export class AmazonS3Vectors extends VectorStore {
                 }),
                 { abortSignal: signal },
               ),
-            ),
+            ).then(() => batchIds),
           ),
         );
+        let firstError: unknown = null;
+        for (const result of results) {
+          if (result.status === 'fulfilled') {
+            deletedIds.push(...result.value);
+          } else if (firstError === null) {
+            firstError = result.reason;
+          }
+        }
+        if (firstError !== null) {
+          throw this._attachPartialIds(firstError, 'delete', 'deletedIds', deletedIds);
+        }
       }
     }
   }
@@ -854,6 +933,38 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
+   * Wrap `error` with the ids already durably confirmed (written or
+   * deleted, per `key`) before this failure, so a partial-batch-operation
+   * failure never silently loses track of what already landed in AWS —
+   * especially auto-generated write ids, which have no other way to be
+   * discovered again afterward. `error` is normally already an
+   * {@link S3VectorsError} (every AWS call goes through {@link _send}),
+   * but `addDocuments`'s `embedDocuments` call has no such wrapping (it
+   * isn't an AWS call), so a raw error from the caller's embeddings model
+   * is handled too.
+   */
+  private _attachPartialIds(
+    error: unknown,
+    operation: string,
+    key: 'writtenIds' | 'deletedIds',
+    ids: string[],
+  ): S3VectorsError {
+    const base = isS3VectorsError(error)
+      ? error
+      : wrapAwsError(error, S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+          operation,
+          vectorBucketName: this.vectorBucketName,
+          indexName: this.indexName,
+        });
+    const verb = key === 'writtenIds' ? 'written' : 'deleted';
+    const message =
+      ids.length > 0
+        ? `${base.message} ${ids.length} vector(s) were already durably ${verb} before this failure — see error.context.${key}.`
+        : base.message;
+    return new S3VectorsError(message, base.code, { ...base.context, [key]: ids }, base.cause);
+  }
+
+  /**
    * Throw an `ABORTED` error if `signal` has already fired. Used before a
    * step the AWS SDK can't cancel on its own (embedding a batch of
    * documents), so an aborted operation doesn't pay for one more expensive,
@@ -909,7 +1020,11 @@ export class AmazonS3Vectors extends VectorStore {
    * (which calls `GetIndex` and can check this before ever touching the
    * index), a read never calls `GetIndex`, so this is the only point that
    * can catch a metric mismatch before silently computing a relevance
-   * score against the wrong metric.
+   * score against the wrong metric. Fails closed: confirmed live that
+   * `distanceMetric` is present on every response (empty index, filtered
+   * to zero results, and a normal match all included it), so if a future
+   * response is ever missing it, that's treated as "can't verify" and
+   * rejected rather than silently skipping the check.
    *
    * Bounded by {@link MAX_QUERY_PAGES} so a response that never converges
    * can't drive an unbounded number of round trips. Deliberately does
@@ -951,7 +1066,16 @@ export class AmazonS3Vectors extends VectorStore {
         ),
       );
 
-      if (pageCount === 0 && response.distanceMetric !== undefined) {
+      if (pageCount === 0) {
+        if (response.distanceMetric === undefined) {
+          throw new S3VectorsError(
+            `QueryVectors response for index "${this.indexName}" did not include a distanceMetric — ` +
+              `cannot verify it matches this store's configured "${this.distanceMetric}". Relevance ` +
+              `scores would be computed against an unverified metric.`,
+            S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+            { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
+          );
+        }
         this._assertMetricMatches(response.distanceMetric, operation);
       }
 
@@ -974,19 +1098,34 @@ export class AmazonS3Vectors extends VectorStore {
    * — the same concurrency pattern {@link delete} and {@link getByIds}
    * already use for `DeleteVectors`/`GetVectors`.
    *
+   * Waits out every sibling in a group via `Promise.allSettled` rather than
+   * racing ahead on the first rejection — a slower sibling that succeeds
+   * *after* another one fails would otherwise be lost from the failed
+   * write's reported `writtenIds`. On any failure, the thrown error carries
+   * every id confirmed written so far (from this batch's earlier groups and
+   * from any group siblings that succeeded alongside the one that failed).
+   *
    * @internal Used by `addVectors`. `addDocuments` needs its embedding
    * step to stay strictly sequential across batches (unlike this helper's
    * concurrent dispatch), so it doesn't route through here — see its own
    * batching loop.
    */
   private async _runBatchesConcurrently<T>(
+    operation: string,
     batches: T[][],
+    ids: string[],
     action: (batch: T[], offset: number) => Promise<void>,
   ): Promise<void> {
     // addVectors (this helper's only caller) returns early on an empty
     // vectors array before ever reaching here, so batches is never empty.
     const firstBatch = batches[0]!;
-    await action(firstBatch, 0);
+    let writtenIds: string[] = [];
+    try {
+      await action(firstBatch, 0);
+      writtenIds = ids.slice(0, firstBatch.length);
+    } catch (error: unknown) {
+      throw this._attachPartialIds(error, operation, 'writtenIds', writtenIds);
+    }
 
     const rest: { batch: T[]; offset: number }[] = [];
     let offset = firstBatch.length;
@@ -996,7 +1135,24 @@ export class AmazonS3Vectors extends VectorStore {
     }
 
     for (const group of chunk(rest, MAX_CONCURRENT_BATCH_CALLS)) {
-      await Promise.all(group.map(({ batch, offset: batchOffset }) => action(batch, batchOffset)));
+      const results = await Promise.allSettled(
+        group.map(({ batch, offset: batchOffset }) =>
+          action(batch, batchOffset).then(() => ({ offset: batchOffset, length: batch.length })),
+        ),
+      );
+      let firstError: unknown = null;
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          writtenIds.push(
+            ...ids.slice(result.value.offset, result.value.offset + result.value.length),
+          );
+        } else if (firstError === null) {
+          firstError = result.reason;
+        }
+      }
+      if (firstError !== null) {
+        throw this._attachPartialIds(firstError, operation, 'writtenIds', writtenIds);
+      }
     }
   }
 
@@ -1065,12 +1221,16 @@ export class AmazonS3Vectors extends VectorStore {
    * store's.
    *
    * @remarks
-   * When `createIndexIfNotExist` is `false`, this flag means "the caller
-   * manages the index lifecycle" — not "skip validation" — so the index's
-   * dimension/metric is fetched via `GetIndex` once and cached in
-   * {@link _validatedIndexInfo} (cleared by {@link delete} on a full-index
-   * delete), rather than re-fetched on every write the way the auto-create
-   * path's memoized existence-check naturally already is. If the index
+   * {@link _validatedIndexInfo} is checked first regardless of
+   * {@link createIndexIfNotExist} — once any write has confirmed the
+   * index's dimension/metric (whether by finding it already there,
+   * creating it, or recovering from a cross-process creation race), every
+   * later write on this instance reuses that cached value instead of
+   * re-fetching. Only the very first write (or the first write after
+   * {@link delete}'s `deleteAll` clears the cache) pays for a `GetIndex`
+   * (or `GetIndex`+`CreateIndex`) round trip; every one after that is a
+   * single `PutVectors` call, for both `createIndexIfNotExist: true` and
+   * `false`. When `createIndexIfNotExist` is `false` and the index
    * genuinely doesn't exist yet, this deliberately does *not* throw —
    * `PutVectors` still fails naturally below, matching this flag's
    * pre-existing behavior for a missing index (it never auto-creates one).
@@ -1080,16 +1240,17 @@ export class AmazonS3Vectors extends VectorStore {
     operation: string,
     signal: AbortSignal | undefined,
   ): Promise<void> {
-    if (this.createIndexIfNotExist) {
-      const existing = await this._ensureIndexExists(firstVector, signal);
-      if (existing !== null) {
-        this._assertIndexCompatible(existing, firstVector, operation);
-      }
+    if (this._validatedIndexInfo !== null) {
+      this._assertIndexCompatible(this._validatedIndexInfo, firstVector, operation);
       return;
     }
 
-    if (this._validatedIndexInfo !== null) {
-      this._assertIndexCompatible(this._validatedIndexInfo, firstVector, operation);
+    if (this.createIndexIfNotExist) {
+      const existing = await this._ensureIndexExists(firstVector, signal);
+      if (existing !== null) {
+        this._validatedIndexInfo = existing;
+        this._assertIndexCompatible(existing, firstVector, operation);
+      }
       return;
     }
 

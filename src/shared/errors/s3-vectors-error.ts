@@ -6,6 +6,15 @@ export interface S3VectorsErrorContext {
   readonly operation: string;
   readonly vectorBucketName?: string;
   readonly indexName?: string;
+  /**
+   * Ids confirmed durably written to AWS before a partial `addVectors`/
+   * `addDocuments` failure — present so a caller (especially one relying
+   * on auto-generated ids, which are otherwise lost entirely on failure)
+   * can find and clean up or reconcile vectors that already landed.
+   */
+  readonly writtenIds?: string[];
+  /** Ids confirmed durably deleted before a partial `delete({ ids })` failure. */
+  readonly deletedIds?: string[];
 }
 
 const S3_VECTORS_ERROR_BRAND = Symbol.for('@farukada/aws-langchain-s3-vector-ts:S3VectorsError');
@@ -33,7 +42,7 @@ export class S3VectorsError extends Error {
 }
 
 /** Type guard for {@link S3VectorsError} that avoids `instanceof`. */
-export function isS3VectorsError(value: unknown): boolean {
+export function isS3VectorsError(value: unknown): value is S3VectorsError {
   return (
     typeof value === 'object' &&
     value !== null &&

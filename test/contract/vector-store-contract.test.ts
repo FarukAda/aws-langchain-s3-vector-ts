@@ -13,6 +13,7 @@ function seededStore() {
       { key: 'id-1', metadata: { _page_content: 'first', topic: 'a' }, distance: 0.1 },
       { key: 'id-2', metadata: { _page_content: 'second', topic: 'b' }, distance: 0.4 },
     ],
+    distanceMetric: 'cosine',
   });
   return new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 }
@@ -41,7 +42,7 @@ describe('VectorStore contract', () => {
 
   it('handles an empty result set', async () => {
     const { client, mock } = createMockClient();
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
     expect(await store.similaritySearch('q', 5)).toEqual([]);
   });

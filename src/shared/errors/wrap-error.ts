@@ -37,7 +37,7 @@ export function wrapAwsError(
   code: S3VectorsErrorCode,
   context: S3VectorsErrorContext,
 ): S3VectorsError {
-  if (isS3VectorsError(cause)) return cause as S3VectorsError;
+  if (isS3VectorsError(cause)) return cause;
   const message = `${context.operation} failed: ${toError(cause).message}`;
   return new S3VectorsError(message, code, context, cause);
 }

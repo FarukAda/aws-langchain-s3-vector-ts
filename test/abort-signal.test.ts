@@ -95,7 +95,7 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
 
   it('forwards signal to QueryVectors via similaritySearchVectorWithScore/similaritySearch/similaritySearchWithRelevanceScores', async () => {
     const { store, mock } = createTestStore();
-    mock.on(QueryVectorsCommand).resolves({ vectors: [] });
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
     const controller = new AbortController();
 
     await store.similaritySearchVectorWithScore([1, 2, 3], 4, undefined, controller.signal);
