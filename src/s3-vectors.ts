@@ -69,6 +69,25 @@ const MAX_TOP_K = 10_000;
 const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
 
 /**
+ * True for a plain key/value filter object — an object literal or an
+ * `Object.create(null)` dictionary. False for arrays, `Map`/`Set`, `Date`,
+ * class instances, and primitives.
+ */
+function isPlainFilterObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/** Describe a rejected filter value for the validation error message. */
+function describeFilterValue(value: unknown): string {
+  const type = typeof value;
+  if (type !== 'object') return `a ${type}`;
+  const ctorName = (value as { constructor?: { name?: string } })?.constructor?.name;
+  return ctorName && ctorName !== 'Object' ? `a ${ctorName} instance` : 'a non-plain object';
+}
+
+/**
  * LangChain vector store backed by **Amazon S3 Vectors**.
  *
  * Provides persistent vector storage, similarity search, and metadata filtering
@@ -997,22 +1016,38 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
-   * Reject an empty filter object before it reaches AWS. Confirmed live:
-   * S3 Vectors rejects `{}` with an opaque "Invalid filter"
-   * `ValidationException` rather than treating it as "no filter" — a
-   * caller building a filter dynamically (e.g. only adding conditions when
-   * a UI field is set) can easily end up passing `{}` by accident when no
-   * condition ends up applying. Omit the `filter` argument entirely
-   * (`undefined`) to search without filtering.
+   * Reject a filter that isn't a plain object of metadata conditions
+   * before it reaches AWS: an array, a non-plain object (`Map`, `Set`, a
+   * class instance), or an empty object are all rejected, each with a
+   * distinct message. Confirmed live: S3 Vectors rejects `{}` with an
+   * opaque "Invalid filter" `ValidationException` rather than treating it
+   * as "no filter" — a caller building a filter dynamically (e.g. only
+   * adding conditions when a UI field is set) can easily end up passing
+   * `{}` by accident when no condition ends up applying. Omit the
+   * `filter` argument entirely (`undefined`, or `null`) to search without
+   * filtering.
    */
   private _validateFilter(operation: string, filter: __DocumentType | undefined): void {
-    if (
-      filter !== undefined &&
-      typeof filter === 'object' &&
-      filter !== null &&
-      !Array.isArray(filter) &&
-      Object.keys(filter).length === 0
-    ) {
+    if (filter === undefined || filter === null) return;
+
+    if (Array.isArray(filter)) {
+      throw this._validationError(
+        operation,
+        'filter must be a plain object of metadata conditions (e.g. { genre: "scifi" }) — ' +
+          'arrays are not a valid filter shape. Omit the filter argument entirely to search ' +
+          'without filtering.',
+      );
+    }
+
+    if (!isPlainFilterObject(filter)) {
+      throw this._validationError(
+        operation,
+        'filter must be a plain object of metadata conditions (e.g. { genre: "scifi" }) — ' +
+          `received ${describeFilterValue(filter)}, which AWS's filter syntax does not accept.`,
+      );
+    }
+
+    if (Object.keys(filter).length === 0) {
       throw this._validationError(
         operation,
         'filter cannot be an empty object ({}) — AWS rejects this as an invalid filter. ' +

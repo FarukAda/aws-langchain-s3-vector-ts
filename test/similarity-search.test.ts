@@ -476,6 +476,62 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
   });
 });
 
+describe('_validateFilter — array and non-plain-object filters', () => {
+  it('rejects an array filter instead of forwarding it to AWS', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
+
+    await expect(store.similaritySearchVectorWithScore([1, 2, 3], 4, [] as never)).rejects.toThrow(
+      'arrays are not a valid filter shape',
+    );
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
+  it('rejects a non-empty Map filter with a clear message instead of "empty object"', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
+
+    await expect(
+      store.similaritySearchVectorWithScore([1, 2, 3], 4, new Map([['genre', 'x']]) as never),
+    ).rejects.toThrow("which AWS's filter syntax does not accept");
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
+  it('allows a null filter (treated the same as omitting it)', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
+
+    await expect(
+      store.similaritySearchVectorWithScore([1, 2, 3], 4, null as never),
+    ).resolves.toEqual([]);
+  });
+
+  it('rejects a primitive (non-object) filter value', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
+
+    await expect(
+      store.similaritySearchVectorWithScore([1, 2, 3], 4, 'genre:scifi' as never),
+    ).rejects.toThrow("received a string, which AWS's filter syntax does not accept");
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
+  it('rejects a non-plain object with no distinguishing constructor name', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
+
+    // Object.create({}) — prototype is a plain object literal, not the shared
+    // Object.prototype, so isPlainFilterObject rejects it; its constructor
+    // still resolves (via the prototype chain) to the Object global, so
+    // describeFilterValue must fall back to a generic label instead of the
+    // misleading "an Object instance".
+    await expect(
+      store.similaritySearchVectorWithScore([1, 2, 3], 4, Object.create({}) as never),
+    ).rejects.toThrow("received a non-plain object, which AWS's filter syntax does not accept");
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+});
+
 describe('AmazonS3Vectors read-path distance-metric validation', () => {
   it('rejects a query when the index metric differs from the configured metric', async () => {
     const { client, mock } = createMockClient();
