@@ -1,4 +1,4 @@
-[**AWS LangChain S3 Vector TypeScript v0.5.0**](../README.md)
+[**AWS LangChain S3 Vector TypeScript v0.6.0**](../README.md)
 
 ***
 
@@ -6,7 +6,7 @@
 
 # Enumeration: S3VectorsErrorCode
 
-Defined in: [shared/errors/error-code.ts:2](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/e93cf23e181d1dfa63d42b4d0ea21a569ef421dd/src/shared/errors/error-code.ts#L2)
+Defined in: [shared/errors/error-code.ts:2](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/c3fc682992dafcc76e8f94def4d36a91007797fb/src/shared/errors/error-code.ts#L2)
 
 Stable error codes surfaced by [S3VectorsError](../classes/S3VectorsError.md).
 
@@ -16,7 +16,7 @@ Stable error codes surfaced by [S3VectorsError](../classes/S3VectorsError.md).
 
 > **ABORTED**: `"ABORTED"`
 
-Defined in: [shared/errors/error-code.ts:14](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/e93cf23e181d1dfa63d42b4d0ea21a569ef421dd/src/shared/errors/error-code.ts#L14)
+Defined in: [shared/errors/error-code.ts:14](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/c3fc682992dafcc76e8f94def4d36a91007797fb/src/shared/errors/error-code.ts#L14)
 
 The caller-supplied `AbortSignal` fired before or during the operation.
 
@@ -26,7 +26,7 @@ The caller-supplied `AbortSignal` fired before or during the operation.
 
 > **AWS\_INVALID\_RESPONSE**: `"AWS_INVALID_RESPONSE"`
 
-Defined in: [shared/errors/error-code.ts:16](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/e93cf23e181d1dfa63d42b4d0ea21a569ef421dd/src/shared/errors/error-code.ts#L16)
+Defined in: [shared/errors/error-code.ts:16](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/c3fc682992dafcc76e8f94def4d36a91007797fb/src/shared/errors/error-code.ts#L16)
 
 An AWS response was missing fields this library requires to proceed.
 
@@ -36,7 +36,7 @@ An AWS response was missing fields this library requires to proceed.
 
 > **AWS\_REQUEST\_FAILED**: `"AWS_REQUEST_FAILED"`
 
-Defined in: [shared/errors/error-code.ts:10](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/e93cf23e181d1dfa63d42b4d0ea21a569ef421dd/src/shared/errors/error-code.ts#L10)
+Defined in: [shared/errors/error-code.ts:10](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/c3fc682992dafcc76e8f94def4d36a91007797fb/src/shared/errors/error-code.ts#L10)
 
 An underlying AWS S3 Vectors request failed.
 
@@ -46,7 +46,7 @@ An underlying AWS S3 Vectors request failed.
 
 > **EMBEDDINGS\_MISSING**: `"EMBEDDINGS_MISSING"`
 
-Defined in: [shared/errors/error-code.ts:8](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/e93cf23e181d1dfa63d42b4d0ea21a569ef421dd/src/shared/errors/error-code.ts#L8)
+Defined in: [shared/errors/error-code.ts:8](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/c3fc682992dafcc76e8f94def4d36a91007797fb/src/shared/errors/error-code.ts#L8)
 
 An operation needed an embedding model but none was configured.
 
@@ -56,7 +56,7 @@ An operation needed an embedding model but none was configured.
 
 > **INDEX\_CONFIG\_MISMATCH**: `"INDEX_CONFIG_MISMATCH"`
 
-Defined in: [shared/errors/error-code.ts:12](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/e93cf23e181d1dfa63d42b4d0ea21a569ef421dd/src/shared/errors/error-code.ts#L12)
+Defined in: [shared/errors/error-code.ts:12](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/c3fc682992dafcc76e8f94def4d36a91007797fb/src/shared/errors/error-code.ts#L12)
 
 An existing index's dimension or distance metric doesn't match this store's configuration.
 
@@ -66,7 +66,7 @@ An existing index's dimension or distance metric doesn't match this store's conf
 
 > **NOT\_FOUND**: `"NOT_FOUND"`
 
-Defined in: [shared/errors/error-code.ts:6](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/e93cf23e181d1dfa63d42b4d0ea21a569ef421dd/src/shared/errors/error-code.ts#L6)
+Defined in: [shared/errors/error-code.ts:6](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/c3fc682992dafcc76e8f94def4d36a91007797fb/src/shared/errors/error-code.ts#L6)
 
 A requested vector id or index was not found.
 
@@ -76,7 +76,7 @@ A requested vector id or index was not found.
 
 > **NOT\_IMPLEMENTED**: `"NOT_IMPLEMENTED"`
 
-Defined in: [shared/errors/error-code.ts:18](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/e93cf23e181d1dfa63d42b4d0ea21a569ef421dd/src/shared/errors/error-code.ts#L18)
+Defined in: [shared/errors/error-code.ts:18](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/c3fc682992dafcc76e8f94def4d36a91007797fb/src/shared/errors/error-code.ts#L18)
 
 The requested operation is not implemented by this vector store.
 
@@ -86,7 +86,7 @@ The requested operation is not implemented by this vector store.
 
 > **UNEXPECTED\_ERROR**: `"UNEXPECTED_ERROR"`
 
-Defined in: [shared/errors/error-code.ts:26](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/e93cf23e181d1dfa63d42b4d0ea21a569ef421dd/src/shared/errors/error-code.ts#L26)
+Defined in: [shared/errors/error-code.ts:26](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/c3fc682992dafcc76e8f94def4d36a91007797fb/src/shared/errors/error-code.ts#L26)
 
 A failure that didn't come from an AWS request — a raw throw from
 caller-supplied code (e.g. an embeddings model) or caller input that
@@ -100,6 +100,6 @@ AWS S3 Vectors request failing.
 
 > **VALIDATION**: `"VALIDATION"`
 
-Defined in: [shared/errors/error-code.ts:4](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/e93cf23e181d1dfa63d42b4d0ea21a569ef421dd/src/shared/errors/error-code.ts#L4)
+Defined in: [shared/errors/error-code.ts:4](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/c3fc682992dafcc76e8f94def4d36a91007797fb/src/shared/errors/error-code.ts#L4)
 
 Caller-supplied arguments were invalid (counts, names, empty batch).
