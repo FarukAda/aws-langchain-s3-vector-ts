@@ -120,7 +120,9 @@ describe('fromDocuments — partial-write failure', () => {
     ).catch((e: unknown) => e);
 
     expect(isS3VectorsError(error)).toBe(true);
-    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
+    // UNEXPECTED_ERROR, not AWS_REQUEST_FAILED: nothing about AWS failed
+    // here — documents.map(...) threw before any AWS call was ever made.
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
     // Substring, not an exact match: the tail is V8's own TypeError wording
     // for the failed `documents.map(...)` call, not this library's text.
     expect((error as S3VectorsError).message).toContain('fromDocuments failed:');

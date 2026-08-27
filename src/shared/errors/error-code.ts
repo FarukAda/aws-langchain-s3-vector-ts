@@ -16,4 +16,12 @@ export enum S3VectorsErrorCode {
   AWS_INVALID_RESPONSE = 'AWS_INVALID_RESPONSE',
   /** The requested operation is not implemented by this vector store. */
   NOT_IMPLEMENTED = 'NOT_IMPLEMENTED',
+  /**
+   * A failure that didn't come from an AWS request — a raw throw from
+   * caller-supplied code (e.g. an embeddings model) or caller input that
+   * bypassed validation (e.g. a malformed argument to a static factory).
+   * Distinct from `AWS_REQUEST_FAILED`, which is reserved for an actual
+   * AWS S3 Vectors request failing.
+   */
+  UNEXPECTED_ERROR = 'UNEXPECTED_ERROR',
 }

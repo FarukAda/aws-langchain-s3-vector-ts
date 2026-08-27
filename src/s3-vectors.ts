@@ -17,7 +17,7 @@ import { VectorStore, type MaxMarginalRelevanceSearchOptions } from '@langchain/
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
 import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './relevance-scores.js';
-import { chunk } from './shared/batching.js';
+import { chunk, offsetBatches } from './shared/batching.js';
 import { isAbortError } from './shared/errors/aws-abort.js';
 import { isAwsConflictException } from './shared/errors/aws-conflict.js';
 import { isAwsNotFoundException } from './shared/errors/aws-not-found.js';
@@ -445,12 +445,7 @@ export class AmazonS3Vectors extends VectorStore {
       throw this._attachPartialIds(error, 'addDocuments', 'writtenIds', writtenIds);
     }
 
-    const rest: { batch: Document[]; offset: number }[] = [];
-    let offset = firstBatch.length;
-    for (const batch of batches.slice(1)) {
-      rest.push({ batch, offset });
-      offset += batch.length;
-    }
+    const rest = offsetBatches(batches.slice(1), firstBatch.length);
 
     for (const group of chunk(rest, MAX_CONCURRENT_BATCH_CALLS)) {
       // embedDocuments has no signal support, so it can't self-cancel the
@@ -475,33 +470,18 @@ export class AmazonS3Vectors extends VectorStore {
         throw this._attachPartialIds(error, 'addDocuments', 'writtenIds', writtenIds);
       }
 
-      // allSettled, not all — waiting out every sibling in the group
-      // before reporting a failure is what makes writtenIds accurate: a
-      // slower sibling that succeeds *after* another one rejects would
-      // otherwise never make it into the reported set.
-      const results = await Promise.allSettled(
-        withVectors.map(({ batch, offset: batchOffset, vectors }) =>
-          putBatch(batch, batchOffset, vectors).then(() => ({
-            offset: batchOffset,
-            length: batch.length,
-          })),
+      await this._settleGroup(
+        withVectors.map(
+          ({ batch, offset: batchOffset, vectors }) =>
+            () =>
+              putBatch(batch, batchOffset, vectors).then(() =>
+                ids.slice(batchOffset, batchOffset + batch.length),
+              ),
         ),
+        'addDocuments',
+        'writtenIds',
+        writtenIds,
       );
-      let firstError: unknown;
-      let hasError = false;
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          writtenIds.push(
-            ...ids.slice(result.value.offset, result.value.offset + result.value.length),
-          );
-        } else if (!hasError) {
-          hasError = true;
-          firstError = result.reason;
-        }
-      }
-      if (hasError) {
-        throw this._attachPartialIds(firstError, 'addDocuments', 'writtenIds', writtenIds);
-      }
     }
 
     return ids;
@@ -767,35 +747,24 @@ export class AmazonS3Vectors extends VectorStore {
       this._validateBatchSize('delete', batchSize, MAX_DELETE_BATCH_SIZE);
       const deletedIds: string[] = [];
       for (const group of chunk(chunk(ids, batchSize), MAX_CONCURRENT_BATCH_CALLS)) {
-        // allSettled, not all — waiting out every sibling in the group
-        // before reporting a failure is what makes deletedIds accurate: a
-        // slower sibling that succeeds *after* another one rejects would
-        // otherwise never make it into the reported set.
-        const results = await Promise.allSettled(
-          group.map((batchIds) =>
-            this._send('DeleteVectors', () =>
-              this._client.send(
-                new DeleteVectorsCommand({
-                  vectorBucketName: this.vectorBucketName,
-                  indexName: this.indexName,
-                  keys: batchIds,
-                }),
-                { abortSignal: signal },
-              ),
-            ).then(() => batchIds),
+        await this._settleGroup(
+          group.map(
+            (batchIds) => () =>
+              this._send('DeleteVectors', () =>
+                this._client.send(
+                  new DeleteVectorsCommand({
+                    vectorBucketName: this.vectorBucketName,
+                    indexName: this.indexName,
+                    keys: batchIds,
+                  }),
+                  { abortSignal: signal },
+                ),
+              ).then(() => batchIds),
           ),
+          'delete',
+          'deletedIds',
+          deletedIds,
         );
-        let firstError: unknown = null;
-        for (const result of results) {
-          if (result.status === 'fulfilled') {
-            deletedIds.push(...result.value);
-          } else if (firstError === null) {
-            firstError = result.reason;
-          }
-        }
-        if (firstError !== null) {
-          throw this._attachPartialIds(firstError, 'delete', 'deletedIds', deletedIds);
-        }
       }
     }
   }
@@ -860,12 +829,16 @@ export class AmazonS3Vectors extends VectorStore {
         ),
       );
 
-      let firstError: unknown = null;
+      let firstError: unknown;
+      let hasError = false;
       let firstMissingId: string | null = null;
       for (let i = 0; i < group.length; i++) {
         const result = results[i]!;
         if (result.status === 'rejected') {
-          if (firstError === null) firstError = result.reason;
+          if (!hasError) {
+            hasError = true;
+            firstError = result.reason;
+          }
           continue;
         }
 
@@ -894,7 +867,7 @@ export class AmazonS3Vectors extends VectorStore {
         }
       }
 
-      if (firstError !== null) {
+      if (hasError) {
         throw this._attachPartialIds(firstError, 'getByIds', 'foundIds', foundIds);
       }
       if (firstMissingId !== null) {
@@ -1099,15 +1072,72 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
+   * Run every thunk in `group` concurrently via `Promise.allSettled`,
+   * pushing the ids each successful one resolves with onto `collectedIds`
+   * as they settle. If any thunk rejected, throws — via
+   * {@link _attachPartialIds} — only after every sibling in the group has
+   * settled, with everything collected so far attached under
+   * `context[key]`: a slower sibling that succeeds *after* another one
+   * rejects must never be lost from that reporting. Shared by every
+   * batched write/delete method; `getByIds` doesn't use this since it
+   * needs to do more per successful result than just collect an id list
+   * (build `Document`s, track a separate not-found case).
+   */
+  private async _settleGroup(
+    group: (() => Promise<string[]>)[],
+    operation: string,
+    key: 'writtenIds' | 'deletedIds',
+    collectedIds: string[],
+  ): Promise<void> {
+    const results = await Promise.allSettled(group.map((thunk) => thunk()));
+    let firstError: unknown;
+    let hasError = false;
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        collectedIds.push(...result.value);
+      } else if (!hasError) {
+        hasError = true;
+        firstError = result.reason;
+      }
+    }
+    if (hasError) {
+      throw this._attachPartialIds(firstError, operation, key, collectedIds);
+    }
+  }
+
+  /**
+   * Normalize `error` into an `S3VectorsError`, unchanged if it already is
+   * one (so the layer nearest the failure keeps ownership of message and
+   * code) — otherwise wrapped as `UNEXPECTED_ERROR`. Shared by every place
+   * that attaches extra context (partial ids, a factory's constructed
+   * instance) to whatever an operation actually threw.
+   *
+   * @remarks
+   * Only ever reached for a value that didn't come from an AWS SDK call —
+   * those already go through {@link _send}, which wraps as
+   * `AWS_REQUEST_FAILED`/`ABORTED` and is never itself passed through
+   * here. This path exists for a raw throw from caller-supplied code (an
+   * `embedDocuments` call in {@link addDocuments}) or caller input that
+   * bypassed validation (a malformed argument to {@link fromDocuments}).
+   * Neither is actually "an AWS request failed", which is why this uses
+   * its own code instead of reusing `AWS_REQUEST_FAILED`.
+   */
+  private _normalizeToS3VectorsError(error: unknown, operation: string): S3VectorsError {
+    return isS3VectorsError(error)
+      ? error
+      : wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, {
+          operation,
+          vectorBucketName: this.vectorBucketName,
+          indexName: this.indexName,
+        });
+  }
+
+  /**
    * Wrap `error` with the ids already confirmed (durably written, durably
    * deleted, or already found, per `key`) before this failure, so a
    * partial-batch-operation failure never silently loses track of progress
    * already made — especially auto-generated write ids, which have no
-   * other way to be discovered again afterward. `error` is normally
-   * already an {@link S3VectorsError} (every AWS call goes through
-   * {@link _send}), but `addDocuments`'s `embedDocuments` call has no such
-   * wrapping (it isn't an AWS call), so a raw error from the caller's
-   * embeddings model is handled too.
+   * other way to be discovered again afterward.
    */
   private _attachPartialIds(
     error: unknown,
@@ -1115,13 +1145,7 @@ export class AmazonS3Vectors extends VectorStore {
     key: 'writtenIds' | 'deletedIds' | 'foundIds',
     ids: string[],
   ): S3VectorsError {
-    const base = isS3VectorsError(error)
-      ? error
-      : wrapAwsError(error, S3VectorsErrorCode.AWS_REQUEST_FAILED, {
-          operation,
-          vectorBucketName: this.vectorBucketName,
-          indexName: this.indexName,
-        });
+    const base = this._normalizeToS3VectorsError(error, operation);
     const phrase =
       key === 'writtenIds'
         ? 'were already durably written'
@@ -1140,18 +1164,10 @@ export class AmazonS3Vectors extends VectorStore {
    * the instance already constructed (and possibly partially written to),
    * so the caller isn't left to manually reconstruct an equivalent
    * instance from the same embeddings/config just to act on
-   * `context.writtenIds`. `error` is already an {@link S3VectorsError} on
-   * every real path through `addDocuments`, but an arbitrary error is
-   * still wrapped defensively, the same way {@link _attachPartialIds} does.
+   * `context.writtenIds`.
    */
   private _attachInstance(error: unknown, operation: string): S3VectorsError {
-    const base = isS3VectorsError(error)
-      ? error
-      : wrapAwsError(error, S3VectorsErrorCode.AWS_REQUEST_FAILED, {
-          operation,
-          vectorBucketName: this.vectorBucketName,
-          indexName: this.indexName,
-        });
+    const base = this._normalizeToS3VectorsError(error, operation);
     return new S3VectorsError(
       base.message,
       base.code,
@@ -1294,12 +1310,10 @@ export class AmazonS3Vectors extends VectorStore {
    * — the same concurrency pattern {@link delete} and {@link getByIds}
    * already use for `DeleteVectors`/`GetVectors`.
    *
-   * Waits out every sibling in a group via `Promise.allSettled` rather than
-   * racing ahead on the first rejection — a slower sibling that succeeds
-   * *after* another one fails would otherwise be lost from the failed
-   * write's reported `writtenIds`. On any failure, the thrown error carries
-   * every id confirmed written so far (from this batch's earlier groups and
-   * from any group siblings that succeeded alongside the one that failed).
+   * Each group of batches is run through {@link _settleGroup}, so a group
+   * failure still reports every id confirmed written so far — from this
+   * batch's earlier groups and from any group siblings that succeeded
+   * alongside the one that failed.
    *
    * @internal Used by `addVectors`. `addDocuments` needs its embedding
    * step to stay strictly sequential across batches (unlike this helper's
@@ -1323,32 +1337,21 @@ export class AmazonS3Vectors extends VectorStore {
       throw this._attachPartialIds(error, operation, 'writtenIds', writtenIds);
     }
 
-    const rest: { batch: T[]; offset: number }[] = [];
-    let offset = firstBatch.length;
-    for (const batch of batches.slice(1)) {
-      rest.push({ batch, offset });
-      offset += batch.length;
-    }
+    const rest = offsetBatches(batches.slice(1), firstBatch.length);
 
     for (const group of chunk(rest, MAX_CONCURRENT_BATCH_CALLS)) {
-      const results = await Promise.allSettled(
-        group.map(({ batch, offset: batchOffset }) =>
-          action(batch, batchOffset).then(() => ({ offset: batchOffset, length: batch.length })),
+      await this._settleGroup(
+        group.map(
+          ({ batch, offset: batchOffset }) =>
+            () =>
+              action(batch, batchOffset).then(() =>
+                ids.slice(batchOffset, batchOffset + batch.length),
+              ),
         ),
+        operation,
+        'writtenIds',
+        writtenIds,
       );
-      let firstError: unknown = null;
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          writtenIds.push(
-            ...ids.slice(result.value.offset, result.value.offset + result.value.length),
-          );
-        } else if (firstError === null) {
-          firstError = result.reason;
-        }
-      }
-      if (firstError !== null) {
-        throw this._attachPartialIds(firstError, operation, 'writtenIds', writtenIds);
-      }
     }
   }
 

@@ -8,6 +8,7 @@ import { Document } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
+import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import {
   BASE_CONFIG,
@@ -116,6 +117,9 @@ describe('AmazonS3Vectors partial-write failure reports writtenIds', () => {
       .catch((e: unknown) => e);
 
     expect(isS3VectorsError(error)).toBe(true);
+    // UNEXPECTED_ERROR, not AWS_REQUEST_FAILED: the embeddings model threw
+    // this, not AWS — no AWS call was ever made for this batch.
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
     expect((error as { context: { writtenIds?: string[] } }).context.writtenIds).toEqual([]);
     expect((error as Error).message).toContain('embedding provider unavailable');
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
