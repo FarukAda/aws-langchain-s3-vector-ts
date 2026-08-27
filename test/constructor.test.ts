@@ -1,4 +1,4 @@
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
@@ -91,5 +91,43 @@ describe('AmazonS3Vectors constructor', () => {
     });
 
     expect(store).toBeInstanceOf(AmazonS3Vectors);
+  });
+});
+
+describe('AmazonS3Vectors constructor — client validation', () => {
+  it('rejects a duck-typed object with .send from a different client class, warns and falls back', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const fakeClient = { send: async () => ({}) };
+
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- exercising the wrong-class-client fallback
+      client: fakeClient as any,
+      region: 'us-east-1',
+    });
+
+    expect(store).toBeInstanceOf(AmazonS3Vectors);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]![0]).toContain('not an instance of S3VectorsClient');
+    warnSpy.mockRestore();
+  });
+
+  it('does not warn when a real S3VectorsClient is passed', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { client } = createMockClient();
+
+    new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('does not warn when no client is passed', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, region: 'us-east-1' });
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });

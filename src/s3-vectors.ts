@@ -176,17 +176,24 @@ export class AmazonS3Vectors extends VectorStore {
     this._relevanceScoreFn = config.relevanceScoreFn;
     this._queryEmbeddings = config.queryEmbeddings;
 
-    if (config.client && typeof config.client.send === 'function') {
-      this._client = config.client;
-    } else {
-      this._client = new S3VectorsClient({
-        region: config.region,
-        credentials: config.credentials,
-        endpoint: config.endpoint,
-        maxAttempts: config.maxAttempts,
-        retryMode: config.retryMode,
-      });
+    if (config.client && Object.getPrototypeOf(config.client) !== S3VectorsClient.prototype) {
+      console.warn(
+        '[AmazonS3Vectors] config.client was provided but is not an instance of S3VectorsClient ' +
+          '(from "@aws-sdk/client-s3vectors"); ignoring it and building a new client from ' +
+          'region/credentials/endpoint instead.',
+      );
     }
+
+    this._client =
+      config.client && Object.getPrototypeOf(config.client) === S3VectorsClient.prototype
+        ? config.client
+        : new S3VectorsClient({
+            region: config.region,
+            credentials: config.credentials,
+            endpoint: config.endpoint,
+            maxAttempts: config.maxAttempts,
+            retryMode: config.retryMode,
+          });
   }
 
   // ── Getters ───────────────────────────────────────────────────────────
