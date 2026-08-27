@@ -173,4 +173,28 @@ describe('AmazonS3Vectors AbortSignal — stops before starting more uncancellab
     // starting an expensive, uncancellable embedDocuments call.
     expect(embedCalls).toBe(1);
   });
+
+  it('does not embed the first batch at all when the signal is already aborted before the call', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+
+    const controller = new AbortController();
+    controller.abort();
+    let embedCalls = 0;
+    const embeddings: EmbeddingsInterface = {
+      embedDocuments: async (texts: string[]) => {
+        embedCalls += 1;
+        return texts.map(() => [1, 2, 3]);
+      },
+      embedQuery: async () => [1, 2, 3],
+    };
+    const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+
+    const error = await store
+      .addDocuments([new Document({ pageContent: 'd-0' })], { signal: controller.signal })
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
+    expect(embedCalls).toBe(0);
+  });
 });

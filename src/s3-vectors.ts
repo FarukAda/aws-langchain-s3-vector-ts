@@ -378,6 +378,10 @@ export class AmazonS3Vectors extends VectorStore {
     // report exactly what's already landed instead of losing that
     // information the moment the error propagates.
     let writtenIds: string[] = [];
+    // embedDocuments has no signal support, so it can't self-cancel the
+    // way _send()'s AWS calls do — check explicitly before spending an
+    // expensive, uncancellable call on a batch nobody wants anymore.
+    this._checkAborted('addDocuments', signal);
     try {
       await putBatch(firstBatch, 0, await embedBatch(firstBatch));
       writtenIds = ids.slice(0, firstBatch.length);
