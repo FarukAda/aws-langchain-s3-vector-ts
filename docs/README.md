@@ -1,8 +1,8 @@
-**AWS LangChain S3 Vector TypeScript v0.4.0**
+**AWS LangChain S3 Vector TypeScript v0.5.0**
 
 ***
 
-# AWS LangChain S3 Vector TypeScript v0.4.0
+# AWS LangChain S3 Vector TypeScript v0.5.0
 
 LangChain-compatible Amazon S3 Vectors store for TypeScript.
 

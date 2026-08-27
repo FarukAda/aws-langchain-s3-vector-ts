@@ -1,4 +1,4 @@
-[**AWS LangChain S3 Vector TypeScript v0.4.0**](../README.md)
+[**AWS LangChain S3 Vector TypeScript v0.5.0**](../README.md)
 
 ***
 
@@ -8,6 +8,6 @@
 
 > **DistanceMetric** = `"euclidean"` \| `"cosine"`
 
-Defined in: [types.ts:7](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/8129a816b678ebc0de5d7ebd34811a58f0fe892b/src/types.ts#L7)
+Defined in: [types.ts:7](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/types.ts#L7)
 
 Distance metrics supported by Amazon S3 Vectors indexes.
