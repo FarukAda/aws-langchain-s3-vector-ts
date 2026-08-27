@@ -1,8 +1,9 @@
 import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
+import { isS3VectorsError, type S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import {
   BASE_CONFIG,
   createMockClient,
@@ -77,5 +78,52 @@ describe('AmazonS3Vectors.fromDocuments batchSize forwarding', () => {
     expect(embeddings.embedDocuments).toHaveBeenCalledTimes(2);
     expect(embeddings.embedDocuments).toHaveBeenNthCalledWith(1, ['a', 'b']);
     expect(embeddings.embedDocuments).toHaveBeenNthCalledWith(2, ['c']);
+  });
+});
+
+describe('fromDocuments — partial-write failure', () => {
+  it('attaches the constructed instance to the thrown error so writtenIds can be acted on', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    const failure = Object.assign(new Error('throttled'), { name: 'ThrottlingException' });
+    mock.on(PutVectorsCommand).rejectsOnce(failure).resolves({});
+
+    const error = await AmazonS3Vectors.fromDocuments(
+      [new Document({ pageContent: 'a' }), new Document({ pageContent: 'b' })],
+      createMockEmbeddings(),
+      { ...BASE_CONFIG, client, batchSize: 1, ids: ['id-1', 'id-2'] },
+    ).catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    const instance = (error as S3VectorsError).context.instance;
+    expect(instance).toBeInstanceOf(AmazonS3Vectors);
+    expect(instance!.vectorBucketName).toBe(BASE_CONFIG.vectorBucketName);
+  });
+
+  it('still attaches the instance via the defensive wrapAwsError fallback when addDocuments rejects with a non-S3VectorsError value', async () => {
+    // Every real failure addDocuments can produce is already an
+    // S3VectorsError (validation errors, aborts, and AWS failures are all
+    // wrapped before they escape addDocuments), so _attachInstance's
+    // wrapAwsError fallback has no current real-world trigger. Spying on
+    // addDocuments itself is the only way to exercise that defensive
+    // branch: it simulates addDocuments misbehaving (e.g. a future
+    // regression that lets a raw error through) without changing what
+    // addDocuments actually does today.
+    const { client } = createMockClient();
+    const addDocumentsSpy = jest
+      .spyOn(AmazonS3Vectors.prototype, 'addDocuments')
+      .mockRejectedValueOnce('raw string');
+
+    const error = await AmazonS3Vectors.fromDocuments(
+      [new Document({ pageContent: 'a' })],
+      createMockEmbeddings(),
+      { ...BASE_CONFIG, client },
+    ).catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as S3VectorsError).message).toBe('fromDocuments failed: raw string');
+    const instance = (error as S3VectorsError).context.instance;
+    expect(instance).toBeInstanceOf(AmazonS3Vectors);
+    addDocumentsSpy.mockRestore();
   });
 });

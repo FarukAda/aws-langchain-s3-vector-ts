@@ -1,3 +1,4 @@
+import type { AmazonS3Vectors } from '../../s3-vectors.js';
 import { S3VectorsErrorCode } from './error-code.js';
 
 /** Structured context attached to every {@link S3VectorsError}. */
@@ -23,6 +24,20 @@ export interface S3VectorsErrorContext {
    * a caller doesn't have to re-fetch everything from scratch.
    */
   readonly foundIds?: string[];
+  /**
+   * The store constructed by a `fromDocuments`/`fromTexts` factory call that
+   * failed partway through writing. Only ever set on an error thrown by
+   * those two static factories — every other operation already runs
+   * against a `this` the caller already holds a reference to. Lets a
+   * caller act on `writtenIds` (`.delete({ ids: writtenIds })`,
+   * `.getByIds(writtenIds)`) against the exact instance the ids were
+   * written to, instead of reconstructing an equivalent one by hand.
+   *
+   * Unlike every other field here, this is a live object handle, not
+   * plain diagnostic data — avoid `JSON.stringify(error.context)` when it
+   * may be set; log the other fields individually instead.
+   */
+  readonly instance?: AmazonS3Vectors;
 }
 
 const S3_VECTORS_ERROR_BRAND = Symbol.for('@farukada/aws-langchain-s3-vector-ts:S3VectorsError');

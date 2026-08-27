@@ -887,6 +887,12 @@ export class AmazonS3Vectors extends VectorStore {
   /**
    * Static factory: create an {@link AmazonS3Vectors} instance and add
    * the given documents to the store.
+   *
+   * @throws If the write fails — including partway through a multi-batch
+   * write — the thrown {@link S3VectorsError}'s `context.instance` carries
+   * the constructed (and possibly partially-written) store, so the caller
+   * can act on `context.writtenIds` without reconstructing an equivalent
+   * instance from the same embeddings/config.
    */
   static async fromDocuments(
     docs: Document[],
@@ -894,11 +900,15 @@ export class AmazonS3Vectors extends VectorStore {
     config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<AmazonS3Vectors> {
     const instance = new AmazonS3Vectors(embeddings, config);
-    await instance.addDocuments(docs, {
-      ids: config.ids,
-      batchSize: config.batchSize,
-      signal: config.signal,
-    });
+    try {
+      await instance.addDocuments(docs, {
+        ids: config.ids,
+        batchSize: config.batchSize,
+        signal: config.signal,
+      });
+    } catch (error: unknown) {
+      throw instance._attachInstance(error, 'fromDocuments');
+    }
     return instance;
   }
 
@@ -1046,6 +1056,31 @@ export class AmazonS3Vectors extends VectorStore {
         ? `${base.message} ${ids.length} vector(s) ${phrase} before this failure — see error.context.${key}.`
         : base.message;
     return new S3VectorsError(message, base.code, { ...base.context, [key]: ids }, base.cause);
+  }
+
+  /**
+   * Wrap `error` from a `fromDocuments`/`fromTexts` factory failure with
+   * the instance already constructed (and possibly partially written to),
+   * so the caller isn't left to manually reconstruct an equivalent
+   * instance from the same embeddings/config just to act on
+   * `context.writtenIds`. `error` is already an {@link S3VectorsError} on
+   * every real path through `addDocuments`, but an arbitrary error is
+   * still wrapped defensively, the same way {@link _attachPartialIds} does.
+   */
+  private _attachInstance(error: unknown, operation: string): S3VectorsError {
+    const base = isS3VectorsError(error)
+      ? error
+      : wrapAwsError(error, S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+          operation,
+          vectorBucketName: this.vectorBucketName,
+          indexName: this.indexName,
+        });
+    return new S3VectorsError(
+      base.message,
+      base.code,
+      { ...base.context, instance: this },
+      base.cause,
+    );
   }
 
   /**
