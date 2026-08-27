@@ -530,6 +530,22 @@ describe('_validateFilter — array and non-plain-object filters', () => {
     ).rejects.toThrow("received a non-plain object, which AWS's filter syntax does not accept");
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
   });
+
+  // isPlainFilterObject's `proto === null` branch exists specifically to
+  // accept this shape (a prototype-pollution-safe dictionary built with
+  // Object.create(null)) as a *valid* filter — distinct from every other
+  // test above, which only exercises that comparison evaluating to false.
+  it('accepts an Object.create(null) dictionary filter', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
+
+    const filter = Object.create(null, { genre: { value: 'x', enumerable: true } });
+
+    await expect(
+      store.similaritySearchVectorWithScore([1, 2, 3], 4, filter as never),
+    ).resolves.toEqual([]);
+    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.filter).toBe(filter);
+  });
 });
 
 describe('AmazonS3Vectors read-path distance-metric validation', () => {
