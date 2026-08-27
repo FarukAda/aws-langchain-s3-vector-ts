@@ -8,7 +8,7 @@
 
 > **euclideanRelevanceScoreFn**(`distance`): `number`
 
-Defined in: [relevance-scores.ts:38](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/3cc304b2b355e6789473175d04db2db834e2062a/src/relevance-scores.ts#L38)
+Defined in: [relevance-scores.ts:38](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/e93cf23e181d1dfa63d42b4d0ea21a569ef421dd/src/relevance-scores.ts#L38)
 
 Convert a **euclidean distance** to a relevance score, using the same
 heuristic as the Python `langchain-aws` reference implementation.
