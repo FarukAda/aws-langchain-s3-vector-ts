@@ -139,6 +139,10 @@ describe('AmazonS3Vectors constructor — client validation', () => {
 
     expect(warnSpy).not.toHaveBeenCalled();
     expect(store).toBeInstanceOf(AmazonS3Vectors);
+    // Not just "didn't warn" — confirm the subclass instance was actually
+    // adopted as `_client`, not silently swapped for a default one that
+    // also happens not to warn.
+    expect((store as unknown as { _client: unknown })._client).toBe(client);
     warnSpy.mockRestore();
   });
 

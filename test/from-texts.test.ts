@@ -124,6 +124,9 @@ describe('fromDocuments — partial-write failure', () => {
     // Substring, not an exact match: the tail is V8's own TypeError wording
     // for the failed `documents.map(...)` call, not this library's text.
     expect((error as S3VectorsError).message).toContain('fromDocuments failed:');
+    // The real cause must still be attached (not just a generic message
+    // prefix with the original TypeError silently dropped).
+    expect((error as S3VectorsError).cause).toBeInstanceOf(TypeError);
     const instance = (error as S3VectorsError).context.instance;
     expect(instance).toBeInstanceOf(AmazonS3Vectors);
   });

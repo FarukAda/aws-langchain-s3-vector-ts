@@ -79,7 +79,15 @@ function isPlainFilterObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-/** "a"/"an" for the given word, so error messages don't read "a Error instance". */
+/**
+ * "a"/"an" for the given word, so error messages don't read "a Error
+ * instance". Letter-based, not pronunciation-based — correct for the
+ * realistic constructor names this reaches (Error, Array, Map, a custom
+ * class, ...), but not for a "long U" name like Uint8Array or URIError
+ * ("a Uint8Array" is the grammatically correct one there, despite the
+ * leading vowel letter). Not worth a pronunciation table for an
+ * already-uncommon error-message edge case.
+ */
 function articleFor(word: string): 'a' | 'an' {
   return /^[aeiou]/i.test(word) ? 'an' : 'a';
 }
