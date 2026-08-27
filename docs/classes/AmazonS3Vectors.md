@@ -6,7 +6,7 @@
 
 # Class: AmazonS3Vectors
 
-Defined in: [s3-vectors.ts:130](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L130)
+Defined in: [s3-vectors.ts:137](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L137)
 
 LangChain vector store backed by **Amazon S3 Vectors**.
 
@@ -59,7 +59,7 @@ const results = await store.similaritySearch("space adventure", 4);
 
 > **new AmazonS3Vectors**(`embeddings`, `config`): `AmazonS3Vectors`
 
-Defined in: [s3-vectors.ts:199](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L199)
+Defined in: [s3-vectors.ts:206](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L206)
 
 Create a new Amazon S3 Vectors store
 
@@ -91,7 +91,7 @@ Configuration options for the store
 
 > `readonly` **createIndexIfNotExist**: `boolean`
 
-Defined in: [s3-vectors.ts:142](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L142)
+Defined in: [s3-vectors.ts:149](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L149)
 
 ***
 
@@ -99,7 +99,7 @@ Defined in: [s3-vectors.ts:142](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > `readonly` **dataType**: `"float32"`
 
-Defined in: [s3-vectors.ts:138](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L138)
+Defined in: [s3-vectors.ts:145](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L145)
 
 ***
 
@@ -107,7 +107,7 @@ Defined in: [s3-vectors.ts:138](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > `readonly` **distanceMetric**: [`DistanceMetric`](../type-aliases/DistanceMetric.md)
 
-Defined in: [s3-vectors.ts:139](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L139)
+Defined in: [s3-vectors.ts:146](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L146)
 
 ***
 
@@ -115,7 +115,7 @@ Defined in: [s3-vectors.ts:139](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **FilterType**: `Record`\<`string`, `unknown`\>
 
-Defined in: [s3-vectors.ts:132](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L132)
+Defined in: [s3-vectors.ts:139](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L139)
 
 **`Internal`**
 
@@ -131,7 +131,7 @@ discriminator used by LangChain
 
 > `readonly` **indexName**: `string`
 
-Defined in: [s3-vectors.ts:137](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L137)
+Defined in: [s3-vectors.ts:144](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L144)
 
 ***
 
@@ -139,7 +139,7 @@ Defined in: [s3-vectors.ts:137](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > `readonly` **nonFilterableMetadataKeys**: `string`[] \| `undefined`
 
-Defined in: [s3-vectors.ts:140](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L140)
+Defined in: [s3-vectors.ts:147](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L147)
 
 ***
 
@@ -147,7 +147,7 @@ Defined in: [s3-vectors.ts:140](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > `readonly` **pageContentMetadataKey**: `string` \| `null`
 
-Defined in: [s3-vectors.ts:141](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L141)
+Defined in: [s3-vectors.ts:148](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L148)
 
 ***
 
@@ -155,7 +155,7 @@ Defined in: [s3-vectors.ts:141](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > `readonly` **vectorBucketName**: `string`
 
-Defined in: [s3-vectors.ts:136](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L136)
+Defined in: [s3-vectors.ts:143](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L143)
 
 ## Methods
 
@@ -163,7 +163,7 @@ Defined in: [s3-vectors.ts:136](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **\_selectRelevanceScoreFn**(): (`distance`) => `number`
 
-Defined in: [s3-vectors.ts:960](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L960)
+Defined in: [s3-vectors.ts:971](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L971)
 
 **`Internal`**
 
@@ -179,7 +179,7 @@ Select the correct relevance-score function.
 
 > `abstract` **\_vectorstoreType**(): `string`
 
-Defined in: [s3-vectors.ts:238](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L238)
+Defined in: [s3-vectors.ts:249](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L249)
 
 Returns a string representing the type of vector store, which subclasses
 must implement to identify their specific vector storage type.
@@ -200,7 +200,7 @@ A string indicating the vector store type.
 
 > **addDocuments**(`documents`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [s3-vectors.ts:356](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L356)
+Defined in: [s3-vectors.ts:367](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L367)
 
 Embed documents and store them in the vector index.
 
@@ -282,7 +282,7 @@ otherwise be impossible to find or reconcile again.
 
 > **addTexts**(`texts`, `metadatas?`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [s3-vectors.ts:507](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L507)
+Defined in: [s3-vectors.ts:518](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L518)
 
 Add texts (with optional metadata) to the vector store.
 
@@ -343,7 +343,7 @@ Error if count of metadatas doesn't match count of texts
 
 > **addVectors**(`vectors`, `documents`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [s3-vectors.ts:272](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L272)
+Defined in: [s3-vectors.ts:283](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L283)
 
 Add pre-computed vectors alongside their documents to the store.
 
@@ -420,7 +420,7 @@ otherwise be impossible to find or reconcile again.
 
 > **delete**(`params?`): `Promise`\<`void`\>
 
-Defined in: [s3-vectors.ts:707](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L707)
+Defined in: [s3-vectors.ts:718](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L718)
 
 Delete vectors by ID, or delete the entire index.
 
@@ -457,7 +457,7 @@ tells you exactly what already happened.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:939](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L939)
+Defined in: [s3-vectors.ts:950](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L950)
 
 Static factory: create an AmazonS3Vectors instance and add
 the given documents to the store.
@@ -498,7 +498,7 @@ instance from the same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:906](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L906)
+Defined in: [s3-vectors.ts:917](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L917)
 
 Static factory: create an AmazonS3Vectors instance, embed
 the given texts, and add them to the store.
@@ -535,7 +535,7 @@ the given texts, and add them to the store.
 
 > **getByIds**(`ids`, `options?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:806](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L806)
+Defined in: [s3-vectors.ts:817](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L817)
 
 Retrieve documents by their vector IDs.
 
@@ -592,7 +592,7 @@ caller doesn't have to re-fetch everything from scratch.
 
 > **maxMarginalRelevanceSearch**(`_query`, `_options`, `_callbacks?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:670](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L670)
+Defined in: [s3-vectors.ts:681](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L681)
 
 Maximal Marginal Relevance (MMR) search — **not supported** by this store.
 
@@ -639,7 +639,7 @@ Always, with code `NOT_IMPLEMENTED`.
 
 > **similaritySearch**(`query`, `k?`, `filter?`, `_callbacks?`, `signal?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:599](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L599)
+Defined in: [s3-vectors.ts:610](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L610)
 
 Run a text-based similarity search and return documents (no scores).
 
@@ -686,7 +686,7 @@ model is used for the query, matching `asRetriever()`'s behavior.
 
 > **similaritySearchByVector**(`embedding`, `k?`, `filter?`, `signal?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:616](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L616)
+Defined in: [s3-vectors.ts:627](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L627)
 
 Return documents most similar to a raw embedding vector (no scores).
 
@@ -720,7 +720,7 @@ Abort an in-progress search (see [similaritySearchVectorWithScore](#similarityse
 
 > **similaritySearchVectorWithScore**(`query`, `k`, `filter?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:539](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L539)
+Defined in: [s3-vectors.ts:550](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L550)
 
 Core similarity search returning `[Document, distance]` tuples.
 
@@ -773,7 +773,7 @@ more similar for both cosine and euclidean metrics.
 
 > **similaritySearchWithRelevanceScores**(`query`, `k?`, `filter?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:644](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L644)
+Defined in: [s3-vectors.ts:655](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L655)
 
 Run a text-based similarity search and return documents with
 *relevance scores* (higher is better), converted from S3 Vectors'
@@ -809,7 +809,7 @@ Abort an in-progress search (see [similaritySearchVectorWithScore](#similarityse
 
 > **similaritySearchWithScore**(`query`, `k?`, `filter?`, `_callbacks?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:575](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/s3-vectors.ts#L575)
+Defined in: [s3-vectors.ts:586](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/s3-vectors.ts#L586)
 
 Run a text-based similarity search and return documents with scores.
 

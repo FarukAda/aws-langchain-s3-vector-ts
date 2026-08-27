@@ -6,7 +6,7 @@
 
 # Interface: S3VectorsErrorContext
 
-Defined in: [shared/errors/s3-vectors-error.ts:5](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/shared/errors/s3-vectors-error.ts#L5)
+Defined in: [shared/errors/s3-vectors-error.ts:5](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/shared/errors/s3-vectors-error.ts#L5)
 
 Structured context attached to every [S3VectorsError](../classes/S3VectorsError.md).
 
@@ -16,7 +16,7 @@ Structured context attached to every [S3VectorsError](../classes/S3VectorsError.
 
 > `readonly` `optional` **deletedIds?**: `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:18](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/shared/errors/s3-vectors-error.ts#L18)
+Defined in: [shared/errors/s3-vectors-error.ts:18](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/shared/errors/s3-vectors-error.ts#L18)
 
 Ids confirmed durably deleted before a partial `delete({ ids })` failure.
 
@@ -26,7 +26,7 @@ Ids confirmed durably deleted before a partial `delete({ ids })` failure.
 
 > `readonly` `optional` **foundIds?**: `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:26](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/shared/errors/s3-vectors-error.ts#L26)
+Defined in: [shared/errors/s3-vectors-error.ts:26](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/shared/errors/s3-vectors-error.ts#L26)
 
 Ids confirmed found (and already fetched) before a partial `getByIds`
 failure — either a `GetVectors` batch rejecting while sibling batches
@@ -40,7 +40,7 @@ a caller doesn't have to re-fetch everything from scratch.
 
 > `readonly` `optional` **indexName?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:9](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/shared/errors/s3-vectors-error.ts#L9)
+Defined in: [shared/errors/s3-vectors-error.ts:9](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/shared/errors/s3-vectors-error.ts#L9)
 
 ***
 
@@ -48,7 +48,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:9](https://github.com/FarukAda/aw
 
 > `readonly` `optional` **instance?**: [`AmazonS3Vectors`](../classes/AmazonS3Vectors.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:40](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/shared/errors/s3-vectors-error.ts#L40)
+Defined in: [shared/errors/s3-vectors-error.ts:45](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/shared/errors/s3-vectors-error.ts#L45)
 
 The store constructed by a `fromDocuments`/`fromTexts` factory call that
 failed partway through writing. Only ever set on an error thrown by
@@ -59,8 +59,13 @@ caller act on `writtenIds` (`.delete({ ids: writtenIds })`,
 written to, instead of reconstructing an equivalent one by hand.
 
 Unlike every other field here, this is a live object handle, not
-plain diagnostic data — avoid `JSON.stringify(error.context)` when it
-may be set; log the other fields individually instead.
+plain diagnostic data — treat it as a reference for programmatic
+recovery (`error.context.instance.delete({ ids: writtenIds })`), not
+as something to log. (It happens to `JSON.stringify` safely — this
+class inherits LangChain's `Serializable#toJSON()`, which renders it
+as a small type-identifier stub rather than dumping internal state —
+but that stub is rarely useful in a log line, so prefer logging the
+other context fields individually instead.)
 
 ***
 
@@ -68,7 +73,7 @@ may be set; log the other fields individually instead.
 
 > `readonly` **operation**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:7](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/shared/errors/s3-vectors-error.ts#L7)
+Defined in: [shared/errors/s3-vectors-error.ts:7](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/shared/errors/s3-vectors-error.ts#L7)
 
 The logical operation that failed (e.g. `"PutVectors"`, `"getByIds"`).
 
@@ -78,7 +83,7 @@ The logical operation that failed (e.g. `"PutVectors"`, `"getByIds"`).
 
 > `readonly` `optional` **vectorBucketName?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:8](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/shared/errors/s3-vectors-error.ts#L8)
+Defined in: [shared/errors/s3-vectors-error.ts:8](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/shared/errors/s3-vectors-error.ts#L8)
 
 ***
 
@@ -86,7 +91,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:8](https://github.com/FarukAda/aw
 
 > `readonly` `optional` **writtenIds?**: `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:16](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ce9620a2a056ed1c0d40b92400f84e5ee71bc332/src/shared/errors/s3-vectors-error.ts#L16)
+Defined in: [shared/errors/s3-vectors-error.ts:16](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/2fe7c014422043f2b3359a180bc7797a2bca3933/src/shared/errors/s3-vectors-error.ts#L16)
 
 Ids confirmed durably written to AWS before a partial `addVectors`/
 `addDocuments` failure — present so a caller (especially one relying
