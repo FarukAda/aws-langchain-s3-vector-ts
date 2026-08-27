@@ -1,3 +1,4 @@
+import { S3VectorsClient } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect, jest } from '@jest/globals';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
@@ -62,6 +63,8 @@ describe('AmazonS3Vectors constructor', () => {
   });
 
   it('builds its own client when the supplied client has no send method', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
     const store = new AmazonS3Vectors(createMockEmbeddings(), {
       ...BASE_CONFIG,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- exercising the no-send fallback
@@ -70,6 +73,7 @@ describe('AmazonS3Vectors constructor', () => {
     });
 
     expect(store).toBeInstanceOf(AmazonS3Vectors);
+    warnSpy.mockRestore();
   });
 
   it('forwards retry options to the SDK client', () => {
@@ -119,6 +123,22 @@ describe('AmazonS3Vectors constructor — client validation', () => {
     new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 
     expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('accepts a subclass of S3VectorsClient without warning', () => {
+    // isPrototypeOf checks the whole prototype chain (unlike a direct
+    // getPrototypeOf comparison), so a legitimate subclass — e.g. a
+    // tracing/middleware wrapper a caller wrote — is accepted instead of
+    // being silently swapped for a default-constructed client.
+    class TracingS3VectorsClient extends S3VectorsClient {}
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const client = new TracingS3VectorsClient({ region: 'us-east-1' });
+
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(store).toBeInstanceOf(AmazonS3Vectors);
     warnSpy.mockRestore();
   });
 

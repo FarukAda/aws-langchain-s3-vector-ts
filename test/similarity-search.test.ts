@@ -531,6 +531,16 @@ describe('_validateFilter — array and non-plain-object filters', () => {
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
   });
 
+  it('uses "an" instead of "a" for a vowel-initial constructor name', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
+
+    await expect(
+      store.similaritySearchVectorWithScore([1, 2, 3], 4, new Error('boom') as never),
+    ).rejects.toThrow("received an Error instance, which AWS's filter syntax does not accept");
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
   // isPlainFilterObject's `proto === null` branch exists specifically to
   // accept this shape (a prototype-pollution-safe dictionary built with
   // Object.create(null)) as a *valid* filter — distinct from every other

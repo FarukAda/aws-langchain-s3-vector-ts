@@ -79,12 +79,19 @@ function isPlainFilterObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
+/** "a"/"an" for the given word, so error messages don't read "a Error instance". */
+function articleFor(word: string): 'a' | 'an' {
+  return /^[aeiou]/i.test(word) ? 'an' : 'a';
+}
+
 /** Describe a rejected filter value for the validation error message. */
 function describeFilterValue(value: unknown): string {
   const type = typeof value;
-  if (type !== 'object') return `a ${type}`;
+  if (type !== 'object') return `${articleFor(type)} ${type}`;
   const ctorName = (value as { constructor?: { name?: string } })?.constructor?.name;
-  return ctorName && ctorName !== 'Object' ? `a ${ctorName} instance` : 'a non-plain object';
+  return ctorName && ctorName !== 'Object'
+    ? `${articleFor(ctorName)} ${ctorName} instance`
+    : 'a non-plain object';
 }
 
 /**
@@ -213,7 +220,11 @@ export class AmazonS3Vectors extends VectorStore {
     this._relevanceScoreFn = config.relevanceScoreFn;
     this._queryEmbeddings = config.queryEmbeddings;
 
-    if (config.client && Object.getPrototypeOf(config.client) !== S3VectorsClient.prototype) {
+    const isS3VectorsClient =
+      config.client !== undefined &&
+      Object.prototype.isPrototypeOf.call(S3VectorsClient.prototype, config.client);
+
+    if (config.client && !isS3VectorsClient) {
       console.warn(
         '[AmazonS3Vectors] config.client was provided but is not an instance of S3VectorsClient ' +
           '(from "@aws-sdk/client-s3vectors"); ignoring it and building a new client from ' +
@@ -222,7 +233,7 @@ export class AmazonS3Vectors extends VectorStore {
     }
 
     this._client =
-      config.client && Object.getPrototypeOf(config.client) === S3VectorsClient.prototype
+      config.client && isS3VectorsClient
         ? config.client
         : new S3VectorsClient({
             region: config.region,
@@ -1440,17 +1451,12 @@ export class AmazonS3Vectors extends VectorStore {
     }
 
     if (this.createIndexIfNotExist) {
-      // Checked here, before _ensureIndexExists is ever invoked below —
-      // that call is a plain (non-async) argument expression, so it would
-      // otherwise run eagerly and create/join the shared memo (dispatching
-      // a real GetIndex/CreateIndex call) even for an already-aborted
-      // signal, before _raceAbort's own internal check ever got a chance
-      // to run. Both of _raceAbort's own checks (this upfront one and its
-      // abort-mid-flight listener) remain in place as defense-in-depth for
-      // every other caller of this method.
-      this._checkAborted(operation, signal);
+      // _raceAbort takes a thunk (not an already-started promise)
+      // specifically so its own abort check runs before _ensureIndexExists
+      // is ever called — see _raceAbort's remarks for why that ordering
+      // matters.
       const { existing, epoch } = await this._raceAbort(
-        this._ensureIndexExists(firstVector),
+        () => this._ensureIndexExists(firstVector),
         signal,
         operation,
       );
@@ -1458,6 +1464,13 @@ export class AmazonS3Vectors extends VectorStore {
         if (this._indexEpoch === epoch) {
           this._validatedIndexInfo = existing;
         }
+        // A caller that joins this memo while it spans a concurrent
+        // `deleteAll` still validates `firstVector` against the pre-delete
+        // `existing` it returned — the epoch guard above only stops that
+        // stale info from being cached, not from being used for this one
+        // write's own validation. Its `PutVectors` call then fails
+        // naturally against the now-deleted index, same as any other
+        // write racing a `deleteAll` it didn't itself trigger.
         this._assertIndexCompatible(existing, firstVector, operation);
       }
       return;
@@ -1541,21 +1554,29 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
-   * Let `signal` make the caller's own wait for `promise` reject early —
-   * with the same coded `ABORTED` error {@link _checkAborted} throws
-   * elsewhere — without cancelling `promise` itself. Used so one caller's
-   * `AbortSignal` can never cancel, or get blamed for, a sibling caller's
-   * dependency on {@link _ensureIndexExists}'s shared GetIndex/CreateIndex
-   * memo.
+   * Let `signal` make the caller's own wait for `factory()`'s promise
+   * reject early — with the same coded `ABORTED` error {@link _checkAborted}
+   * throws elsewhere — without cancelling that promise itself. Used so one
+   * caller's `AbortSignal` can never cancel, or get blamed for, a sibling
+   * caller's dependency on {@link _ensureIndexExists}'s shared
+   * GetIndex/CreateIndex memo.
+   *
+   * @remarks
+   * Takes a factory rather than an already-started promise so the check
+   * below runs *before* `factory()` is ever called: a plain promise
+   * argument is evaluated before this function's own body starts, which
+   * would let an already-aborted signal still create/join a shared memo
+   * and dispatch a real AWS call before anything had a chance to reject.
    */
   private _raceAbort<T>(
-    promise: Promise<T>,
+    factory: () => Promise<T>,
     signal: AbortSignal | undefined,
     operation: string,
   ): Promise<T> {
-    if (!signal) return promise;
+    if (!signal) return factory();
     this._checkAborted(operation, signal);
 
+    const promise = factory();
     return new Promise<T>((resolve, reject) => {
       const onAbort = (): void => {
         try {
