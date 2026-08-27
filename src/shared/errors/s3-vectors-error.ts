@@ -34,8 +34,13 @@ export interface S3VectorsErrorContext {
    * written to, instead of reconstructing an equivalent one by hand.
    *
    * Unlike every other field here, this is a live object handle, not
-   * plain diagnostic data — avoid `JSON.stringify(error.context)` when it
-   * may be set; log the other fields individually instead.
+   * plain diagnostic data — treat it as a reference for programmatic
+   * recovery (`error.context.instance.delete({ ids: writtenIds })`), not
+   * as something to log. (It happens to `JSON.stringify` safely — this
+   * class inherits LangChain's `Serializable#toJSON()`, which renders it
+   * as a small type-identifier stub rather than dumping internal state —
+   * but that stub is rarely useful in a log line, so prefer logging the
+   * other context fields individually instead.)
    */
   readonly instance?: AmazonS3Vectors;
 }

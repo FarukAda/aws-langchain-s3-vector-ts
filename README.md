@@ -484,7 +484,7 @@ await store.addDocuments(largeDocs, { signal: controller.signal });
 
 An aborted operation rejects with a coded `S3VectorsError` (`code: "ABORTED"`), distinct from `AWS_REQUEST_FAILED`. Cancellation cancels the AWS request currently in flight (confirmed live: an abort mid-write stops the request instead of waiting for it to complete) and stops any further batches or pages from starting; a signal that's already aborted before the call even starts rejects immediately, with no network call at all.
 
-One exception: the shared index existence-check/creation calls (`GetIndex`/`CreateIndex`) triggered when multiple writers race to create the same not-yet-existing index are not tied to any single caller's signal — this is what lets one caller's abort avoid cancelling a concurrent sibling's write sharing that same in-flight check. A practical consequence: aborting mid-index-creation rejects your own call promptly, but the index may still end up created.
+One exception: the shared index existence-check/creation calls (`GetIndex`/`CreateIndex`) triggered whenever a write needs the index checked or created — whether or not another caller happens to be racing it — are not tied to any single caller's signal, so that a concurrent sibling's write sharing that same in-flight check can never be cancelled by another caller's abort. A practical consequence: aborting mid-index-creation rejects your own call promptly, but the index may still end up created.
 
 One real limitation: `embedDocuments`/`embedQuery` (from your embeddings model) have no cancellation support in LangChain's `EmbeddingsInterface`, so a batch already being embedded when the signal fires still completes — only the AWS side (and any batch not yet started) is actually cancelled.
 
