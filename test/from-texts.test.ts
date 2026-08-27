@@ -121,9 +121,9 @@ describe('fromDocuments — partial-write failure', () => {
 
     expect(isS3VectorsError(error)).toBe(true);
     expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
-    expect((error as S3VectorsError).message).toBe(
-      "fromDocuments failed: Cannot read properties of null (reading 'map')",
-    );
+    // Substring, not an exact match: the tail is V8's own TypeError wording
+    // for the failed `documents.map(...)` call, not this library's text.
+    expect((error as S3VectorsError).message).toContain('fromDocuments failed:');
     const instance = (error as S3VectorsError).context.instance;
     expect(instance).toBeInstanceOf(AmazonS3Vectors);
   });
