@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `isError` (used internally to normalize a raw thrown value into an `Error`) missed `DOMException` and any other `Error` subtype that defines its own `Symbol.toStringTag` — it matched only the exact `Object.prototype.toString` tag `'[object Error]'`. A caller-supplied `embedDocuments` throwing a `DOMException` (e.g. from a native `fetch`/`AbortController`) had its real message replaced with `{}`. Now detects any value with string `name`/`message` properties, matching this repo's existing duck-typing convention (`isAbortError`, `isAwsNotFoundException`) instead of a tag check.
+- `safeStringify` (used in the same error-normalization path) silently returned the literal value `undefined` — not a string — for a thrown `undefined`, function, or symbol, since `JSON.stringify` returns `undefined` rather than throwing for those inputs. A caller doing `throw undefined` produced an error message with the real cause silently dropped (`"<operation> failed: "` instead of `"<operation> failed: undefined"`).
+
 ## [0.5.0] - 2026-08-26
 
 ### Added

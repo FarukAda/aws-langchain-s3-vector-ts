@@ -5,17 +5,20 @@ import {
   type S3VectorsErrorContext,
 } from './s3-vectors-error.js';
 
-/** Detect a built-in Error (cross-realm safe, avoids `instanceof`). */
-function isError(value: unknown): boolean {
-  return Object.prototype.toString.call(value) === '[object Error]';
+/** Detect an Error-like value by structure (cross-realm safe, avoids `instanceof`). */
+function isError(value: unknown): value is Error {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { message?: unknown; name?: unknown };
+  return typeof candidate.name === 'string' && typeof candidate.message === 'string';
 }
 
 /** Stringify a value for an error message, tolerating BigInt and circular references. */
 function safeStringify(value: unknown): string {
   try {
-    return JSON.stringify(value, (_key: string, v: unknown) =>
+    const json = JSON.stringify(value, (_key: string, v: unknown) =>
       typeof v === 'bigint' ? v.toString() : v,
     );
+    return json === undefined ? String(value) : json;
   } catch {
     return String(value);
   }
@@ -23,7 +26,7 @@ function safeStringify(value: unknown): string {
 
 /** Normalize an unknown thrown value into an `Error`. */
 export function toError(value: unknown): Error {
-  if (isError(value)) return value as Error;
+  if (isError(value)) return value;
   return new Error(typeof value === 'string' ? value : safeStringify(value));
 }
 

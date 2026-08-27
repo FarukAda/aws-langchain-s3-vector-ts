@@ -17,6 +17,33 @@ describe('toError', () => {
   it('serializes a non-string, non-Error value', () => {
     expect(toError({ reason: 'nope' }).message).toBe('{"reason":"nope"}');
   });
+
+  it('treats null as a non-Error, safely stringified', () => {
+    expect(toError(null).message).toBe('null');
+  });
+
+  it('does not treat a message-only object (no name) as an Error', () => {
+    expect(toError({ message: 'boom' }).message).toBe('{"message":"boom"}');
+  });
+
+  it('does not treat a name-only object (no message) as an Error', () => {
+    expect(toError({ name: 'Foo' }).message).toBe('{"name":"Foo"}');
+  });
+
+  it('treats a plain {name, message} object as already-an-Error', () => {
+    const looksLikeError = { name: 'Foo', message: 'bar' };
+    expect(toError(looksLikeError)).toBe(looksLikeError);
+  });
+
+  it('recognizes a DOMException as an Error despite its own Symbol.toStringTag', () => {
+    const domException = new DOMException('The operation was aborted.', 'AbortError');
+    expect(toError(domException)).toBe(domException);
+    expect(toError(domException).message).toBe('The operation was aborted.');
+  });
+
+  it('stringifies a thrown undefined instead of losing it to JSON.stringify returning undefined', () => {
+    expect(toError(undefined).message).toBe('undefined');
+  });
 });
 
 describe('toError safety', () => {
