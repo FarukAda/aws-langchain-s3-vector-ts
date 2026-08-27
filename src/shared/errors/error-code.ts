@@ -14,4 +14,6 @@ export enum S3VectorsErrorCode {
   ABORTED = 'ABORTED',
   /** An AWS response was missing fields this library requires to proceed. */
   AWS_INVALID_RESPONSE = 'AWS_INVALID_RESPONSE',
+  /** The requested operation is not implemented by this vector store. */
+  NOT_IMPLEMENTED = 'NOT_IMPLEMENTED',
 }

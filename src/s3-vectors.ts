@@ -13,7 +13,7 @@ import {
 import type { Callbacks } from '@langchain/core/callbacks/manager';
 import { Document } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
-import { VectorStore } from '@langchain/core/vectorstores';
+import { VectorStore, type MaxMarginalRelevanceSearchOptions } from '@langchain/core/vectorstores';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
 import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './relevance-scores.js';
@@ -602,6 +602,39 @@ export class AmazonS3Vectors extends VectorStore {
     const scoreFn = this._selectRelevanceScoreFn();
     const results = await this.similaritySearchWithScore(query, k, filter, undefined, signal);
     return results.map(([doc, distance]) => [doc, scoreFn(distance)]);
+  }
+
+  /**
+   * Maximal Marginal Relevance (MMR) search — **not supported** by this store.
+   *
+   * @remarks
+   * `AmazonS3Vectors` intentionally does not implement real MMR, matching
+   * the Python `langchain-aws` reference — use metadata pre-filtering or
+   * client-side re-ranking if you need result diversity. Unlike Python's
+   * `VectorStore.max_marginal_relevance_search` (a concrete base-class
+   * method that raises `NotImplementedError` by default), `@langchain/core`'s
+   * JS `VectorStore` only *types* this method as optional with no runtime
+   * default — so this store defines it explicitly, purely to throw this
+   * library's own coded {@link S3VectorsError} instead of a raw `TypeError`.
+   *
+   * @throws {S3VectorsError} Always, with code `NOT_IMPLEMENTED`.
+   */
+  async maxMarginalRelevanceSearch(
+    _query: string,
+    _options: MaxMarginalRelevanceSearchOptions<this['FilterType']>,
+    _callbacks?: Callbacks,
+  ): Promise<Document[]> {
+    throw new S3VectorsError(
+      'maxMarginalRelevanceSearch is not supported by AmazonS3Vectors, matching the Python ' +
+        'langchain-aws reference — use metadata pre-filtering or client-side re-ranking if you ' +
+        'need result diversity.',
+      S3VectorsErrorCode.NOT_IMPLEMENTED,
+      {
+        operation: 'maxMarginalRelevanceSearch',
+        vectorBucketName: this.vectorBucketName,
+        indexName: this.indexName,
+      },
+    );
   }
 
   /**
