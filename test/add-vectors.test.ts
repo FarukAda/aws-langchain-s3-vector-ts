@@ -9,10 +9,12 @@ import { Document } from '@langchain/core/documents';
 import type { AwsClientStub } from 'aws-sdk-client-mock';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
+import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import {
   BASE_CONFIG,
   createMockClient,
   createMockEmbeddings,
+  createTestStore,
   mockExistingIndex,
   mockIndexAutoCreated,
 } from './helpers.js';
@@ -222,5 +224,28 @@ describe('AmazonS3Vectors.addVectors', () => {
     await expect(
       store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], { ids: ['id-1'] }),
     ).rejects.toMatchObject({ name: 'S3VectorsError' });
+  });
+});
+
+describe('addVectors — batch-internal dimension consistency', () => {
+  it('rejects a batch whose vectors have inconsistent dimensions with INDEX_CONFIG_MISMATCH', async () => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+
+    const error = await store
+      .addVectors(
+        [
+          [1, 2, 3],
+          [1, 2],
+        ],
+        [new Document({ pageContent: 'a' }), new Document({ pageContent: 'b' })],
+        { ids: ['id-1', 'id-2'] },
+      )
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+    );
+    expect((error as Error).message).toContain('index 1');
   });
 });

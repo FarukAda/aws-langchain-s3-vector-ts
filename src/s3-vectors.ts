@@ -1229,6 +1229,23 @@ export class AmazonS3Vectors extends VectorStore {
         );
       }
 
+      // Every vector in this batch must share the first vector's dimension
+      // — that's the dimension this batch is validated against (or, for a
+      // brand-new index, created with) just below. Without this, only
+      // vectors[0] was ever checked locally.
+      for (let i = 1; i < vectors.length; i++) {
+        const vector = vectors[i]!;
+        if (vector.length !== firstVector.length) {
+          throw new S3VectorsError(
+            `Vector at index ${i} in this batch has dimension ${vector.length}, but this ` +
+              `batch's first vector has dimension ${firstVector.length}. All vectors in the ` +
+              'same batch must share the same dimension.',
+            S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+            { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
+          );
+        }
+      }
+
       await this._validateBeforeWrite(firstVector, operation, signal);
     }
 
