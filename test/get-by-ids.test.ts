@@ -1,6 +1,7 @@
 import { GetVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
+import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError, S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import { createTestStore } from './helpers.js';
 
@@ -32,6 +33,18 @@ describe('AmazonS3Vectors.getByIds', () => {
     await expect(store.getByIds(['missing-id'])).rejects.toThrow(
       "Id 'missing-id' not found in vector store.",
     );
+  });
+
+  it('rejects a non-array ids argument with a coded VALIDATION error, not a raw TypeError', async () => {
+    const { store } = createTestStore();
+
+    const error = await store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      .getByIds('not-an-array' as any)
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe('ids must be an array.');
   });
 });
 

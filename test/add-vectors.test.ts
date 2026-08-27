@@ -131,6 +131,26 @@ describe('AmazonS3Vectors.addVectors', () => {
     ).rejects.toThrow('must match');
   });
 
+  it('rejects a non-array vectors argument with a coded VALIDATION error, not a raw TypeError', async () => {
+    const error = await store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      .addVectors(null as any, [new Document({ pageContent: 'a' })])
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe('vectors must be an array.');
+  });
+
+  it('rejects a non-array documents argument with a coded VALIDATION error, not a raw TypeError', async () => {
+    const error = await store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      .addVectors([[1, 2, 3]], null as any)
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe('documents must be an array.');
+  });
+
   it('returns empty array for empty input', async () => {
     const ids = await store.addVectors([], []);
     expect(ids).toEqual([]);

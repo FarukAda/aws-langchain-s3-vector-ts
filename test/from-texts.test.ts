@@ -31,6 +31,39 @@ describe('AmazonS3Vectors.fromTexts', () => {
   });
 });
 
+describe('AmazonS3Vectors.fromTexts/fromDocuments array validation', () => {
+  it('fromTexts rejects a non-array texts argument with a coded VALIDATION error', async () => {
+    const { client } = createMockClient();
+
+    const error = await AmazonS3Vectors.fromTexts(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      null as any,
+      {},
+      createMockEmbeddings(),
+      { ...BASE_CONFIG, client },
+    ).catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as S3VectorsError).message).toBe('texts must be an array.');
+  });
+
+  it('fromDocuments rejects a non-array docs argument with a coded VALIDATION error, not a raw TypeError', async () => {
+    const { client } = createMockClient();
+
+    const error = await AmazonS3Vectors.fromDocuments(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      null as any,
+      createMockEmbeddings(),
+      { ...BASE_CONFIG, client },
+    ).catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as S3VectorsError).message).toBe('documents must be an array.');
+  });
+});
+
 describe('AmazonS3Vectors.fromTexts metadata handling', () => {
   it('applies a single metadata object to every text', async () => {
     const { client, mock } = createMockClient();
@@ -106,20 +139,22 @@ describe('fromDocuments — partial-write failure', () => {
   });
 
   it('still attaches the instance via the _normalizeToS3VectorsError fallback when addDocuments throws before it wraps anything itself', async () => {
-    // addDocuments's own error-wrapping (_checkAborted, the try/catch around
-    // embedBatch+putBatch, _attachPartialIds) only starts a few lines in —
-    // `documents.map(...)` on the very first line runs before any of it, so
-    // a non-array `docs` (a realistic mistake for an untyped JS caller, or a
-    // TS caller that casts past the type system) throws a raw, un-wrapped
-    // TypeError straight into fromDocuments's catch. This is a genuine,
-    // organic trigger for _attachInstance's UNEXPECTED_ERROR fallback (via
+    // addDocuments validates `documents` is an array up front, and its own
+    // error-wrapping (_checkAborted, the try/catch around embedBatch+putBatch,
+    // _attachPartialIds) starts a few lines later — but `documents.map(...)`
+    // on the very first line after that array check runs before any of the
+    // latter, so an array containing a non-Document element (a realistic
+    // mistake for an untyped JS caller, or a TS caller that casts past the
+    // type system) still throws a raw, un-wrapped TypeError straight into
+    // fromDocuments's catch. This is a genuine, organic trigger for
+    // _attachInstance's UNEXPECTED_ERROR fallback (via
     // _normalizeToS3VectorsError) — not just a defensive branch for a
     // hypothetical future regression.
     const { client } = createMockClient();
 
     const error = await AmazonS3Vectors.fromDocuments(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input to trigger addDocuments' pre-validation throw
-      null as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed element to trigger addDocuments' per-element pre-validation throw
+      [null] as any,
       createMockEmbeddings(),
       { ...BASE_CONFIG, client },
     ).catch((e: unknown) => e);

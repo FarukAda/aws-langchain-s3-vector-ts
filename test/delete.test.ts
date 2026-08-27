@@ -8,6 +8,7 @@ import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
+import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { BASE_CONFIG, createMockClient } from './helpers.js';
 
 describe('AmazonS3Vectors.delete', () => {
@@ -65,6 +66,17 @@ describe('AmazonS3Vectors.delete', () => {
     const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
 
     await expect(store.delete({ ids: ['a'], deleteAll: true })).rejects.toThrow(/cannot take both/);
+  });
+
+  it('rejects a non-array ids argument with a coded VALIDATION error, not a raw TypeError', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+    const error = await store.delete({ ids: 'not-an-array' as any }).catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe('ids must be an array.');
   });
 
   it('clears the cached index-compatibility check on deleteAll, so a later write re-validates instead of trusting a stale cache', async () => {

@@ -2,6 +2,7 @@ import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
+import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import {
   BASE_CONFIG,
   createMockClient,
@@ -38,6 +39,22 @@ describe('AmazonS3Vectors.addTexts', () => {
       genre: 'b',
       _page_content: 'world',
     });
+  });
+
+  it('rejects a non-array texts argument with a coded VALIDATION error, not a raw TypeError', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+    });
+
+    const error = await store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      .addTexts(null as any)
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe('texts must be an array.');
   });
 
   it('throws when metadatas count mismatches texts', async () => {

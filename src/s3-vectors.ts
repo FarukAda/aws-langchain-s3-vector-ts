@@ -293,6 +293,8 @@ export class AmazonS3Vectors extends VectorStore {
     documents: Document[],
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
+    this._validateIsArray('addVectors', 'vectors', vectors);
+    this._validateIsArray('addVectors', 'documents', documents);
     if (vectors.length !== documents.length) {
       throw this._validationError(
         'addVectors',
@@ -376,6 +378,7 @@ export class AmazonS3Vectors extends VectorStore {
     documents: Document[],
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
+    this._validateIsArray('addDocuments', 'documents', documents);
     // Checked before the empty-batch short-circuit below — a caller passing
     // a stale/mismatched `ids` array alongside an empty `documents` array is
     // still a real caller mistake and shouldn't be silently swallowed into
@@ -508,6 +511,7 @@ export class AmazonS3Vectors extends VectorStore {
     metadatas?: Record<string, unknown>[],
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
+    this._validateIsArray('addTexts', 'texts', texts);
     if (metadatas && metadatas.length !== texts.length) {
       throw this._validationError(
         'addTexts',
@@ -743,6 +747,7 @@ export class AmazonS3Vectors extends VectorStore {
       this._validatedIndexInfo = null;
       this._indexEpoch++;
     } else {
+      this._validateIsArray('delete', 'ids', ids);
       const batchSize = params?.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
       this._validateBatchSize('delete', batchSize, MAX_DELETE_BATCH_SIZE);
       const deletedIds: string[] = [];
@@ -795,6 +800,7 @@ export class AmazonS3Vectors extends VectorStore {
     ids: string[],
     options?: { batchSize?: number; signal?: AbortSignal },
   ): Promise<Document[]> {
+    this._validateIsArray('getByIds', 'ids', ids);
     const batchSize = options?.batchSize ?? DEFAULT_GET_BATCH_SIZE;
     this._validateBatchSize('getByIds', batchSize, MAX_GET_BATCH_SIZE);
     const signal = options?.signal;
@@ -905,6 +911,11 @@ export class AmazonS3Vectors extends VectorStore {
     embeddings: EmbeddingsInterface,
     config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<AmazonS3Vectors> {
+    if (!Array.isArray(texts)) {
+      throw new S3VectorsError('texts must be an array.', S3VectorsErrorCode.VALIDATION, {
+        operation: 'fromTexts',
+      });
+    }
     if (Array.isArray(metadatas) && metadatas.length !== texts.length) {
       throw new S3VectorsError(
         `Number of metadatas (${metadatas.length}) must match number of texts (${texts.length})`,
@@ -1001,6 +1012,20 @@ export class AmazonS3Vectors extends VectorStore {
       vectorBucketName: this.vectorBucketName,
       indexName: this.indexName,
     });
+  }
+
+  /**
+   * Reject a non-array value before any array method is called on it. The
+   * type system already requires an array here for a typed caller, but an
+   * untyped JS caller (or a cast past the type system) can still reach
+   * this with e.g. `null` — without this check that surfaces as a raw,
+   * uncoded `TypeError` instead of this library's own coded
+   * {@link S3VectorsError}.
+   */
+  private _validateIsArray(operation: string, paramName: string, value: unknown): void {
+    if (!Array.isArray(value)) {
+      throw this._validationError(operation, `${paramName} must be an array.`);
+    }
   }
 
   /**

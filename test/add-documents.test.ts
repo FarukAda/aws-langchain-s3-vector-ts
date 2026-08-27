@@ -28,6 +28,19 @@ describe('AmazonS3Vectors.addDocuments input validation', () => {
     expect(ids).toEqual([]);
   });
 
+  it('rejects a non-array documents argument with a coded VALIDATION error, not a raw TypeError', async () => {
+    const { store } = createTestStore();
+
+    const error = await store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      .addDocuments(null as any)
+      .catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe('documents must be an array.');
+  });
+
   it('throws when ids count mismatches documents count', async () => {
     const { store } = createTestStore();
 
