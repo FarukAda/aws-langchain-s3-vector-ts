@@ -61,6 +61,9 @@ describe('AmazonS3Vectors.fromTexts/fromDocuments array validation', () => {
     expect(isS3VectorsError(error)).toBe(true);
     expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as S3VectorsError).message).toBe('documents must be an array.');
+    // fromDocuments still attaches the constructed instance even for this
+    // pre-validation failure, same as every other fromDocuments error.
+    expect((error as S3VectorsError).context.instance).toBeInstanceOf(AmazonS3Vectors);
   });
 });
 

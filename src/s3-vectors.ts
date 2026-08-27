@@ -512,6 +512,9 @@ export class AmazonS3Vectors extends VectorStore {
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
     this._validateIsArray('addTexts', 'texts', texts);
+    if (metadatas) {
+      this._validateIsArray('addTexts', 'metadatas', metadatas);
+    }
     if (metadatas && metadatas.length !== texts.length) {
       throw this._validationError(
         'addTexts',

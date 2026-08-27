@@ -57,6 +57,22 @@ describe('AmazonS3Vectors.addTexts', () => {
     expect((error as Error).message).toBe('texts must be an array.');
   });
 
+  it('rejects a truthy non-array metadatas argument with a coded VALIDATION error, not a raw TypeError or a confusing message', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+    });
+
+    const error = await store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      .addTexts(['a'], { genre: 'a' } as any)
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe('metadatas must be an array.');
+  });
+
   it('throws when metadatas count mismatches texts', async () => {
     const { client } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), {
