@@ -197,6 +197,19 @@ describe('index-validation cache — concurrency', () => {
     const [resultA, resultB] = await Promise.allSettled([writeA, writeB]);
     expect(resultA.status).toBe('rejected');
     expect(resultB.status).toBe('fulfilled');
+
+    // resultB.status === 'fulfilled' alone doesn't actually prove B was
+    // unaffected by A's abort — aws-sdk-client-mock's callsFake never
+    // honors abortSignal at all, so B would fulfill even without the fix
+    // this test exists to cover. Assert the two properties that DO
+    // distinguish the fix: A's rejection carries the coded ABORTED error
+    // (not, say, a generic "not found" leaking through), and the shared
+    // memo's own GetIndex call was never given anyone's signal (proving
+    // it's not tied to caller A's specifically, which is what would let
+    // A's abort reach — and cancel — the AWS call B also depends on).
+    const errorA = await writeA.catch((e: unknown) => e);
+    expect((errorA as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
+    expect(mock.commandCalls(GetIndexCommand)[0]!.args[1]).toEqual({ abortSignal: undefined });
   });
 
   it("a caller's signal that never fires still sees a genuine index-creation failure surface normally, not swallowed or misreported as ABORTED", async () => {
@@ -218,5 +231,28 @@ describe('index-validation cache — concurrency', () => {
       S3VectorsErrorCode.AWS_REQUEST_FAILED,
     );
     expect((error as Error).message).toContain('denied');
+  });
+
+  it('makes zero AWS calls when addVectors is called with an already-aborted signal and no cached index info', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(GetIndexCommand).resolves({
+      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+    });
+    mock.on(CreateIndexCommand).resolves({});
+    mock.on(PutVectorsCommand).resolves({});
+
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await store
+      .addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], {
+        ids: ['id-1'],
+        signal: controller.signal,
+      })
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(0);
+    expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
   });
 });

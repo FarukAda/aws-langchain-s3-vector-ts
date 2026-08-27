@@ -1440,6 +1440,15 @@ export class AmazonS3Vectors extends VectorStore {
     }
 
     if (this.createIndexIfNotExist) {
+      // Checked here, before _ensureIndexExists is ever invoked below —
+      // that call is a plain (non-async) argument expression, so it would
+      // otherwise run eagerly and create/join the shared memo (dispatching
+      // a real GetIndex/CreateIndex call) even for an already-aborted
+      // signal, before _raceAbort's own internal check ever got a chance
+      // to run. Both of _raceAbort's own checks (this upfront one and its
+      // abort-mid-flight listener) remain in place as defense-in-depth for
+      // every other caller of this method.
+      this._checkAborted(operation, signal);
       const { existing, epoch } = await this._raceAbort(
         this._ensureIndexExists(firstVector),
         signal,
