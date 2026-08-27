@@ -9,6 +9,7 @@ import {
   BASE_CONFIG,
   createMockClient,
   createMockEmbeddings,
+  createTestStore,
   mockIndexAutoCreated,
   mockIndexNotFound,
 } from './helpers.js';
@@ -110,6 +111,31 @@ describe('AmazonS3Vectors auto-index nonFilterableMetadataKeys behavior', () => 
     expect(
       new Set(createCalls[0]!.args[0].input.metadataConfiguration?.nonFilterableMetadataKeys),
     ).toEqual(new Set(TEN_KEYS));
+  });
+});
+
+describe('_createIndex — non-filterable-key cap, key already present', () => {
+  it('does not throw when the caller-supplied list already contains the page-content key and is already over the cap', async () => {
+    const { store, mock } = createTestStore({
+      nonFilterableMetadataKeys: [
+        '_page_content',
+        'k1',
+        'k2',
+        'k3',
+        'k4',
+        'k5',
+        'k6',
+        'k7',
+        'k8',
+        'k9',
+        'k10',
+      ],
+    });
+    mockIndexAutoCreated(mock);
+
+    await expect(
+      store.addDocuments([new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
+    ).resolves.toEqual(['id-1']);
   });
 });
 

@@ -1485,12 +1485,14 @@ export class AmazonS3Vectors extends VectorStore {
 
     // Scoped to "adding the page-content key specifically is what pushes
     // this over the cap" — a caller-configured list that already exceeds
-    // the cap on its own (pageContentMetadataKey: null included) is a
-    // different, pre-existing user error that AWS's own CreateIndex
-    // validation already rejects clearly; this message would be
-    // misleading for that case since no page-content key is being added.
+    // the cap on its own (pageContentMetadataKey: null, or the key already
+    // present in the caller's list, included) is a different, pre-existing
+    // user error that AWS's own CreateIndex validation already rejects
+    // clearly; this message would be misleading for that case since no
+    // page-content key is being added.
     if (
       this.pageContentMetadataKey !== null &&
+      !configuredKeys.includes(this.pageContentMetadataKey) &&
       withPageContentKey &&
       withPageContentKey.length > MAX_NON_FILTERABLE_KEYS
     ) {
