@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-27
+
 ### Fixed
 
 **Error-contract fixes** (every failure is supposed to surface as a coded `S3VectorsError` — these closed the cases where it didn't):
