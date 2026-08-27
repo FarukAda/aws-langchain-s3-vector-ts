@@ -96,20 +96,25 @@ describe('fromDocuments — partial-write failure', () => {
     ).catch((e: unknown) => e);
 
     expect(isS3VectorsError(error)).toBe(true);
+    // A real AWS failure must still be AWS_REQUEST_FAILED, not
+    // UNEXPECTED_ERROR — this is the AWS-originated counterpart to the
+    // non-AWS UNEXPECTED_ERROR case covered below.
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
     const instance = (error as S3VectorsError).context.instance;
     expect(instance).toBeInstanceOf(AmazonS3Vectors);
     expect(instance!.vectorBucketName).toBe(BASE_CONFIG.vectorBucketName);
   });
 
-  it('still attaches the instance via the defensive wrapAwsError fallback when addDocuments throws before it wraps anything itself', async () => {
+  it('still attaches the instance via the _normalizeToS3VectorsError fallback when addDocuments throws before it wraps anything itself', async () => {
     // addDocuments's own error-wrapping (_checkAborted, the try/catch around
     // embedBatch+putBatch, _attachPartialIds) only starts a few lines in —
     // `documents.map(...)` on the very first line runs before any of it, so
     // a non-array `docs` (a realistic mistake for an untyped JS caller, or a
     // TS caller that casts past the type system) throws a raw, un-wrapped
     // TypeError straight into fromDocuments's catch. This is a genuine,
-    // organic trigger for _attachInstance's wrapAwsError fallback — not
-    // just a defensive branch for a hypothetical future regression.
+    // organic trigger for _attachInstance's UNEXPECTED_ERROR fallback (via
+    // _normalizeToS3VectorsError) — not just a defensive branch for a
+    // hypothetical future regression.
     const { client } = createMockClient();
 
     const error = await AmazonS3Vectors.fromDocuments(

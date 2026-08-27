@@ -829,6 +829,10 @@ export class AmazonS3Vectors extends VectorStore {
         ),
       );
 
+      // firstError needs the separate hasError flag since `unknown` can't
+      // rule out a legitimate rejection reason of null/undefined; a
+      // null-sentinel is fine below for firstMissingId since ids are
+      // always non-null strings.
       let firstError: unknown;
       let hasError = false;
       let firstMissingId: string | null = null;
@@ -1073,10 +1077,11 @@ export class AmazonS3Vectors extends VectorStore {
 
   /**
    * Run every thunk in `group` concurrently via `Promise.allSettled`,
-   * pushing the ids each successful one resolves with onto `collectedIds`
-   * as they settle. If any thunk rejected, throws — via
-   * {@link _attachPartialIds} — only after every sibling in the group has
-   * settled, with everything collected so far attached under
+   * pushing the ids each successful one resolved with onto `collectedIds`
+   * once the whole group has settled, in group order (not completion
+   * order). If any thunk rejected, throws — via {@link _attachPartialIds}
+   * — only after every sibling in the group has settled, with everything
+   * collected so far attached under
    * `context[key]`: a slower sibling that succeeds *after* another one
    * rejects must never be lost from that reporting. Shared by every
    * batched write/delete method; `getByIds` doesn't use this since it
@@ -1113,14 +1118,16 @@ export class AmazonS3Vectors extends VectorStore {
    * instance) to whatever an operation actually threw.
    *
    * @remarks
-   * Only ever reached for a value that didn't come from an AWS SDK call —
-   * those already go through {@link _send}, which wraps as
-   * `AWS_REQUEST_FAILED`/`ABORTED` and is never itself passed through
-   * here. This path exists for a raw throw from caller-supplied code (an
+   * This method itself is reached constantly with AWS-originated errors —
+   * every AWS call in this class wraps its own failures into a coded
+   * `S3VectorsError` first ({@link _send}, plus `_getIndex`'s own inline
+   * `wrapAwsError`), so those simply take the pass-through branch below.
+   * Only the *wrapping* branch is unreachable for an AWS-originated value:
+   * it exists for a raw throw from caller-supplied code (an
    * `embedDocuments` call in {@link addDocuments}) or caller input that
    * bypassed validation (a malformed argument to {@link fromDocuments}).
-   * Neither is actually "an AWS request failed", which is why this uses
-   * its own code instead of reusing `AWS_REQUEST_FAILED`.
+   * Neither is actually "an AWS request failed", which is why that branch
+   * uses its own code instead of reusing `AWS_REQUEST_FAILED`.
    */
   private _normalizeToS3VectorsError(error: unknown, operation: string): S3VectorsError {
     return isS3VectorsError(error)
@@ -1133,8 +1140,9 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
-   * Wrap `error` with the ids already confirmed (durably written, durably
-   * deleted, or already found, per `key`) before this failure, so a
+   * Wrap `error` (normalized via {@link _normalizeToS3VectorsError}) with
+   * the ids already confirmed (durably written, durably deleted, or
+   * already found, per `key`) before this failure, so a
    * partial-batch-operation failure never silently loses track of progress
    * already made — especially auto-generated write ids, which have no
    * other way to be discovered again afterward.
@@ -1160,11 +1168,11 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
-   * Wrap `error` from a `fromDocuments`/`fromTexts` factory failure with
-   * the instance already constructed (and possibly partially written to),
-   * so the caller isn't left to manually reconstruct an equivalent
-   * instance from the same embeddings/config just to act on
-   * `context.writtenIds`.
+   * Wrap `error` (normalized via {@link _normalizeToS3VectorsError}) from
+   * a `fromDocuments`/`fromTexts` factory failure with the instance
+   * already constructed (and possibly partially written to), so the
+   * caller isn't left to manually reconstruct an equivalent instance from
+   * the same embeddings/config just to act on `context.writtenIds`.
    */
   private _attachInstance(error: unknown, operation: string): S3VectorsError {
     const base = this._normalizeToS3VectorsError(error, operation);
