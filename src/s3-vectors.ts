@@ -754,7 +754,12 @@ export class AmazonS3Vectors extends VectorStore {
    * `GetVectors` calls currently in flight and stops any further batches
    * from starting.
    * @returns Array of documents in the same order as the input IDs
-   * @throws Error if any ID is not found in the vector store
+   * @throws Error if any ID is not found in the vector store, or if a
+   * `GetVectors` batch call fails. Either way, the thrown
+   * {@link S3VectorsError}'s `context.foundIds` lists every id already
+   * confirmed found before the failure — including one found by a
+   * concurrent batch that succeeded alongside the one that failed — so a
+   * caller doesn't have to re-fetch everything from scratch.
    */
   async getByIds(
     ids: string[],
@@ -768,10 +773,16 @@ export class AmazonS3Vectors extends VectorStore {
     // Bound the number of in-flight GetVectors calls: process batches in
     // groups, running each group concurrently but awaiting it before
     // starting the next. Order is preserved — groups run in sequence, and
-    // within a group `Promise.all` resolves in the same order as `.map`.
+    // results are read back by index, same order as `.map`.
     const docs: Document[] = [];
+    const foundIds: string[] = [];
     for (const group of chunk(batches, MAX_CONCURRENT_BATCH_CALLS)) {
-      const groupResponses = await Promise.all(
+      // allSettled, not all — waiting out every sibling in the group before
+      // reporting a failure is what makes foundIds (and docs) accurate: a
+      // slower sibling that succeeds *after* another one rejects would
+      // otherwise never make it into the reported set. Mirrors delete's
+      // deletedIds / addVectors's and addDocuments's writtenIds tracking.
+      const results = await Promise.allSettled(
         group.map((batchIds) =>
           this._send('GetVectors', () =>
             this._client.send(
@@ -788,9 +799,17 @@ export class AmazonS3Vectors extends VectorStore {
         ),
       );
 
+      let firstError: unknown = null;
+      let firstMissingId: string | null = null;
       for (let i = 0; i < group.length; i++) {
+        const result = results[i]!;
+        if (result.status === 'rejected') {
+          if (firstError === null) firstError = result.reason;
+          continue;
+        }
+
         const batchIds = group[i]!;
-        const outputVectors = (groupResponses[i]!.vectors ?? []) as S3OutputVector[];
+        const outputVectors = (result.value.vectors ?? []) as S3OutputVector[];
         const vectorMap = new Map<string, S3OutputVector>();
         for (const v of outputVectors) {
           vectorMap.set(v.key, v);
@@ -800,22 +819,38 @@ export class AmazonS3Vectors extends VectorStore {
         // shared-reference mutations (matches Python behaviour).
         const hasDuplicateIds = vectorMap.size < batchIds.length;
 
-        // Preserve input order and verify all IDs were found.
+        // Preserve input order. Note (but don't stop at) a missing id — a
+        // later id in the same batch that IS found must still count toward
+        // foundIds even if an earlier one in the batch was missing.
         for (const id of batchIds) {
           const v = vectorMap.get(id);
           if (!v) {
-            throw new S3VectorsError(
-              `Id '${id}' not found in vector store.`,
-              S3VectorsErrorCode.NOT_FOUND,
-              {
-                operation: 'getByIds',
-                vectorBucketName: this.vectorBucketName,
-                indexName: this.indexName,
-              },
-            );
+            if (firstMissingId === null) firstMissingId = id;
+            continue;
           }
           docs.push(createDocument(v, this.pageContentMetadataKey, hasDuplicateIds, 'getByIds'));
+          foundIds.push(id);
         }
+      }
+
+      if (firstError !== null) {
+        throw this._attachPartialIds(firstError, 'getByIds', 'foundIds', foundIds);
+      }
+      if (firstMissingId !== null) {
+        throw this._attachPartialIds(
+          new S3VectorsError(
+            `Id '${firstMissingId}' not found in vector store.`,
+            S3VectorsErrorCode.NOT_FOUND,
+            {
+              operation: 'getByIds',
+              vectorBucketName: this.vectorBucketName,
+              indexName: this.indexName,
+            },
+          ),
+          'getByIds',
+          'foundIds',
+          foundIds,
+        );
       }
     }
 
@@ -977,20 +1012,20 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
-   * Wrap `error` with the ids already durably confirmed (written or
-   * deleted, per `key`) before this failure, so a partial-batch-operation
-   * failure never silently loses track of what already landed in AWS —
-   * especially auto-generated write ids, which have no other way to be
-   * discovered again afterward. `error` is normally already an
-   * {@link S3VectorsError} (every AWS call goes through {@link _send}),
-   * but `addDocuments`'s `embedDocuments` call has no such wrapping (it
-   * isn't an AWS call), so a raw error from the caller's embeddings model
-   * is handled too.
+   * Wrap `error` with the ids already confirmed (durably written, durably
+   * deleted, or already found, per `key`) before this failure, so a
+   * partial-batch-operation failure never silently loses track of progress
+   * already made — especially auto-generated write ids, which have no
+   * other way to be discovered again afterward. `error` is normally
+   * already an {@link S3VectorsError} (every AWS call goes through
+   * {@link _send}), but `addDocuments`'s `embedDocuments` call has no such
+   * wrapping (it isn't an AWS call), so a raw error from the caller's
+   * embeddings model is handled too.
    */
   private _attachPartialIds(
     error: unknown,
     operation: string,
-    key: 'writtenIds' | 'deletedIds',
+    key: 'writtenIds' | 'deletedIds' | 'foundIds',
     ids: string[],
   ): S3VectorsError {
     const base = isS3VectorsError(error)
@@ -1000,10 +1035,15 @@ export class AmazonS3Vectors extends VectorStore {
           vectorBucketName: this.vectorBucketName,
           indexName: this.indexName,
         });
-    const verb = key === 'writtenIds' ? 'written' : 'deleted';
+    const phrase =
+      key === 'writtenIds'
+        ? 'were already durably written'
+        : key === 'deletedIds'
+          ? 'were already durably deleted'
+          : 'were already retrieved';
     const message =
       ids.length > 0
-        ? `${base.message} ${ids.length} vector(s) were already durably ${verb} before this failure — see error.context.${key}.`
+        ? `${base.message} ${ids.length} vector(s) ${phrase} before this failure — see error.context.${key}.`
         : base.message;
     return new S3VectorsError(message, base.code, { ...base.context, [key]: ids }, base.cause);
   }

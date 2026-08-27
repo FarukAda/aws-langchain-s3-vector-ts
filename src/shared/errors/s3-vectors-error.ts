@@ -15,6 +15,14 @@ export interface S3VectorsErrorContext {
   readonly writtenIds?: string[];
   /** Ids confirmed durably deleted before a partial `delete({ ids })` failure. */
   readonly deletedIds?: string[];
+  /**
+   * Ids confirmed found (and already fetched) before a partial `getByIds`
+   * failure — either a `GetVectors` batch rejecting while sibling batches
+   * in the same concurrency group succeed, or an id genuinely not found
+   * after other ids in the same group were already confirmed. Present so
+   * a caller doesn't have to re-fetch everything from scratch.
+   */
+  readonly foundIds?: string[];
 }
 
 const S3_VECTORS_ERROR_BRAND = Symbol.for('@farukada/aws-langchain-s3-vector-ts:S3VectorsError');

@@ -1,6 +1,7 @@
 import { GetVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
+import { isS3VectorsError, S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import { createTestStore } from './helpers.js';
 
 describe('AmazonS3Vectors.getByIds', () => {
@@ -85,5 +86,55 @@ describe('AmazonS3Vectors.getByIds batching and fallbacks', () => {
     mock.on(GetVectorsCommand).resolves({});
 
     await expect(store.getByIds(['id-1'])).rejects.toThrow("Id 'id-1' not found");
+  });
+});
+
+describe('getByIds — partial-failure reporting', () => {
+  it('reports ids already found via context.foundIds when a sibling batch in the same group fails', async () => {
+    const { store, mock } = createTestStore();
+    mock
+      .on(GetVectorsCommand, { keys: ['id-1'] })
+      .resolves({ vectors: [{ key: 'id-1', metadata: { genre: 'a' } }] });
+    const failure = Object.assign(new Error('throttled'), { name: 'ThrottlingException' });
+    mock.on(GetVectorsCommand, { keys: ['id-2'] }).rejects(failure);
+
+    const error = await store.getByIds(['id-1', 'id-2'], { batchSize: 1 }).catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as S3VectorsError).context.foundIds).toEqual(['id-1']);
+    expect((error as S3VectorsError).message).toContain('were already retrieved');
+  });
+
+  it('when two batches in the same group both fail, reports the first failure and still counts every found sibling', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(GetVectorsCommand).callsFake((input) => {
+      const key = input.keys?.[0];
+      if (key === 'id-2') throw new Error('first failure');
+      if (key === 'id-3') throw new Error('second failure');
+      return { vectors: [{ key, metadata: { genre: 'a' } }] };
+    });
+
+    const error = await store
+      .getByIds(['id-1', 'id-2', 'id-3', 'id-4', 'id-5'], { batchSize: 1 })
+      .catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as S3VectorsError).message).toContain('first failure');
+    expect((error as S3VectorsError).message).not.toContain('second failure');
+    expect(new Set((error as S3VectorsError).context.foundIds)).toEqual(
+      new Set(['id-1', 'id-4', 'id-5']),
+    );
+  });
+
+  it('when multiple ids in the same group are missing, reports only the first as not found and still counts every found id', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(GetVectorsCommand).resolves({ vectors: [{ key: 'id-1', metadata: { genre: 'a' } }] });
+
+    const error = await store.getByIds(['id-1', 'id-2', 'id-3']).catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as S3VectorsError).message).toContain("Id 'id-2' not found");
+    expect((error as S3VectorsError).message).not.toContain("Id 'id-3' not found");
+    expect((error as S3VectorsError).context.foundIds).toEqual(['id-1']);
   });
 });
