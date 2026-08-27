@@ -24,7 +24,7 @@ export function buildPutMetadata(
   const metadata: Record<string, unknown> = { ...doc.metadata };
 
   if (pageContentMetadataKey !== null) {
-    if (pageContentMetadataKey in metadata) {
+    if (Object.hasOwn(metadata, pageContentMetadataKey)) {
       throw new S3VectorsError(
         `Document metadata already contains reserved key '${pageContentMetadataKey}' ` +
           '(used internally to store pageContent). Rename this metadata field or configure ' +
@@ -48,19 +48,42 @@ export function buildPutMetadata(
  * @param deepCopyMetadata - When `true`, the returned metadata is deep-cloned
  *        via structuredClone, preventing shared-reference mutations between
  *        documents that originate from the same vector (duplicate-id case).
+ * @param operation - Logical operation name used to label a coded error if
+ *        the deep clone fails.
+ *
+ * @throws {S3VectorsError} if `deepCopyMetadata` is `true` and the vector's
+ *         metadata contains a value `structuredClone` cannot clone (e.g. a
+ *         function or symbol) — reachable via a custom client or a
+ *         non-conforming mocked response.
  */
 export function createDocument(
   vector: S3OutputVector,
   pageContentMetadataKey: string | null,
   deepCopyMetadata = false,
+  operation = 'createDocument',
 ): Document {
   let pageContent = '';
   const rawMeta = vector.metadata ?? {};
-  const metadata: Record<string, unknown> = deepCopyMetadata
-    ? structuredClone(rawMeta)
-    : { ...rawMeta };
+  let metadata: Record<string, unknown>;
 
-  if (pageContentMetadataKey !== null && pageContentMetadataKey in metadata) {
+  if (deepCopyMetadata) {
+    try {
+      metadata = structuredClone(rawMeta);
+    } catch (cause) {
+      throw new S3VectorsError(
+        `Failed to deep-copy metadata for vector '${vector.key}': it contains a value ` +
+          'that cannot be structured-cloned (e.g. a function or symbol). Ensure vector ' +
+          'metadata contains only structured-cloneable values.',
+        S3VectorsErrorCode.VALIDATION,
+        { operation },
+        cause,
+      );
+    }
+  } else {
+    metadata = { ...rawMeta };
+  }
+
+  if (pageContentMetadataKey !== null && Object.hasOwn(metadata, pageContentMetadataKey)) {
     const rawValue = metadata[pageContentMetadataKey];
     pageContent = typeof rawValue === 'string' ? rawValue : '';
 

@@ -770,7 +770,7 @@ export class AmazonS3Vectors extends VectorStore {
               },
             );
           }
-          docs.push(createDocument(v, this.pageContentMetadataKey, hasDuplicateIds));
+          docs.push(createDocument(v, this.pageContentMetadataKey, hasDuplicateIds, 'getByIds'));
         }
       }
     }

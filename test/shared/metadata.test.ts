@@ -1,6 +1,8 @@
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
+import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
+import { isS3VectorsError, S3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
 import { buildPutMetadata, createDocument } from '../../src/shared/metadata.js';
 
 const PAGE_CONTENT_KEY = '_page_content';
@@ -71,5 +73,45 @@ describe('createDocument', () => {
     const doc = createDocument({ key: 'id-6', metadata: { [PAGE_CONTENT_KEY]: 'kept' } }, null);
     expect(doc.pageContent).toBe('');
     expect(doc.metadata).toEqual({ [PAGE_CONTENT_KEY]: 'kept' });
+  });
+});
+
+describe('buildPutMetadata / createDocument — prototype-chain safety', () => {
+  it('buildPutMetadata does not treat an inherited Object.prototype member as an existing key', () => {
+    const doc = new Document({ pageContent: 'hello', metadata: { genre: 'scifi' } });
+    expect(() => buildPutMetadata(doc, 'constructor', 'addDocuments')).not.toThrow();
+    const result = buildPutMetadata(doc, 'constructor', 'addDocuments');
+    expect(result['constructor']).toBe('hello');
+    expect(result['genre']).toBe('scifi');
+  });
+
+  it('createDocument does not treat an inherited Object.prototype member as present metadata', () => {
+    const doc = createDocument({ key: 'v1', metadata: { genre: 'scifi' } }, 'constructor');
+    expect(doc.pageContent).toBe('');
+    expect(doc.metadata).toEqual({ genre: 'scifi' });
+  });
+});
+
+describe('createDocument — structuredClone safety', () => {
+  it('throws a coded S3VectorsError instead of an uncaught exception for non-cloneable metadata', () => {
+    const vector = { key: 'v1', metadata: { fn: () => 'not cloneable' } };
+    let thrown: unknown;
+    try {
+      createDocument(vector, '_page_content', true, 'getByIds');
+      throw new Error('should have thrown');
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(isS3VectorsError(thrown)).toBe(true);
+    expect((thrown as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((thrown as S3VectorsError).message).toContain("vector 'v1'");
+  });
+
+  it('still deep-copies cloneable metadata correctly (regression, unaffected by the try/catch)', () => {
+    const shared = { nested: { value: 'original' } };
+    const doc1 = createDocument({ key: 'v1', metadata: shared }, null, true);
+    const doc2 = createDocument({ key: 'v1', metadata: shared }, null, true);
+    (doc1.metadata['nested'] as { value: string }).value = 'mutated';
+    expect((doc2.metadata['nested'] as { value: string }).value).toBe('original');
   });
 });
