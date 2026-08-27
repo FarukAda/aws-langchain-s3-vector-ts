@@ -23,7 +23,7 @@ import { isAwsConflictException } from './shared/errors/aws-conflict.js';
 import { isAwsNotFoundException } from './shared/errors/aws-not-found.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { isS3VectorsError, S3VectorsError } from './shared/errors/s3-vectors-error.js';
-import { wrapAwsError } from './shared/errors/wrap-error.js';
+import { toError, wrapAwsError } from './shared/errors/wrap-error.js';
 import { buildPutMetadata, createDocument } from './shared/metadata.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
 import { assertValidIndexConfig } from './shared/validation.js';
@@ -145,9 +145,25 @@ export class AmazonS3Vectors extends VectorStore {
   private readonly _queryEmbeddings: EmbeddingsInterface | undefined;
   private readonly _client: S3VectorsClient;
   private _ensureIndexPromise: Promise<{
-    dimension: number;
-    distanceMetric: DistanceMetric;
-  } | null> | null = null;
+    existing: { dimension: number; distanceMetric: DistanceMetric } | null;
+    epoch: number;
+  }> | null = null;
+
+  /**
+   * Bumped every time {@link delete}'s `deleteAll` branch tears down the
+   * whole index. {@link _ensureIndexExists} captures this counter's value
+   * at the moment it actually creates a fresh memo (not per-joiner — a
+   * caller that later joins an already-in-flight memo inherits the epoch
+   * that memo started under), and the `createIndexIfNotExist: false` path
+   * in {@link _validateBeforeWrite} captures it the same way before its own
+   * `GetIndex` call. {@link _validateBeforeWrite} only commits a result
+   * into {@link _validatedIndexInfo} if this counter is still unchanged
+   * once that result comes back — so a `deleteAll` landing anywhere
+   * between a check starting and a write reading its result discards the
+   * now-stale result instead of letting it silently resurrect the clear.
+   */
+  private _indexEpoch = 0;
+
   /**
    * Cached dimension/metric of this instance's index, populated by the
    * first successful write (via {@link _validateBeforeWrite}) regardless
@@ -155,7 +171,9 @@ export class AmazonS3Vectors extends VectorStore {
    * against this cache instead of paying for another `GetIndex` round
    * trip, not just memoized per-call like {@link _ensureIndexPromise}.
    * Cleared by {@link delete} when the whole index is deleted, so a later
-   * write re-fetches instead of validating against a now-stale index.
+   * write re-fetches instead of validating against a now-stale index —
+   * see {@link _indexEpoch} for how a concurrent write's in-flight result
+   * is kept from undoing that clear.
    */
   private _validatedIndexInfo: { dimension: number; distanceMetric: DistanceMetric } | null = null;
 
@@ -719,7 +737,12 @@ export class AmazonS3Vectors extends VectorStore {
       );
       // The index no longer exists — a cached compatibility check against
       // it would validate a later write against a now-deleted index.
+      // Bumping the epoch additionally invalidates any write already past
+      // this point (mid `_ensureIndexExists`/`_getIndex`), so its
+      // now-stale result can't be written into the cache after this clear
+      // — see `_indexEpoch`.
       this._validatedIndexInfo = null;
+      this._indexEpoch++;
     } else {
       const batchSize = params?.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
       this._validateBatchSize('delete', batchSize, MAX_DELETE_BATCH_SIZE);
@@ -1417,72 +1440,76 @@ export class AmazonS3Vectors extends VectorStore {
     }
 
     if (this.createIndexIfNotExist) {
-      const existing = await this._ensureIndexExists(firstVector, signal);
+      const { existing, epoch } = await this._raceAbort(
+        this._ensureIndexExists(firstVector),
+        signal,
+        operation,
+      );
       if (existing !== null) {
-        this._validatedIndexInfo = existing;
+        if (this._indexEpoch === epoch) {
+          this._validatedIndexInfo = existing;
+        }
         this._assertIndexCompatible(existing, firstVector, operation);
       }
       return;
     }
 
+    const epoch = this._indexEpoch;
     const existing = await this._getIndex(signal);
     if (existing !== null) {
-      this._validatedIndexInfo = existing;
+      if (this._indexEpoch === epoch) {
+        this._validatedIndexInfo = existing;
+      }
       this._assertIndexCompatible(existing, firstVector, operation);
     }
   }
 
   /**
    * Ensure the configured index exists, creating it if needed, and return
-   * its dimension/distance metric — from the pre-existing index, from the
-   * index this call just created, or (after losing a cross-process
-   * creation race) re-fetched so the winning process's actual committed
-   * dimension/metric is still known — so every concurrent caller sharing
-   * this memo has something to validate its own vector against. `null` is
-   * only possible if that post-race re-fetch itself finds nothing (the
-   * index was deleted again in the brief window since the conflict) —
-   * an already-negligible race made one step more negligible, not a gap
-   * left standing.
+   * its dimension/distance metric plus the epoch (see {@link _indexEpoch})
+   * it was computed under — from the pre-existing index, from the index
+   * this call just created, or (after losing a cross-process creation
+   * race) re-fetched so the winning process's actual committed
+   * dimension/metric is still known. `existing` is only `null` if that
+   * post-race re-fetch itself finds nothing (the index was deleted again
+   * in the brief window since the conflict).
    *
    * In-flight creation attempts are memoized so concurrent callers share
    * one GetIndex/CreateIndex sequence instead of racing (same-process
-   * safety); a `ConflictException` from CreateIndex itself (another process
-   * won the race) is tolerated as success (cross-process safety). The memo
-   * is cleared once the attempt settles, so a later top-level call still
-   * re-verifies existence (e.g. after the index was deleted via `delete()`).
+   * safety); a `ConflictException` from CreateIndex itself (another
+   * process won the race) is tolerated as success (cross-process safety).
+   * The memo is cleared once the attempt settles, so a later top-level
+   * call still re-verifies existence.
    *
    * @remarks
-   * Only the existence-check/creation is memoized — never compatibility
-   * validation itself. Callers must run {@link _assertIndexCompatible}
-   * themselves against the returned value and their own vector; sharing a
-   * single validation verdict across concurrent callers with potentially
-   * different vector dimensions would silently skip validating everyone
-   * but the first caller, and could reject a later, genuinely-correct
-   * caller with an error describing an earlier caller's vector instead.
-   * `firstVector` — and, likewise, `signal` — is only actually used by
-   * whichever caller's invocation wins the race to start this memo (later
-   * concurrent callers get the already-in-flight promise back before their
-   * own arguments are ever consulted); a later caller's own signal firing
-   * doesn't cancel a GetIndex/CreateIndex another caller's write is also
-   * depending on. Callers must validate their own vector is non-empty
-   * *before* calling this, which is exactly what makes this function safe
-   * to call with a plain `number[]` instead of `number[] | undefined`.
+   * This memo's `GetIndex`/`CreateIndex` calls are never tied to any
+   * caller's `AbortSignal` — a caller can only make its own wait for this
+   * memo return early (via {@link _raceAbort}), never cancel the shared
+   * work other concurrent callers depend on. Only the existence-check/
+   * creation is memoized — never compatibility validation itself; callers
+   * must run {@link _assertIndexCompatible} themselves against the
+   * returned value and their own vector. `firstVector` is only actually
+   * used by whichever caller's invocation wins the race to start this
+   * memo; later concurrent callers get the already-in-flight promise back
+   * before their own arguments are ever consulted. Callers must validate
+   * their own vector is non-empty *before* calling this.
    */
-  private _ensureIndexExists(
-    firstVector: number[],
-    signal: AbortSignal | undefined,
-  ): Promise<{ dimension: number; distanceMetric: DistanceMetric } | null> {
+  private _ensureIndexExists(firstVector: number[]): Promise<{
+    existing: { dimension: number; distanceMetric: DistanceMetric } | null;
+    epoch: number;
+  }> {
     if (this._ensureIndexPromise) return this._ensureIndexPromise;
 
+    const epoch = this._indexEpoch;
     this._ensureIndexPromise = (async () => {
       try {
-        const existing = await this._getIndex(signal);
+        const existing = await this._getIndex();
         if (existing !== null) {
-          return existing;
+          return { existing, epoch };
         }
 
         try {
-          await this._createIndex(firstVector.length, signal);
+          await this._createIndex(firstVector.length);
         } catch (error: unknown) {
           const cause = (error as { cause?: unknown }).cause;
           if (!isAwsConflictException(cause)) throw error;
@@ -1490,15 +1517,56 @@ export class AmazonS3Vectors extends VectorStore {
           // CreateIndex calls. Fetch what it actually committed — without
           // this, every caller sharing this memo would skip validation
           // entirely, exactly the race this method exists to close.
-          return await this._getIndex(signal);
+          return { existing: await this._getIndex(), epoch };
         }
-        return { dimension: firstVector.length, distanceMetric: this.distanceMetric };
+        return {
+          existing: { dimension: firstVector.length, distanceMetric: this.distanceMetric },
+          epoch,
+        };
       } finally {
         this._ensureIndexPromise = null;
       }
     })();
 
     return this._ensureIndexPromise;
+  }
+
+  /**
+   * Let `signal` make the caller's own wait for `promise` reject early —
+   * with the same coded `ABORTED` error {@link _checkAborted} throws
+   * elsewhere — without cancelling `promise` itself. Used so one caller's
+   * `AbortSignal` can never cancel, or get blamed for, a sibling caller's
+   * dependency on {@link _ensureIndexExists}'s shared GetIndex/CreateIndex
+   * memo.
+   */
+  private _raceAbort<T>(
+    promise: Promise<T>,
+    signal: AbortSignal | undefined,
+    operation: string,
+  ): Promise<T> {
+    if (!signal) return promise;
+    this._checkAborted(operation, signal);
+
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = (): void => {
+        try {
+          this._checkAborted(operation, signal);
+        } catch (error: unknown) {
+          reject(toError(error));
+        }
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.then(
+        (value) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(value);
+        },
+        (error: unknown) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(toError(error));
+        },
+      );
+    });
   }
 
   /**

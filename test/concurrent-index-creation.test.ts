@@ -1,4 +1,9 @@
-import { CreateIndexCommand, GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
+import {
+  CreateIndexCommand,
+  DeleteIndexCommand,
+  GetIndexCommand,
+  PutVectorsCommand,
+} from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
@@ -9,6 +14,7 @@ import {
   BASE_CONFIG,
   createMockClient,
   createMockEmbeddings,
+  createTestStore,
   mockIndexNotFound,
 } from './helpers.js';
 
@@ -89,5 +95,128 @@ describe('AmazonS3Vectors concurrent index creation', () => {
     await expect(
       store.addDocuments([new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
     ).rejects.toThrow('denied');
+  });
+});
+
+describe('index-validation cache — concurrency', () => {
+  it('does not let a write in flight during a deleteAll resurrect the cleared cache', async () => {
+    const { store, mock } = createTestStore();
+    let releaseGetIndex!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGetIndex = resolve;
+    });
+    mock.on(GetIndexCommand).callsFake(async () => {
+      await gate;
+      return { index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' } };
+    });
+    mock.on(PutVectorsCommand).resolves({});
+    mock.on(DeleteIndexCommand).resolves({});
+
+    const writePromise = store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], {
+      ids: ['id-1'],
+    });
+    // Let the write reach and start waiting on GetIndex, then delete the
+    // whole index while it's still in flight.
+    await Promise.resolve();
+    await store.delete({ deleteAll: true });
+    releaseGetIndex();
+    await writePromise;
+
+    // The delete happened *during* the write's GetIndex call — the write's
+    // eventual (stale, pre-delete) result must not resurrect the cache the
+    // delete just cleared. A second write must re-validate, not silently
+    // reuse a cache entry for an index that was deleted mid-first-write.
+    mock.resetHistory();
+    mock.on(GetIndexCommand).resolves({
+      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+    });
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'y' })], { ids: ['id-2'] });
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
+  });
+
+  it('does not let a write in flight during a deleteAll resurrect the cleared cache when createIndexIfNotExist is false', async () => {
+    const { store, mock } = createTestStore({ createIndexIfNotExist: false });
+    let releaseGetIndex!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGetIndex = resolve;
+    });
+    mock.on(GetIndexCommand).callsFake(async () => {
+      await gate;
+      return { index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' } };
+    });
+    mock.on(PutVectorsCommand).resolves({});
+    mock.on(DeleteIndexCommand).resolves({});
+
+    // createIndexIfNotExist: false skips the shared _ensureIndexExists
+    // memo entirely and calls _getIndex directly — this exercises the
+    // epoch guard in _validateBeforeWrite's *other* branch.
+    const writePromise = store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], {
+      ids: ['id-1'],
+    });
+    await Promise.resolve();
+    await store.delete({ deleteAll: true });
+    releaseGetIndex();
+    await writePromise;
+
+    mock.resetHistory();
+    mock.on(GetIndexCommand).resolves({
+      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+    });
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'y' })], { ids: ['id-2'] });
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
+  });
+
+  it("one caller's abort does not cancel a sibling caller's write sharing the same index-creation memo", async () => {
+    const { store, mock } = createTestStore();
+    let releaseGetIndex!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGetIndex = resolve;
+    });
+    const notFound = Object.assign(new Error('not found'), { name: 'NotFoundException' });
+    mock.on(GetIndexCommand).callsFake(async () => {
+      await gate;
+      throw notFound;
+    });
+    mock.on(CreateIndexCommand).resolves({});
+    mock.on(PutVectorsCommand).resolves({});
+
+    const controllerA = new AbortController();
+    const writeA = store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], {
+      ids: ['id-a'],
+      signal: controllerA.signal,
+    });
+    await Promise.resolve();
+    const writeB = store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'b' })], {
+      ids: ['id-b'],
+    });
+    await Promise.resolve();
+
+    controllerA.abort();
+    releaseGetIndex();
+
+    const [resultA, resultB] = await Promise.allSettled([writeA, writeB]);
+    expect(resultA.status).toBe('rejected');
+    expect(resultB.status).toBe('fulfilled');
+  });
+
+  it("a caller's signal that never fires still sees a genuine index-creation failure surface normally, not swallowed or misreported as ABORTED", async () => {
+    const { store, mock } = createTestStore();
+    mockIndexNotFound(mock);
+    const deniedError = Object.assign(new Error('denied'), { name: 'AccessDeniedException' });
+    mock.on(CreateIndexCommand).rejects(deniedError);
+
+    const controller = new AbortController();
+    const error = await store
+      .addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], {
+        ids: ['id-1'],
+        signal: controller.signal,
+      })
+      .catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.AWS_REQUEST_FAILED,
+    );
+    expect((error as Error).message).toContain('denied');
   });
 });
