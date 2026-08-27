@@ -1,8 +1,9 @@
 import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
-import { describe, it, expect, jest } from '@jest/globals';
+import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
+import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError, type S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import {
   BASE_CONFIG,
@@ -100,30 +101,30 @@ describe('fromDocuments — partial-write failure', () => {
     expect(instance!.vectorBucketName).toBe(BASE_CONFIG.vectorBucketName);
   });
 
-  it('still attaches the instance via the defensive wrapAwsError fallback when addDocuments rejects with a non-S3VectorsError value', async () => {
-    // Every real failure addDocuments can produce is already an
-    // S3VectorsError (validation errors, aborts, and AWS failures are all
-    // wrapped before they escape addDocuments), so _attachInstance's
-    // wrapAwsError fallback has no current real-world trigger. Spying on
-    // addDocuments itself is the only way to exercise that defensive
-    // branch: it simulates addDocuments misbehaving (e.g. a future
-    // regression that lets a raw error through) without changing what
-    // addDocuments actually does today.
+  it('still attaches the instance via the defensive wrapAwsError fallback when addDocuments throws before it wraps anything itself', async () => {
+    // addDocuments's own error-wrapping (_checkAborted, the try/catch around
+    // embedBatch+putBatch, _attachPartialIds) only starts a few lines in —
+    // `documents.map(...)` on the very first line runs before any of it, so
+    // a non-array `docs` (a realistic mistake for an untyped JS caller, or a
+    // TS caller that casts past the type system) throws a raw, un-wrapped
+    // TypeError straight into fromDocuments's catch. This is a genuine,
+    // organic trigger for _attachInstance's wrapAwsError fallback — not
+    // just a defensive branch for a hypothetical future regression.
     const { client } = createMockClient();
-    const addDocumentsSpy = jest
-      .spyOn(AmazonS3Vectors.prototype, 'addDocuments')
-      .mockRejectedValueOnce('raw string');
 
     const error = await AmazonS3Vectors.fromDocuments(
-      [new Document({ pageContent: 'a' })],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input to trigger addDocuments' pre-validation throw
+      null as any,
       createMockEmbeddings(),
       { ...BASE_CONFIG, client },
     ).catch((e: unknown) => e);
 
     expect(isS3VectorsError(error)).toBe(true);
-    expect((error as S3VectorsError).message).toBe('fromDocuments failed: raw string');
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
+    expect((error as S3VectorsError).message).toBe(
+      "fromDocuments failed: Cannot read properties of null (reading 'map')",
+    );
     const instance = (error as S3VectorsError).context.instance;
     expect(instance).toBeInstanceOf(AmazonS3Vectors);
-    addDocumentsSpy.mockRestore();
   });
 });
