@@ -12,4 +12,6 @@ export enum S3VectorsErrorCode {
   INDEX_CONFIG_MISMATCH = 'INDEX_CONFIG_MISMATCH',
   /** The caller-supplied `AbortSignal` fired before or during the operation. */
   ABORTED = 'ABORTED',
+  /** An AWS response was missing fields this library requires to proceed. */
+  AWS_INVALID_RESPONSE = 'AWS_INVALID_RESPONSE',
 }

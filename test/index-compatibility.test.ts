@@ -4,11 +4,12 @@ import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
-import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
+import { isS3VectorsError, S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import {
   BASE_CONFIG,
   createMockClient,
   createMockEmbeddings,
+  createTestStore,
   mockIndexNotFound,
 } from './helpers.js';
 
@@ -169,5 +170,31 @@ describe('AmazonS3Vectors index compatibility validation', () => {
     expect(valid.status).toBe('fulfilled');
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
     expect(mock.commandCalls(PutVectorsCommand)[0]!.args[0].input.vectors?.[0]?.key).toBe('id-2');
+  });
+});
+
+describe('_getIndex — malformed GetIndex response', () => {
+  it('throws a coded AWS_INVALID_RESPONSE error instead of a raw TypeError when index is missing', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(GetIndexCommand).resolves({});
+
+    const error = await store
+      .addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] })
+      .catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+  });
+
+  it('throws a coded AWS_INVALID_RESPONSE error when index is present but dimension/distanceMetric are missing', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(GetIndexCommand).resolves({ index: {} });
+
+    const error = await store
+      .addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] })
+      .catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
   });
 });

@@ -1380,11 +1380,25 @@ export class AmazonS3Vectors extends VectorStore {
         }),
         { abortSignal: signal },
       );
-      const { dimension, distanceMetric } = result.index as {
-        dimension: number;
-        distanceMetric: DistanceMetric;
-      };
-      return { dimension, distanceMetric };
+      const { index } = result;
+      if (
+        index === undefined ||
+        typeof index.dimension !== 'number' ||
+        (index.distanceMetric !== 'cosine' && index.distanceMetric !== 'euclidean')
+      ) {
+        throw new S3VectorsError(
+          `GetIndex for "${this.indexName}" resolved without the expected index attributes ` +
+            '(dimension/distanceMetric). The response may be malformed, or come from an ' +
+            'incompatible SDK version or a mocked/stubbed client.',
+          S3VectorsErrorCode.AWS_INVALID_RESPONSE,
+          {
+            operation: 'GetIndex',
+            vectorBucketName: this.vectorBucketName,
+            indexName: this.indexName,
+          },
+        );
+      }
+      return { dimension: index.dimension, distanceMetric: index.distanceMetric };
     } catch (error: unknown) {
       if (isAwsNotFoundException(error)) return null;
       const code = isAbortError(error)
