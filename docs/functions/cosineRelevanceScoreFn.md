@@ -1,4 +1,4 @@
-[**AWS LangChain S3 Vector TypeScript v0.6.0**](../README.md)
+[**AWS LangChain S3 Vector TypeScript v0.7.0**](../README.md)
 
 ***
 
@@ -8,7 +8,7 @@
 
 > **cosineRelevanceScoreFn**(`distance`): `number`
 
-Defined in: [relevance-scores.ts:18](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/ae64db953ac2f502ec56f3fecad85fab19cec663/src/relevance-scores.ts#L18)
+Defined in: [relevance-scores.ts:18](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/b9cd9a9318a5fb778988fddc40d6cc38a1003d44/src/relevance-scores.ts#L18)
 
 Convert a **cosine distance** (range [0, 2]) to a relevance score [−1, 1].
 
