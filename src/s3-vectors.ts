@@ -228,9 +228,14 @@ export class AmazonS3Vectors extends VectorStore {
     this._relevanceScoreFn = config.relevanceScoreFn;
     this._queryEmbeddings = config.queryEmbeddings;
 
+    // A value check on config.serviceId, not a prototype-chain check —
+    // survives a bundler duplicating @aws-sdk/client-s3vectors across a
+    // module boundary, which would make a legitimate client fail instanceof/
+    // isPrototypeOf and get silently replaced below. Mirrors the intent of
+    // this file's Symbol.for-registry brands (S3VectorsError, StubEmbeddings)
+    // for a third-party class this library can't stamp a brand onto itself.
     const isS3VectorsClient =
-      config.client !== undefined &&
-      Object.prototype.isPrototypeOf.call(S3VectorsClient.prototype, config.client);
+      config.client !== undefined && config.client.config?.serviceId === 'S3Vectors';
 
     if (config.client && !isS3VectorsClient) {
       console.warn(
@@ -541,6 +546,10 @@ export class AmazonS3Vectors extends VectorStore {
    * @param signal - Abort an in-progress search. Cancels the `QueryVectors`
    * call currently in flight and stops any further pagination.
    * @returns Array of `[Document, distance]` tuples, ordered by similarity
+   * @throws A coded `AWS_INVALID_RESPONSE` error if a result is missing its
+   * `distance` — this always requests `returnDistance: true`, so a missing
+   * value means a malformed response rather than a legitimately scoreless
+   * result. Fails closed instead of defaulting to the best possible score.
    */
   async similaritySearchVectorWithScore(
     query: number[],
@@ -560,10 +569,23 @@ export class AmazonS3Vectors extends VectorStore {
       signal,
     );
 
-    return outputVectors.map((v) => [
-      createDocument(v, this.pageContentMetadataKey),
-      v.distance ?? 0,
-    ]);
+    return outputVectors.map((v) => {
+      if (v.distance === undefined) {
+        throw new S3VectorsError(
+          `QueryVectors response for index "${this.indexName}" returned a result without a ` +
+            'distance, even though this call requested returnDistance: true. Cannot compute a ' +
+            'reliable relevance score for it — the response may be malformed, come from an ' +
+            'incompatible SDK version, or a non-conforming custom client.',
+          S3VectorsErrorCode.AWS_INVALID_RESPONSE,
+          {
+            operation: 'similaritySearchVectorWithScore',
+            vectorBucketName: this.vectorBucketName,
+            indexName: this.indexName,
+          },
+        );
+      }
+      return [createDocument(v, this.pageContentMetadataKey), v.distance] as [Document, number];
+    });
   }
 
   // ── Additional public API (parity with Python) ────────────────────────
@@ -1419,35 +1441,35 @@ export class AmazonS3Vectors extends VectorStore {
       };
     });
 
-    if (batchOffset === 0) {
-      // Checked per-caller, before joining any shared existence/creation
-      // work below — a caller's own empty batch must never be blamed on a
-      // different, concurrently-racing caller (or vice versa).
-      const firstVector = vectors[0];
-      if (!firstVector || firstVector.length === 0) {
-        throw this._validationError(
-          operation,
-          'Cannot determine vector dimension from empty batch',
+    // Checked for every batch, not just the first — a caller's own empty or
+    // internally-inconsistent batch must never be blamed on a different,
+    // concurrently-racing caller (or vice versa), and a later batch's
+    // vectors must be internally consistent too. Previously only batch 0
+    // was checked, so a dimension mismatch inside batch 1+ reached
+    // PutVectors unchecked instead of failing with this library's coded
+    // INDEX_CONFIG_MISMATCH.
+    const firstVector = vectors[0];
+    if (!firstVector || firstVector.length === 0) {
+      throw this._validationError(operation, 'Cannot determine vector dimension from empty batch');
+    }
+
+    // Every vector in this batch must share the first vector's dimension —
+    // that's the dimension this batch is validated against (or, for a
+    // brand-new index, created with) just below for batch 0.
+    for (let i = 1; i < vectors.length; i++) {
+      const vector = vectors[i]!;
+      if (vector.length !== firstVector.length) {
+        throw new S3VectorsError(
+          `Vector at index ${i} in this batch has dimension ${vector.length}, but this ` +
+            `batch's first vector has dimension ${firstVector.length}. All vectors in the ` +
+            'same batch must share the same dimension.',
+          S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+          { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
         );
       }
+    }
 
-      // Every vector in this batch must share the first vector's dimension
-      // — that's the dimension this batch is validated against (or, for a
-      // brand-new index, created with) just below. Without this, only
-      // vectors[0] was ever checked locally.
-      for (let i = 1; i < vectors.length; i++) {
-        const vector = vectors[i]!;
-        if (vector.length !== firstVector.length) {
-          throw new S3VectorsError(
-            `Vector at index ${i} in this batch has dimension ${vector.length}, but this ` +
-              `batch's first vector has dimension ${firstVector.length}. All vectors in the ` +
-              'same batch must share the same dimension.',
-            S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
-            { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
-          );
-        }
-      }
-
+    if (batchOffset === 0) {
       await this._validateBeforeWrite(firstVector, operation, signal);
     }
 

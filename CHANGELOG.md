@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Documented that `QueryVectors` pagination doesn't preserve partial results on a mid-pagination failure, unlike every write/delete/get path in this library — a reasonable asymmetry (a failed search is side-effect-free and trivially retryable, unlike a failed write) that was previously undocumented.
+- Unit test coverage for `delete({ deleteAll: true })` racing a write that has already passed local validation and is inside its actual `PutVectors` network call — previously only the race against this library's own local index-validation cache was covered (the existing "index-validation cache — concurrency" tests gate `GetIndexCommand`; the new ones gate `PutVectorsCommand` itself). A mocked client can't prove what AWS itself does with an orphaned `PutVectors` call, but the new tests prove this library's own state machine doesn't hang, crash, or resurrect a cleared cache under either a resolve-late or reject-late ordering.
+
+### Fixed
+
+- `similaritySearchVectorWithScore` defaulted a missing per-result `distance` to `0` — the *best possible* cosine relevance score — silently ranking a malformed result first instead of surfacing an anomaly, inconsistent with this same file's fail-closed handling of a missing `distanceMetric` (added in 0.5.0). This default dates back to 0.2.0; `returnDistance: true` is always requested, so a missing `distance` now throws a coded `AWS_INVALID_RESPONSE` error instead.
+- The per-batch vector-dimension-consistency check — introduced in 0.4.0 with a documented "only the first batch is checked" limitation, then extended in 0.6.0 to check all of that first batch's vectors (not just `vectors[0]`) — still only ran on batch 0 of a multi-batch `addVectors` call. A caller-constructed batch 2+ with an internal dimension mismatch reached `PutVectors` unchecked, surfacing AWS's own less-specific validation error instead of this library's coded `INDEX_CONFIG_MISMATCH`. Now checked for every batch, closing the original 0.4.0 limitation for good.
+- The constructor's `client` identity check used `Object.prototype.isPrototypeOf.call(S3VectorsClient.prototype, ...)` (added in 0.6.0), which shares `instanceof`'s weakness: a bundler duplicating `@aws-sdk/client-s3vectors` across a module boundary would make a legitimately-valid pre-configured client fail the check and get silently replaced with a freshly-built one. Now checks `config.client.config.serviceId === 'S3Vectors'` — a value baked into the client at construction, not tied to a specific copy of the class's prototype — while still accepting a subclassed client (e.g. a tracing wrapper) exactly as before.
+- The README's "Concurrency" section claimed `delete({ deleteAll: true })` racing an in-progress write had been "verified to fail cleanly" (since 0.4.0) — that was never actually backed by a test, unit or live-AWS, only inferred from reading the code. Reworded to say precisely what's now true: unit tests cover the write once it's already past local validation and inside its actual `PutVectors` call, confirming this library's own state doesn't corrupt or hang under either ordering — live-AWS confirmation of this exact interleaving still doesn't exist.
+
 ## [0.6.0] - 2026-08-27
 
 ### Fixed

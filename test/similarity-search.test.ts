@@ -171,7 +171,7 @@ describe('AmazonS3Vectors.similaritySearchVectorWithScore fallbacks', () => {
     expect(results).toEqual([]);
   });
 
-  it('defaults the score to 0 when distance is absent', async () => {
+  it('throws AWS_INVALID_RESPONSE instead of defaulting the score when distance is absent', async () => {
     const { store, mock } = createTestStore();
 
     mock.on(QueryVectorsCommand).resolves({
@@ -179,8 +179,11 @@ describe('AmazonS3Vectors.similaritySearchVectorWithScore fallbacks', () => {
       distanceMetric: 'cosine',
     });
 
-    const results = await store.similaritySearchVectorWithScore([1], 1);
-    expect(results[0]![1]).toBe(0);
+    const error = await store.similaritySearchVectorWithScore([1], 1).catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.AWS_INVALID_RESPONSE,
+    );
   });
 });
 

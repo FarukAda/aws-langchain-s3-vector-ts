@@ -268,4 +268,39 @@ describe('addVectors — batch-internal dimension consistency', () => {
     );
     expect((error as Error).message).toContain('index 1');
   });
+
+  it('rejects an internally-inconsistent second batch with INDEX_CONFIG_MISMATCH, not a raw AWS error', async () => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+
+    const error = await store
+      .addVectors(
+        [
+          [1, 2, 3],
+          [4, 5, 6],
+          [1, 2, 3],
+          [1, 2],
+        ],
+        [
+          new Document({ pageContent: 'a' }),
+          new Document({ pageContent: 'b' }),
+          new Document({ pageContent: 'c' }),
+          new Document({ pageContent: 'd' }),
+        ],
+        { ids: ['id-1', 'id-2', 'id-3', 'id-4'], batchSize: 2 },
+      )
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+    );
+    expect((error as Error).message).toContain('index 1');
+    // Batch 0 (the first two vectors) already succeeded before batch 1 was
+    // even validated — confirms this is genuinely testing the second
+    // batch, not accidentally re-testing batch 0.
+    expect((error as { context: { writtenIds: string[] } }).context.writtenIds).toEqual([
+      'id-1',
+      'id-2',
+    ]);
+  });
 });

@@ -256,3 +256,92 @@ describe('index-validation cache — concurrency', () => {
     expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
   });
 });
+
+// Unlike the "index-validation cache — concurrency" tests above (which race
+// deleteAll against a write still waiting on GetIndex/CreateIndex — this
+// library's own local cache), these race deleteAll against a write that has
+// *already passed* local validation and is inside its actual PutVectors
+// network call — the interleaving the README calls out as "not
+// coordinated." A mocked client can't prove what AWS itself does with an
+// orphaned PutVectors call, but it can prove this library's own state
+// machine doesn't hang, crash, or resurrect a cleared cache under either
+// possible outcome.
+describe('delete({deleteAll: true}) racing an in-flight PutVectors call', () => {
+  it('does not resurrect the cleared cache when a racing PutVectors call resolves after the delete', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(GetIndexCommand).resolves({
+      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+    });
+    mock.on(PutVectorsCommand).resolves({});
+    mock.on(DeleteIndexCommand).resolves({});
+
+    // Warm the index-validation cache first, so the next write skips
+    // GetIndex entirely and goes straight to its PutVectors call.
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], { ids: ['id-1'] });
+    mock.resetHistory();
+
+    let releasePutVectors!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releasePutVectors = resolve;
+    });
+    mock.on(PutVectorsCommand).callsFake(async () => {
+      await gate;
+      return {};
+    });
+
+    const writePromise = store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'b' })], {
+      ids: ['id-2'],
+    });
+    // Let the write skip GetIndex (cache is warm) and reach its gated
+    // PutVectors call, then delete the whole index while that call is
+    // still in flight.
+    await Promise.resolve();
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(0);
+    await store.delete({ deleteAll: true });
+    releasePutVectors();
+    await writePromise;
+
+    // The write's PutVectors resolved *after* the delete already cleared
+    // the cache — that stale success must not resurrect it. A third write
+    // must re-validate from scratch.
+    mock.resetHistory();
+    mock.on(GetIndexCommand).resolves({
+      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+    });
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'c' })], { ids: ['id-3'] });
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
+  });
+
+  it('surfaces a clean coded error, not a hang, when a racing PutVectors call fails against the deleted index', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(GetIndexCommand).resolves({
+      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+    });
+    mock.on(PutVectorsCommand).resolves({});
+    mock.on(DeleteIndexCommand).resolves({});
+
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], { ids: ['id-1'] });
+    mock.resetHistory();
+
+    let rejectPutVectors!: (error: Error) => void;
+    const gate = new Promise<never>((_resolve, reject) => {
+      rejectPutVectors = reject;
+    });
+    mock.on(PutVectorsCommand).callsFake(async () => {
+      await gate;
+    });
+
+    const writePromise = store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'b' })], {
+      ids: ['id-2'],
+    });
+    await Promise.resolve();
+    await store.delete({ deleteAll: true });
+    rejectPutVectors(
+      Object.assign(new Error('The vector index does not exist'), { name: 'NotFoundException' }),
+    );
+
+    const error = await writePromise.catch((e: unknown) => e);
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as { context: { writtenIds: string[] } }).context.writtenIds).toEqual([]);
+  });
+});
