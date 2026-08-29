@@ -60,8 +60,22 @@ jobs:
           aws s3vectors create-vector-bucket \
             --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION"
 
+      # A skipped Jest suite exits 0, so "the env was never set" and "every
+      # live test passed" are indistinguishable from the job's exit code
+      # alone. The guard in test/integration/_guard.ts makes a *misconfigured*
+      # run fatal; this makes a run that executed nothing fatal too, so a
+      # dropped env line here can never turn the nightly live job green
+      # without a single AWS call having been made.
       - name: Run live integration tests
-        run: npm run test:integration
+        run: |
+          npm run test:integration -- --json --outputFile=jest-results.json
+          PASSED=$(node -p "require('./jest-results.json').numPassedTests")
+          TOTAL=$(node -p "require('./jest-results.json').numTotalTests")
+          echo "live integration: $PASSED/$TOTAL tests passed"
+          if [ "$PASSED" -lt 1 ]; then
+            echo "::error::Live integration reported success having run 0 tests — failing the job."
+            exit 1
+          fi
         env:
           RUN_LIVE_INTEGRATION: '1'
 

@@ -2,22 +2,12 @@ import { randomUUID } from 'node:crypto';
 
 import { Document } from '@langchain/core/documents';
 
-import { AmazonS3Vectors, isS3VectorsError, S3VectorsErrorCode } from '../dist/index.js';
+import { AmazonS3Vectors, S3VectorsErrorCode } from '../dist/index.js';
 import { createEmbeddings } from './_embeddings.mjs';
-import { check, requireEnv, section, summary } from './_harness.mjs';
+import { check, expectErrorCode, requireEnv, section, summary } from './_harness.mjs';
 
 const { bucketName, region } = requireEnv();
 const embeddings = createEmbeddings(region);
-
-/** Assert that `fn` rejects with an S3VectorsError carrying the given code. */
-async function expectErrorCode(label, fn, code) {
-  try {
-    await fn();
-    check(label, false);
-  } catch (error) {
-    check(label, isS3VectorsError(error) && error.code === code);
-  }
-}
 
 const noContentIndex = `verify-edge-nc-${randomUUID().slice(0, 8)}`;
 const rawIndex = `verify-edge-raw-${randomUUID().slice(0, 8)}`;

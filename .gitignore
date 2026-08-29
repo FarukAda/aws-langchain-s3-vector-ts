@@ -14,3 +14,4 @@ coverage/
 .superpowers/
 docs/superpowers/
 worktrees/
+jest-results.json

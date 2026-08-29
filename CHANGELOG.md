@@ -26,6 +26,11 @@ Remediation of an independent code review run against the v0.8.0 tag. That revie
 
 - A `QueryVectors` failure on a continuation page now explains itself: it names the page it was on and how many results it had collected, and points at re-issuing the original query. AWS documents pagination tokens as valid for only "several minutes" and publishes no dedicated expired-token exception, so this is keyed on what the library knows for certain — that the failing call carried a `nextToken` — rather than on a guessed exception name. A first-page failure and a caller-driven abort pass through unchanged.
 
+### Repository hygiene
+
+- **The nightly live-AWS CI job could report success having run zero tests.** A skipped Jest suite exits 0, so "the env was never set" and "every live test passed" were indistinguishable from the job's exit code — a dropped env line or an unset secret would have turned the live run green without a single AWS call. `RUN_LIVE_INTEGRATION=1` with a missing `AWS_VECTOR_BUCKET` is now fatal rather than a silent skip (an unset `RUN_LIVE_INTEGRATION` still opts out cleanly), and the workflow additionally fails if the run reports zero passing tests.
+- **The shared example harness asserted on the wrong property.** `expectThrow` compared `error.name` against an error *code*; since every error here has `name === 'S3VectorsError'`, that could never match and silently degraded to a substring match on the message, which passes whenever the text merely happens to contain the string. Replaced with `expectErrorCode`, which asserts on `error.code`, and the duplicate local copy in `verify-edge-cases.mjs` now uses it too.
+
 ### Notes
 
 - Every AWS limit the library encodes was re-verified against AWS's published limits page rather than carried forward: `topK` ≤ 10,000, PutVectors/DeleteVectors ≤ 500, GetVectors ≤ 100, non-filterable metadata keys ≤ 10, filterable metadata ≤ 2 KB, dimension ≤ 4,096. All matched.

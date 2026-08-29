@@ -1,3 +1,5 @@
+import { isS3VectorsError } from '../dist/index.js';
+
 let passed = 0;
 let failed = 0;
 
@@ -13,14 +15,26 @@ export function check(label, ok) {
   else failed += 1;
 }
 
-export async function expectThrow(label, fn, code) {
+/**
+ * Assert that `fn` rejects with an S3VectorsError carrying exactly `code`.
+ *
+ * Asserts on the error's `code`, never on its `name` or message text. Every
+ * error this library raises has `name === 'S3VectorsError'`, so a
+ * `name === code` comparison could never match and silently degraded to a
+ * substring match on the message — which passes whenever the message merely
+ * happens to contain the string, including for a completely unrelated
+ * failure.
+ */
+export async function expectErrorCode(label, fn, code) {
   try {
     await fn();
     check(label, false);
   } catch (error) {
-    const name = error?.name ?? '';
-    const message = error?.message ?? '';
-    check(label, name === code || message.includes(code));
+    const actual = isS3VectorsError(error) ? error.code : `<uncoded ${error?.name ?? typeof error}>`;
+    if (actual !== code) {
+      console.log(`        expected code ${code}, got ${actual}`);
+    }
+    check(label, actual === code);
   }
 }
 

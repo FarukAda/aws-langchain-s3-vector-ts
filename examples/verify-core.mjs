@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import { Document } from '@langchain/core/documents';
 
-import { AmazonS3Vectors } from '../dist/index.js';
+import { AmazonS3Vectors, S3VectorsErrorCode } from '../dist/index.js';
 import { createEmbeddings } from './_embeddings.mjs';
-import { check, expectThrow, requireEnv, section, summary } from './_harness.mjs';
+import { check, expectErrorCode, requireEnv, section, summary } from './_harness.mjs';
 
 const { bucketName, region } = requireEnv();
 const indexName = `verify-core-${randomUUID().slice(0, 8)}`;
@@ -50,10 +50,10 @@ try {
 
   section('delete by id removes a single vector');
   await store.delete({ ids: ['core-3'] });
-  await expectThrow(
+  await expectErrorCode(
     'deleted id is no longer retrievable',
     () => store.getByIds(['core-3']),
-    'not found',
+    S3VectorsErrorCode.NOT_FOUND,
   );
 
   section('fromDocuments factory creates and populates a store');
