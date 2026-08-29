@@ -198,3 +198,23 @@ describe('_getIndex — malformed GetIndex response', () => {
     expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
   });
 });
+
+describe('_getIndex — a literal null index', () => {
+  // `index === undefined` was false for a literal null, so evaluation fell
+  // through to `index.dimension` and threw a TypeError that got wrapped as
+  // AWS_REQUEST_FAILED with raw internal text ("Cannot read properties of
+  // null") instead of this library's own diagnosis.
+  it('throws AWS_INVALID_RESPONSE, not AWS_REQUEST_FAILED, when index is null', async () => {
+    const { store, mock } = createTestStore();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- malformed response by construction
+    mock.on(GetIndexCommand).resolves({ index: null } as any);
+
+    const error = await store
+      .addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] })
+      .catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+    expect((error as Error).message).not.toContain('Cannot read properties');
+  });
+});

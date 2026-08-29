@@ -615,10 +615,13 @@ describe('AmazonS3Vectors read-path distance-metric validation', () => {
       .catch((e: unknown) => e);
 
     expect(isS3VectorsError(error)).toBe(true);
+    // A malformed/absent metric is a bad *response*, not a config mismatch —
+    // AWS_INVALID_RESPONSE is what that enum member documents. A valid but
+    // disagreeing metric still reports INDEX_CONFIG_MISMATCH, above.
     expect((error as { code: S3VectorsErrorCode }).code).toBe(
-      S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+      S3VectorsErrorCode.AWS_INVALID_RESPONSE,
     );
-    expect((error as Error).message).toContain('did not include a distanceMetric');
+    expect((error as Error).message).toContain('did not include a recognisable distanceMetric');
   });
 });
 
@@ -648,5 +651,66 @@ describe('AmazonS3Vectors query-vector validation', () => {
 
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+});
+
+describe('AmazonS3Vectors response guards — present-but-invalid values', () => {
+  // A guard testing only `=== undefined` let an explicit null through, and
+  // `1.0 - null` coerces to 1.0 — the exact best-possible-score misranking
+  // 0.7.0 set out to close, reached by a different value.
+  it.each([
+    ['null', null],
+    ['a string', '0.5'],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('throws AWS_INVALID_RESPONSE when distance is %s', async (_label, distance) => {
+    const { store, mock } = createTestStore();
+
+    mock.on(QueryVectorsCommand).resolves({
+      distanceMetric: 'cosine',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- malformed response by construction
+      vectors: [{ key: 'a', metadata: { _page_content: 'x' }, distance }] as any,
+    });
+
+    const error = await store
+      .similaritySearchVectorWithScore([1, 2, 3], 1)
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.AWS_INVALID_RESPONSE,
+    );
+  });
+
+  it('does not misreport a legitimate zero distance as invalid', async () => {
+    const { store, mock } = createTestStore();
+
+    mock.on(QueryVectorsCommand).resolves({
+      distanceMetric: 'cosine',
+      vectors: [{ key: 'a', metadata: { _page_content: 'x' }, distance: 0 }],
+    });
+
+    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 1);
+    expect(results[0]![1]).toBe(0);
+  });
+
+  it.each([
+    ['null', null],
+    ['an unrecognised value', 'manhattan'],
+  ])('throws AWS_INVALID_RESPONSE when distanceMetric is %s', async (_label, distanceMetric) => {
+    const { store, mock } = createTestStore();
+
+    mock.on(QueryVectorsCommand).resolves({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- malformed response by construction
+      distanceMetric: distanceMetric as any,
+      vectors: [],
+    });
+
+    const error = await store
+      .similaritySearchVectorWithScore([1, 2, 3], 1)
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.AWS_INVALID_RESPONSE,
+    );
   });
 });

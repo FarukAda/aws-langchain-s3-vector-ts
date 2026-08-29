@@ -586,12 +586,18 @@ export class AmazonS3Vectors extends VectorStore {
     );
 
     return outputVectors.map((v) => {
-      if (v.distance === undefined) {
+      // typeof narrows for TypeScript; Number.isFinite additionally rejects
+      // NaN and ±Infinity. A guard testing only `=== undefined` let an
+      // explicit null through, and `1.0 - null` coerces to 1.0 — the exact
+      // best-possible-score misranking 0.7.0 set out to close, reached by a
+      // different value.
+      if (typeof v.distance !== 'number' || !Number.isFinite(v.distance)) {
         throw new S3VectorsError(
           `QueryVectors response for index "${this.indexName}" returned a result without a ` +
-            'distance, even though this call requested returnDistance: true. Cannot compute a ' +
-            'reliable relevance score for it — the response may be malformed, come from an ' +
-            'incompatible SDK version, or a non-conforming custom client.',
+            'usable numeric distance, even though this call requested returnDistance: true. ' +
+            'Cannot compute a reliable relevance score for it — the response may be ' +
+            'malformed, come from an incompatible SDK version, or a non-conforming custom ' +
+            'client.',
           S3VectorsErrorCode.AWS_INVALID_RESPONSE,
           {
             operation: 'similaritySearchVectorWithScore',
@@ -1372,12 +1378,20 @@ export class AmazonS3Vectors extends VectorStore {
       );
 
       if (pageCount === 0) {
-        if (response.distanceMetric === undefined) {
+        // A positive shape check, not `=== undefined`: an explicit null (or
+        // any unrecognised string) otherwise reached _assertMetricMatches and
+        // produced a misleading `uses distance metric "null"` mismatch error.
+        // It also narrows the value to this library's DistanceMetric for the
+        // call below. A *valid* metric that disagrees with this store's
+        // configuration is a genuine INDEX_CONFIG_MISMATCH and is still
+        // reported as one, by _assertMetricMatches.
+        if (response.distanceMetric !== 'cosine' && response.distanceMetric !== 'euclidean') {
           throw new S3VectorsError(
-            `QueryVectors response for index "${this.indexName}" did not include a distanceMetric — ` +
-              `cannot verify it matches this store's configured "${this.distanceMetric}". Relevance ` +
-              `scores would be computed against an unverified metric.`,
-            S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+            `QueryVectors response for index "${this.indexName}" did not include a recognisable ` +
+              `distanceMetric (got ${JSON.stringify(response.distanceMetric)}) — cannot verify ` +
+              `it matches this store's configured "${this.distanceMetric}". Relevance scores ` +
+              'would be computed against an unverified metric.',
+            S3VectorsErrorCode.AWS_INVALID_RESPONSE,
             { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
           );
         }
@@ -1754,9 +1768,13 @@ export class AmazonS3Vectors extends VectorStore {
         { abortSignal: signal },
       );
       const { index } = result;
+      // `index?.dimension` covers undefined, null, and a non-numeric
+      // dimension in one condition. A bare `index === undefined` check let a
+      // literal null through to `index.dimension`, producing a TypeError that
+      // was wrapped as AWS_REQUEST_FAILED with raw internal text instead of
+      // the diagnosis below.
       if (
-        index === undefined ||
-        typeof index.dimension !== 'number' ||
+        typeof index?.dimension !== 'number' ||
         (index.distanceMetric !== 'cosine' && index.distanceMetric !== 'euclidean')
       ) {
         throw new S3VectorsError(
