@@ -22,7 +22,11 @@ import { isAbortError } from './shared/errors/aws-abort.js';
 import { isAwsConflictException } from './shared/errors/aws-conflict.js';
 import { isAwsNotFoundException } from './shared/errors/aws-not-found.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
-import { isS3VectorsError, S3VectorsError } from './shared/errors/s3-vectors-error.js';
+import {
+  isS3VectorsError,
+  S3VectorsError,
+  type S3VectorsErrorContext,
+} from './shared/errors/s3-vectors-error.js';
 import { toError, wrapAwsError } from './shared/errors/wrap-error.js';
 import { buildPutMetadata, createDocument } from './shared/metadata.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
@@ -1377,6 +1381,37 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
+   * Rebuild `base` with a new message and context while keeping the stack
+   * that points at the code which actually failed.
+   *
+   * @remarks
+   * Every path that decorates an error — partial ids, a factory's
+   * constructed instance, pagination state — has to construct a new
+   * `S3VectorsError`, because `message` and `context` are readonly once set.
+   * A fresh `Error` captures a fresh stack, so the decorator became the
+   * apparent origin: an abort raised in `_checkAborted` reported
+   * `at AmazonS3Vectors._attachPartialIds` as its top frame, hiding the one
+   * thing a stack exists to show. The frames are therefore carried over from
+   * `base` under the rebuilt error's own header line.
+   *
+   * Falls back to the rebuilt error's own stack if `base` has none, or if
+   * its stack isn't in the `\n    at ` frame format this splices on — no
+   * engine-specific format is assumed to be present, only recognised.
+   */
+  private _rebuildWithContext(
+    base: S3VectorsError,
+    message: string,
+    context: S3VectorsErrorContext,
+  ): S3VectorsError {
+    const rebuilt = new S3VectorsError(message, base.code, context, base.cause);
+    const framesStart = base.stack?.indexOf('\n    at ') ?? -1;
+    if (base.stack !== undefined && framesStart !== -1) {
+      rebuilt.stack = `${rebuilt.name}: ${message}${base.stack.slice(framesStart)}`;
+    }
+    return rebuilt;
+  }
+
+  /**
    * Wrap `error` (normalized via {@link _normalizeToS3VectorsError}) with
    * the ids already confirmed (durably written, durably deleted, or
    * already found, per `key`) before this failure, so a
@@ -1401,7 +1436,7 @@ export class AmazonS3Vectors extends VectorStore {
       ids.length > 0
         ? `${base.message} ${ids.length} vector(s) ${phrase} before this failure — see error.context.${key}.`
         : base.message;
-    return new S3VectorsError(message, base.code, { ...base.context, [key]: ids }, base.cause);
+    return this._rebuildWithContext(base, message, { ...base.context, [key]: ids });
   }
 
   /**
@@ -1413,12 +1448,7 @@ export class AmazonS3Vectors extends VectorStore {
    */
   private _attachInstance(error: unknown, operation: string): S3VectorsError {
     const base = this._normalizeToS3VectorsError(error, operation);
-    return new S3VectorsError(
-      base.message,
-      base.code,
-      { ...base.context, instance: this },
-      base.cause,
-    );
+    return this._rebuildWithContext(base, base.message, { ...base.context, instance: this });
   }
 
   /**
@@ -1488,18 +1518,17 @@ export class AmazonS3Vectors extends VectorStore {
   ): S3VectorsError {
     const base = this._normalizeToS3VectorsError(error, operation);
     if (pageCount === 0 || base.code === S3VectorsErrorCode.ABORTED) return base;
-    return new S3VectorsError(
+    return this._rebuildWithContext(
+      base,
       `${base.message} This failed while fetching page ${pageCount + 1} of a paginated ` +
         `QueryVectors search, with ${resultsCollected} of the ${k} requested result(s) already ` +
         'collected. Pagination tokens stay valid for only a few minutes — if the search ran ' +
         'long, re-issue the original query to start a new pagination session.',
-      base.code,
       {
         ...base.context,
         pagesScanned: pageCount,
         resultsCollected,
       },
-      base.cause,
     );
   }
 
