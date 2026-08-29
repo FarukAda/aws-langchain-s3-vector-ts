@@ -52,6 +52,8 @@ When you call `addDocuments()`, each document goes through this pipeline:
 
 When reading documents back (via search or `getByIds`), the process reverses: `_page_content` is extracted from metadata and restored as `doc.pageContent`, then removed from the metadata object.
 
+The key is removed only when it actually held a string. A non-string value under that key was never written by this library, so it belongs to whatever else shares the index — `pageContent` stays empty and the raw value is left in `metadata` rather than being silently dropped.
+
 ### The `_page_content` Key
 
 S3 Vectors stores vectors with optional metadata but does not have a native "text" field. The library works around this by storing the document's page content inside the metadata map under the `_page_content` key.
@@ -76,13 +78,17 @@ This matches the Python `langchain-aws` implementation and is critical for produ
 
 ## Similarity Search
 
-The library supports three search modes:
+The library supports five search methods:
 
 | Method | Input | Returns |
 |---|---|---|
-| `similaritySearch(query, k, filter?)` | Text string | `Document[]` |
-| `similaritySearchWithScore(query, k, filter?)` | Text string | `[Document, distance][]` |
-| `similaritySearchVectorWithScore(vector, k, filter?)` | Raw vector | `[Document, distance][]` |
+| `similaritySearch(query, k, filter?, callbacks?, signal?)` | Text string | `Document[]` |
+| `similaritySearchWithScore(query, k, filter?, callbacks?, signal?)` | Text string | `[Document, distance][]` |
+| `similaritySearchWithRelevanceScores(query, k, filter?, callbacks?, signal?)` | Text string | `[Document, score][]` |
+| `similaritySearchVectorWithScore(vector, k, filter?, signal?)` | Raw vector | `[Document, distance][]` |
+| `similaritySearchByVector(vector, k, filter?, signal?)` | Raw vector | `Document[]` |
+
+The text-based methods reserve a `Callbacks` slot (accepted and ignored) so they line up with LangChain’s own signatures; the vector-based ones take the `AbortSignal` one position earlier, since they have no callbacks slot. `k` and the filter are validated, and the signal is checked, *before* the query is embedded — an invalid argument or an already-aborted signal never costs a billable `embedQuery` call.
 
 **Distance vs. relevance:** S3 Vectors returns a *distance* (lower = more similar). LangChain expects a *relevance score* (higher = more relevant). The library provides built-in conversion functions:
 
@@ -91,7 +97,7 @@ The library supports three search modes:
 
 You can also provide your own via `relevanceScoreFn` in the config.
 
-Call `similaritySearchWithRelevanceScores(query, k, filter?)` to get `[Document, score][]` tuples with the conversion already applied.
+Call `similaritySearchWithRelevanceScores(query, k, filter?, callbacks?, signal?)` to get `[Document, score][]` tuples with the conversion already applied. For backwards compatibility this method also accepts an `AbortSignal` in the fourth position, where earlier versions expected it.
 
 ## Advanced Patterns
 
@@ -153,21 +159,41 @@ const store = new AmazonS3Vectors(embeddings, {
 });
 ```
 
+The client is identified by its `config.serviceId`, not by `instanceof` — so a bundler that duplicates `@aws-sdk/client-s3vectors` across a module boundary, and a legitimate subclass such as a tracing wrapper, both still work. A value that is not an `S3VectorsClient` is rejected with a coded `VALIDATION` error rather than silently replaced: the replacement would be built from the ambient credential chain and default region, which could point the store at a different AWS account. Passing `client: null` or `undefined` simply means "not provided", and the store builds its own from `region`/`credentials`/`endpoint`.
+
 ## Error Handling
 
-The library handles errors at two levels:
+Every failure this library surfaces — caller mistake, not-found, malformed AWS response, or an underlying AWS error — is a single typed `S3VectorsError` carrying a stable `code`, a `context`, and the original `cause`. No raw AWS SDK error and no bare `TypeError` reaches the caller. Detect it with the exported `isS3VectorsError()` type guard.
 
-1. **Input validation** — mismatched array lengths throw immediately with clear messages
-2. **AWS errors** — `NotFoundException` is caught during auto-index detection (expected workflow). All other AWS SDK errors propagate to the caller
+| Code | Raised when |
+|---|---|
+| `VALIDATION` | Caller input was invalid — mismatched counts, a non-array argument, a bad batch size, an empty filter, a reserved metadata key, or a `client` that is not an `S3VectorsClient`. |
+| `NOT_FOUND` | A requested vector id was not found by `getByIds`. |
+| `EMBEDDINGS_MISSING` | An operation needed an embedding model but none was configured. |
+| `AWS_REQUEST_FAILED` | An underlying AWS S3 Vectors request failed. |
+| `INDEX_CONFIG_MISMATCH` | The index’s actual dimension or distance metric disagrees with this store’s configuration. |
+| `ABORTED` | The supplied `AbortSignal` fired before or during the operation. |
+| `AWS_INVALID_RESPONSE` | An AWS response was missing, or carried an unusable value for, a field this library requires. |
+| `QUERY_PAGE_LIMIT_EXCEEDED` | A search hit the 100-page `QueryVectors` limit with more pages available and fewer than `k` results collected. |
+| `NOT_IMPLEMENTED` | `maxMarginalRelevanceSearch`, which this store intentionally does not implement. |
+| `UNEXPECTED_ERROR` | A failure that never touched AWS — a raw throw from a caller-supplied embeddings model, or input malformed enough to bypass validation. |
 
-The AWS SDK v3 has built-in retry behaviour (exponential backoff with jitter). You can configure this on the `S3VectorsClient` if needed.
+`NotFoundException` is still caught and treated as an expected outcome in the two places where absence is the normal case: auto-index detection during a write, and `delete({ deleteAll: true })` against an index that is already gone.
+
+The library fails closed rather than guessing. A query result missing a usable numeric `distance`, a response whose `distanceMetric` cannot be recognised, and a paginated search that cannot reach `k` within the page limit all raise a coded error instead of returning a plausible-looking but wrong result.
+
+On a partial multi-batch failure, the thrown error carries what already succeeded: `context.writtenIds` for writes, `context.deletedIds` for deletes, and `context.foundIds` for `getByIds`. This matters most for auto-generated ids, which nothing else records.
+
+The AWS SDK v3 has built-in retry behaviour (exponential backoff with jitter) for throttling and transient 5xx failures. Configure it with `maxAttempts`/`retryMode`, or on a `S3VectorsClient` you pass in yourself.
 
 ## Deletion
 
 The `delete()` method supports two modes:
 
 - **By IDs:** `await store.delete({ ids: ["id1", "id2"] })` — deletes specific vectors (batched, default 500 per call)
-- **Entire index:** `await store.delete({ deleteAll: true })` — deletes the whole vector index (not the bucket). `deleteAll` must be explicit; `delete()` with neither `ids` nor `deleteAll` throws instead of guessing.
+- **Entire index:** `await store.delete({ deleteAll: true })` — deletes the whole vector index (not the bucket). `deleteAll` must be explicit; `delete()` with neither `ids` nor `deleteAll` throws instead of guessing, and passing both together is rejected.
+
+Both modes are idempotent, so a blind retry after an ambiguous network failure is safe: deleting ids that are already gone succeeds, and `deleteAll` against an index that no longer exists resolves cleanly rather than erroring.
 
 ## LangChain Integration
 
