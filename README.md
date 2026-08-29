@@ -488,6 +488,8 @@ An aborted operation rejects with a coded `S3VectorsError` (`code: "ABORTED"`), 
 
 One exception: the shared index existence-check/creation calls (`GetIndex`/`CreateIndex`) triggered whenever a write needs the index checked or created — whether or not another caller happens to be racing it — are not tied to any single caller's signal, so that a concurrent sibling's write sharing that same in-flight check can never be cancelled by another caller's abort. A practical consequence: aborting mid-index-creation rejects your own call promptly, but the index may still end up created.
 
+One signature note: `similaritySearchWithRelevanceScores` takes the signal as its fifth argument, matching `similaritySearch` and `similaritySearchWithScore`. It also still accepts an `AbortSignal` in the fourth position, where earlier versions expected it, so existing callers keep working either way.
+
 One real limitation: `embedDocuments`/`embedQuery` (from your embeddings model) have no cancellation support in LangChain's `EmbeddingsInterface`, so a batch already being embedded when the signal fires still completes — only the AWS side (and any batch not yet started) is actually cancelled.
 
 ### Custom Retriever Configuration

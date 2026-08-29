@@ -80,6 +80,19 @@ function isPlainFilterObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * True for an `AbortSignal`-shaped value. Duck-typed rather than
+ * `instanceof` (banned in this codebase, and unreliable across realms).
+ * Used only to disambiguate the one parameter slot that accepts either a
+ * `Callbacks` or an `AbortSignal` — neither a `CallbackManager` nor a
+ * handler array carries a boolean `aborted`, so the two can't be confused.
+ */
+function isAbortSignalLike(value: unknown): value is AbortSignal {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { aborted?: unknown; addEventListener?: unknown };
+  return typeof candidate.aborted === 'boolean' && typeof candidate.addEventListener === 'function';
+}
+
+/**
  * "a"/"an" for the given word, so error messages don't read "a Error
  * instance". Letter-based, not pronunciation-based — correct for the
  * realistic constructor names this reaches (Error, Array, Map, a custom
@@ -698,16 +711,32 @@ export class AmazonS3Vectors extends VectorStore {
    * *relevance scores* (higher is better), converted from S3 Vectors'
    * raw distance via {@link _selectRelevanceScoreFn}.
    *
+   * @param callbacksOrSignal - The `Callbacks` slot every other text-based
+   * method on this class reserves in this position (accepted and ignored,
+   * exactly as in those siblings). This method historically took the
+   * `AbortSignal` here instead, so an `AbortSignal` passed in this position
+   * is still honored and no existing caller breaks. Prefer passing the
+   * signal as the fifth argument, matching {@link similaritySearch} and
+   * {@link similaritySearchWithScore} — a caller following that house
+   * pattern previously had their signal silently dropped.
    * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
    */
   async similaritySearchWithRelevanceScores(
     query: string,
     k = 4,
     filter?: this['FilterType'],
+    callbacksOrSignal?: Callbacks | AbortSignal,
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
+    const effectiveSignal = isAbortSignalLike(callbacksOrSignal) ? callbacksOrSignal : signal;
     const scoreFn = this._selectRelevanceScoreFn();
-    const results = await this.similaritySearchWithScore(query, k, filter, undefined, signal);
+    const results = await this.similaritySearchWithScore(
+      query,
+      k,
+      filter,
+      undefined,
+      effectiveSignal,
+    );
     return results.map(([doc, distance]) => [doc, scoreFn(distance)]);
   }
 

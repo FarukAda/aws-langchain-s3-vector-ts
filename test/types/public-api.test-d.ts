@@ -32,3 +32,20 @@ void badConfig;
 void storeType;
 void searchResults;
 void relevanceResults;
+
+// similaritySearchWithRelevanceScores accepts an AbortSignal in either the
+// historical 4th slot or the 5th slot its text-based siblings use, so
+// realigning the parameter order broke no existing caller.
+const relevanceAbortLegacy: Promise<[Document, number][]> =
+  store.similaritySearchWithRelevanceScores('q', 4, undefined, new AbortController().signal);
+const relevanceAbortAligned: Promise<[Document, number][]> =
+  store.similaritySearchWithRelevanceScores(
+    'q',
+    4,
+    undefined,
+    undefined,
+    new AbortController().signal,
+  );
+
+void relevanceAbortLegacy;
+void relevanceAbortAligned;

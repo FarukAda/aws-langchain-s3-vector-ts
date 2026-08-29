@@ -13,7 +13,13 @@ import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
-import { BASE_CONFIG, createMockClient, createTestStore, mockExistingIndex } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  createTestStore,
+  mockExistingIndex,
+} from './helpers.js';
 
 describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
   it('forwards signal to PutVectors via addVectors', async () => {
@@ -196,5 +202,42 @@ describe('AmazonS3Vectors AbortSignal — stops before starting more uncancellab
 
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
     expect(embedCalls).toBe(0);
+  });
+});
+
+describe('similaritySearchWithRelevanceScores — signal in either slot', () => {
+  // This method historically took the AbortSignal in the 4th slot, where
+  // every other text-based method on this class takes Callbacks. A caller
+  // following the house pattern (query, k, filter, callbacks, signal) had
+  // their signal silently dropped. Both call styles now work.
+  it.each([
+    ['4th slot (historical)', true],
+    ['5th slot (house pattern)', false],
+  ])('honors an already-aborted signal passed in the %s', async (_label, legacySlot) => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    mock.on(QueryVectorsCommand).resolves({ distanceMetric: 'cosine', vectors: [] });
+
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await (
+      legacySlot
+        ? store.similaritySearchWithRelevanceScores('q', 4, undefined, controller.signal)
+        : store.similaritySearchWithRelevanceScores('q', 4, undefined, undefined, controller.signal)
+    ).catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
+  it('does not mistake a Callbacks array in the 4th slot for an AbortSignal', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    mock.on(QueryVectorsCommand).resolves({ distanceMetric: 'cosine', vectors: [] });
+
+    await expect(store.similaritySearchWithRelevanceScores('q', 4, undefined, [])).resolves.toEqual(
+      [],
+    );
   });
 });
