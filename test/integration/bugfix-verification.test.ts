@@ -185,7 +185,7 @@ if (!env) {
       try {
         await expect(
           store.addVectors([[]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
-        ).rejects.toThrow('Cannot determine vector dimension from empty batch');
+        ).rejects.toThrow('Every vector must have at least one dimension');
 
         const exists = await rawClient
           .send(new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }))

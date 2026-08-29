@@ -964,8 +964,12 @@ export class AmazonS3Vectors extends VectorStore {
         }
 
         // When duplicate IDs are present, deep-copy metadata to prevent
-        // shared-reference mutations (matches Python behaviour).
-        const hasDuplicateIds = vectorMap.size < batchIds.length;
+        // shared-reference mutations (matches Python behaviour). Compared
+        // against a Set of the requested ids, not the response map's size:
+        // the latter also shrinks when an id is simply missing from the
+        // response, which triggered a structuredClone on a result the
+        // missing-id throw below discards anyway.
+        const hasDuplicateIds = new Set(batchIds).size < batchIds.length;
 
         // Preserve input order. Note (but don't stop at) a missing id — a
         // later id in the same batch that IS found must still count toward
@@ -1580,7 +1584,11 @@ export class AmazonS3Vectors extends VectorStore {
     // INDEX_CONFIG_MISMATCH.
     const firstVector = vectors[0];
     if (!firstVector || firstVector.length === 0) {
-      throw this._validationError(operation, 'Cannot determine vector dimension from empty batch');
+      throw this._validationError(
+        operation,
+        "Cannot determine this batch's vector dimension — the batch has no vectors, or its " +
+          'first vector is empty ([]). Every vector must have at least one dimension.',
+      );
     }
 
     // Every vector in this batch must share the first vector's dimension —

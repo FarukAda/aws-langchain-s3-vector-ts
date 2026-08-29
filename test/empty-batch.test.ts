@@ -25,7 +25,7 @@ describe('AmazonS3Vectors empty-batch dimension guard', () => {
     // Caught by the embedDocuments count check, not the empty-vector guard
     // below — "0 vectors for 1 documents" is the actual root cause here,
     // not an ambiguous vector, and names it precisely instead of reporting
-    // a symptom ("Cannot determine vector dimension from empty batch")
+    // a symptom ("Cannot determine this batch's vector dimension")
     // that would also fire for the genuinely-different scenario the
     // second test below covers.
     await expect(
@@ -39,8 +39,11 @@ describe('AmazonS3Vectors empty-batch dimension guard', () => {
 
     mockIndexNotFound(mock);
 
+    // The only reachable trigger for this guard is a vector that is itself
+    // `[]` — a one-item batch, not an empty one. The message must not call
+    // that an "empty batch", which misattributes the actual cause.
     await expect(
       store.addVectors([[]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
-    ).rejects.toThrow('Cannot determine vector dimension from empty batch');
+    ).rejects.toThrow('Every vector must have at least one dimension');
   });
 });

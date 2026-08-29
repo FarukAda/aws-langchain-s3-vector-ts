@@ -164,7 +164,7 @@ describe('AmazonS3Vectors index compatibility validation', () => {
     if (empty.status === 'rejected') {
       expect(isS3VectorsError(empty.reason)).toBe(true);
       expect((empty.reason as Error).message).toContain(
-        'Cannot determine vector dimension from empty batch',
+        'Every vector must have at least one dimension',
       );
       // Attributed to the caller whose batch was actually empty.
       expect((empty.reason as { context: { operation: string } }).context.operation).toBe(
