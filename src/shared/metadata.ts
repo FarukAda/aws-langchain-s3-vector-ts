@@ -85,9 +85,17 @@ export function createDocument(
 
   if (pageContentMetadataKey !== null && Object.hasOwn(metadata, pageContentMetadataKey)) {
     const rawValue = metadata[pageContentMetadataKey];
-    pageContent = typeof rawValue === 'string' ? rawValue : '';
-
-    delete metadata[pageContentMetadataKey];
+    if (typeof rawValue === 'string') {
+      pageContent = rawValue;
+      delete metadata[pageContentMetadataKey];
+    }
+    // A non-string value under this key was never written by this library —
+    // buildPutMetadata always stores a string — so it belongs to whatever
+    // else shares the index. pageContent stays '' (unchanged, intentional,
+    // and tested), but the value is left in metadata rather than silently
+    // deleted, so a caller can still see and reconcile it. Deleting a value
+    // this function did not consume would lose caller data with no flag,
+    // inconsistent with this library's fail-closed handling elsewhere.
   }
 
   return new Document({ pageContent, id: vector.key, metadata });

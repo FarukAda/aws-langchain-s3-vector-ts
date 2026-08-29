@@ -115,3 +115,29 @@ describe('createDocument — structuredClone safety', () => {
     expect((doc2.metadata['nested'] as { value: string }).value).toBe('original');
   });
 });
+
+describe('createDocument — a non-string value under the reserved key', () => {
+  // Reachable when something other than this library writes to the same
+  // index (this library's own reserved-key guard prevents it on the write
+  // path). The empty pageContent is intentional and long-tested; silently
+  // deleting the raw value from metadata was not.
+  it('keeps the value in metadata instead of dropping it', () => {
+    const doc = createDocument(
+      { key: 'v1', metadata: { _page_content: 12345, other: 'kept' } },
+      '_page_content',
+    );
+
+    expect(doc.pageContent).toBe('');
+    expect(doc.metadata).toEqual({ _page_content: 12345, other: 'kept' });
+  });
+
+  it('still consumes and removes a string value', () => {
+    const doc = createDocument(
+      { key: 'v1', metadata: { _page_content: 'hello', other: 'kept' } },
+      '_page_content',
+    );
+
+    expect(doc.pageContent).toBe('hello');
+    expect(doc.metadata).toEqual({ other: 'kept' });
+  });
+});
