@@ -231,30 +231,43 @@ export class AmazonS3Vectors extends VectorStore {
     // A value check on config.serviceId, not a prototype-chain check —
     // survives a bundler duplicating @aws-sdk/client-s3vectors across a
     // module boundary, which would make a legitimate client fail instanceof/
-    // isPrototypeOf and get silently replaced below. Mirrors the intent of
-    // this file's Symbol.for-registry brands (S3VectorsError, StubEmbeddings)
-    // for a third-party class this library can't stamp a brand onto itself.
-    const isS3VectorsClient =
-      config.client !== undefined && config.client.config?.serviceId === 'S3Vectors';
-
-    if (config.client && !isS3VectorsClient) {
-      console.warn(
-        '[AmazonS3Vectors] config.client was provided but is not an instance of S3VectorsClient ' +
-          '(from "@aws-sdk/client-s3vectors"); ignoring it and building a new client from ' +
-          'region/credentials/endpoint instead.',
+    // isPrototypeOf. Mirrors the intent of this file's Symbol.for-registry
+    // brands (S3VectorsError, StubEmbeddings) for a third-party class this
+    // library can't stamp a brand onto itself.
+    //
+    // `null` is treated exactly like an omitted client — an optional field
+    // defaulted to `null` by a DI framework or an untyped caller means "not
+    // provided", and this file already reads a `null` filter as "no filter"
+    // (see _validateFilter). Previously `null !== undefined` was true here,
+    // so evaluation reached `null.config` and threw a raw, uncoded
+    // TypeError, breaking the guarantee that every failure is typed.
+    //
+    // A non-nullish value that isn't an S3VectorsClient is a different
+    // thing: a real caller mistake. It throws rather than warning and
+    // falling back, because the fallback builds a client from the ambient
+    // credential chain and default region — so a caller who passed an
+    // explicit but wrong client could silently read and write against a
+    // different AWS account or region than they intended.
+    const suppliedClient = config.client ?? undefined;
+    if (suppliedClient !== undefined && suppliedClient.config?.serviceId !== 'S3Vectors') {
+      throw this._validationError(
+        'constructor',
+        'config.client is not an S3VectorsClient from "@aws-sdk/client-s3vectors" (its ' +
+          'config.serviceId is not "S3Vectors"). Pass a real S3VectorsClient, or omit `client` ' +
+          'entirely and supply `region`/`credentials`/`endpoint` instead — falling back ' +
+          'silently could point this store at a different AWS account or region.',
       );
     }
 
     this._client =
-      config.client && isS3VectorsClient
-        ? config.client
-        : new S3VectorsClient({
-            region: config.region,
-            credentials: config.credentials,
-            endpoint: config.endpoint,
-            maxAttempts: config.maxAttempts,
-            retryMode: config.retryMode,
-          });
+      suppliedClient ??
+      new S3VectorsClient({
+        region: config.region,
+        credentials: config.credentials,
+        endpoint: config.endpoint,
+        maxAttempts: config.maxAttempts,
+        retryMode: config.retryMode,
+      });
   }
 
   // ── Getters ───────────────────────────────────────────────────────────
