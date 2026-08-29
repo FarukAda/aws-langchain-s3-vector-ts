@@ -17,14 +17,18 @@ export interface S3VectorsErrorContext {
   /** Ids confirmed durably deleted before a partial `delete({ ids })` failure. */
   readonly deletedIds?: string[];
   /**
-   * `QueryVectors` pages scanned before this library's page limit stopped
-   * the search. Only set on a `QUERY_PAGE_LIMIT_EXCEEDED` error.
+   * `QueryVectors` pages scanned before a paginated search stopped early.
+   *
+   * Set on a `QUERY_PAGE_LIMIT_EXCEEDED` error, and also on a failure that
+   * happened partway through pagination (page 2 or later) — where the code
+   * is whatever the underlying call failed with, typically
+   * `AWS_REQUEST_FAILED`.
    */
   readonly pagesScanned?: number;
   /**
-   * Results collected before this library's page limit stopped the search.
-   * Only set on a `QUERY_PAGE_LIMIT_EXCEEDED` error — compare against the
-   * requested `k` to see how far short the search fell.
+   * Results collected before a paginated search stopped early. Compare
+   * against the requested `k` to see how far short it fell. Set alongside
+   * {@link pagesScanned}, on the same two cases.
    */
   readonly resultsCollected?: number;
   /**

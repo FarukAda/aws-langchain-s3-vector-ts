@@ -17,11 +17,16 @@ export enum S3VectorsErrorCode {
   /** The requested operation is not implemented by this vector store. */
   NOT_IMPLEMENTED = 'NOT_IMPLEMENTED',
   /**
-   * A `QueryVectors` search hit this library's internal page limit with
-   * pages still outstanding and fewer than `k` results collected. Distinct
-   * from a search that legitimately ran out of matches, which returns
-   * however many it found without error — that ambiguity is exactly what
-   * this code exists to remove.
+   * A paginated `QueryVectors` search stopped with pages still outstanding
+   * and fewer than `k` results collected, because one of two safety guards
+   * fired: an unbroken run of pages that returned no results at all (a
+   * response that will never converge), or this library's absolute
+   * runaway page ceiling. The message names which one.
+   *
+   * Distinct from a search that legitimately ran out of matches, which
+   * returns however many it found without error — that ambiguity is
+   * exactly what this code exists to remove. A sparse search that keeps
+   * making progress is *not* this: it keeps paging until it reaches `k`.
    */
   QUERY_PAGE_LIMIT_EXCEEDED = 'QUERY_PAGE_LIMIT_EXCEEDED',
   /**

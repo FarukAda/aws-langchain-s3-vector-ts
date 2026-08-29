@@ -372,7 +372,7 @@ try {
 
 **Partial-batch failures report what already succeeded.** If `addVectors`/`addDocuments` fails partway through a multi-batch write (a later batch throttled, hit a transient error, etc.), earlier batches are already durably committed in AWS — the thrown error's `context.writtenIds` lists every id confirmed written before the failure, including any concurrent batch that happened to succeed alongside the one that failed. This matters most with auto-generated ids: without `context.writtenIds`, those vectors would be undiscoverable and impossible to clean up or reconcile, since nothing else records what id they landed under. `delete({ ids })` reports the equivalent `context.deletedIds` on a partial failure — lower-stakes since delete is idempotent (a blind retry of the full `ids` list is always safe), but still useful to know exactly what happened. `delete({ deleteAll: true })` is idempotent in the same way: deleting an index that is already gone resolves cleanly instead of erroring, so retrying after an ambiguous network failure is safe.
 
-This partial-progress guarantee doesn't extend to search: if a multi-page `QueryVectors` pagination sequence fails partway through, any pages already fetched are discarded rather than returned alongside the error. Reasonable asymmetry — a failed search is side-effect-free and trivially retryable, unlike a failed write — but worth knowing if you're relying on `writtenIds`/`deletedIds`-style partial-progress reporting from a read path too.
+This partial-progress guarantee doesn't extend to search: if a multi-page `QueryVectors` pagination sequence fails partway through, any pages already fetched are discarded rather than returned alongside the error. Reasonable asymmetry — a failed search is side-effect-free and trivially retryable, unlike a failed write — but worth knowing if you're relying on `writtenIds`/`deletedIds`-style partial-progress reporting from a read path too. The error does still report *how far* it got, via `context.pagesScanned` and `context.resultsCollected`, and a failure on page 2 or later says so explicitly — AWS pagination tokens are only valid for a few minutes, so the fix for a long-running paginated search is to re-issue the original query rather than resume it.
 
 ```typescript
 try {
@@ -394,7 +394,7 @@ The codes are stable and exhaustive:
 | `AWS_REQUEST_FAILED` | An underlying AWS S3 Vectors request failed. |
 | `INDEX_CONFIG_MISMATCH` | The index's actual dimension or distance metric disagrees with this store's configuration. |
 | `ABORTED` | The supplied `AbortSignal` fired before or during the operation. |
-| `AWS_INVALID_RESPONSE` | An AWS response was missing, or carried an unusable value for, a field this library requires — a non-numeric `distance`, an unrecognised `distanceMetric`, or a malformed `GetIndex` payload. |
+| `AWS_INVALID_RESPONSE` | An AWS response was missing, or carried an unusable value for, something this library requires — a non-numeric `distance`, an unrecognised `distanceMetric`, a malformed `GetIndex` payload, or a `QueryVectors`/`GetVectors` response that wasn't an object at all. Reachable only from a mocked, stubbed or otherwise non-conforming client. |
 | `QUERY_PAGE_LIMIT_EXCEEDED` | A paginated search stopped without reaching `k` while more pages were still available — either 10 consecutive pages returned no results at all, or the 1,000-page runaway ceiling was reached. `context.pagesScanned` and `context.resultsCollected` say how far short it fell, and the message names which guard fired — narrow the filter or lower `k`. A search that legitimately runs out of matches returns what it found, without error, and a sparse search that keeps making progress keeps paging. |
 | `NOT_IMPLEMENTED` | `maxMarginalRelevanceSearch`, which this store intentionally does not implement. |
 | `UNEXPECTED_ERROR` | A failure that never touched AWS — a raw throw from a caller-supplied embeddings model, or input malformed enough to bypass validation. |
@@ -690,11 +690,14 @@ src/
 │   ├── stub-embeddings.ts        # StubEmbeddings placeholder for raw-vector workflows
 │   ├── validation.ts             # assertValidIndexConfig (bucket/index-name checks)
 │   ├── metadata.ts               # buildPutMetadata, createDocument (pure functions)
+│   ├── batching.ts               # chunk, offsetBatches (pure functions)
 │   └── errors/                   # Typed error model
 │       ├── s3-vectors-error.ts   # S3VectorsError + isS3VectorsError guard
 │       ├── error-code.ts         # S3VectorsErrorCode enum
 │       ├── wrap-error.ts         # wrapAwsError / toError
-│       └── aws-not-found.ts      # isAwsNotFoundException guard
+│       ├── aws-not-found.ts      # isAwsNotFoundException guard
+│       ├── aws-conflict.ts       # isAwsConflictException guard
+│       └── aws-abort.ts          # isAbortError guard
 └── guide.md                      # In-depth usage guide
 
 test/                             # Unit (100% coverage), contract, property, types

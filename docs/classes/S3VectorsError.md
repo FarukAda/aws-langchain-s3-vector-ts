@@ -6,7 +6,7 @@
 
 # Class: S3VectorsError
 
-Defined in: [shared/errors/s3-vectors-error.ts:66](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/f8f51b62301085280dd18ce52d4493a75c72f3e2/src/shared/errors/s3-vectors-error.ts#L66)
+Defined in: [shared/errors/s3-vectors-error.ts:70](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/shared/errors/s3-vectors-error.ts#L70)
 
 The single error type surfaced by this library. Wraps validation failures,
 not-found conditions, and underlying AWS errors behind one consistent shape.
@@ -21,7 +21,7 @@ not-found conditions, and underlying AWS errors behind one consistent shape.
 
 > **new S3VectorsError**(`message`, `code`, `context`, `cause?`): `S3VectorsError`
 
-Defined in: [shared/errors/s3-vectors-error.ts:71](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/f8f51b62301085280dd18ce52d4493a75c72f3e2/src/shared/errors/s3-vectors-error.ts#L71)
+Defined in: [shared/errors/s3-vectors-error.ts:75](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/shared/errors/s3-vectors-error.ts#L75)
 
 #### Parameters
 
@@ -55,7 +55,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:71](https://github.com/FarukAda/a
 
 > `readonly` **\[S3\_VECTORS\_ERROR\_BRAND\]**: `true` = `true`
 
-Defined in: [shared/errors/s3-vectors-error.ts:67](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/f8f51b62301085280dd18ce52d4493a75c72f3e2/src/shared/errors/s3-vectors-error.ts#L67)
+Defined in: [shared/errors/s3-vectors-error.ts:71](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/shared/errors/s3-vectors-error.ts#L71)
 
 ***
 
@@ -63,7 +63,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:67](https://github.com/FarukAda/a
 
 > `readonly` **code**: [`S3VectorsErrorCode`](../enumerations/S3VectorsErrorCode.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:68](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/f8f51b62301085280dd18ce52d4493a75c72f3e2/src/shared/errors/s3-vectors-error.ts#L68)
+Defined in: [shared/errors/s3-vectors-error.ts:72](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/shared/errors/s3-vectors-error.ts#L72)
 
 ***
 
@@ -71,4 +71,4 @@ Defined in: [shared/errors/s3-vectors-error.ts:68](https://github.com/FarukAda/a
 
 > `readonly` **context**: [`S3VectorsErrorContext`](../interfaces/S3VectorsErrorContext.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:69](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/f8f51b62301085280dd18ce52d4493a75c72f3e2/src/shared/errors/s3-vectors-error.ts#L69)
+Defined in: [shared/errors/s3-vectors-error.ts:73](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/shared/errors/s3-vectors-error.ts#L73)

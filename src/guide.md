@@ -175,7 +175,7 @@ Every failure this library surfaces — caller mistake, not-found, malformed AWS
 | `AWS_REQUEST_FAILED` | An underlying AWS S3 Vectors request failed. |
 | `INDEX_CONFIG_MISMATCH` | The index’s actual dimension or distance metric disagrees with this store’s configuration. |
 | `ABORTED` | The supplied `AbortSignal` fired before or during the operation. |
-| `AWS_INVALID_RESPONSE` | An AWS response was missing, or carried an unusable value for, a field this library requires. |
+| `AWS_INVALID_RESPONSE` | An AWS response was missing, carried an unusable value for, or wasn't an object at all where this library requires one. Reachable only from a mocked, stubbed or otherwise non-conforming client. |
 | `QUERY_PAGE_LIMIT_EXCEEDED` | A paginated search stopped without reaching `k` while more pages were still available — either 10 consecutive pages returned no results at all, or the 1,000-page runaway ceiling was reached. |
 | `NOT_IMPLEMENTED` | `maxMarginalRelevanceSearch`, which this store intentionally does not implement. |
 | `UNEXPECTED_ERROR` | A failure that never touched AWS — a raw throw from a caller-supplied embeddings model, or input malformed enough to bypass validation. |

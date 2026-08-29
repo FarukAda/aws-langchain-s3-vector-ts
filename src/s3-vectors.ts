@@ -1561,10 +1561,12 @@ export class AmazonS3Vectors extends VectorStore {
    * vectors are collected or the result set is exhausted.
    *
    * @remarks
-   * S3 Vectors caps each `QueryVectors` response at ~100 results even when
-   * `topK` (`k`) is larger (AWS allows `topK` up to 10,000). Without paging
+   * AWS returns **up to** 100 results per `QueryVectors` response even when
+   * `topK` (`k`) is larger (`topK` itself caps at 10,000). Without paging
    * through `nextToken`, a caller requesting `k > 100` would silently get
-   * back fewer than `k` documents.
+   * back fewer than `k` documents. Note the published limit is a maximum,
+   * not a fixed page size — a short page is a conforming response, so the
+   * number of pages a legitimate search needs is not simply `k / 100`.
    *
    * Also validates the queried index's distance metric — returned on every
    * `QueryVectors` response — against this store's configured
@@ -1578,13 +1580,15 @@ export class AmazonS3Vectors extends VectorStore {
    * response is ever missing it, that's treated as "can't verify" and
    * rejected rather than silently skipping the check.
    *
-   * Bounded by {@link MAX_QUERY_PAGES} so a response that never converges
-   * can't drive an unbounded number of round trips. Deliberately does
-   * *not* stop early on an empty-but-`nextToken`-bearing page — AWS's own
-   * documented pagination contract and generated paginator don't treat an
-   * empty page as end-of-results either, and a heavily-filtered query is a
-   * plausible way to get one legitimately, with real results still on a
-   * later page.
+   * Bounded by progress rather than by a flat page count: a run of
+   * {@link MAX_EMPTY_QUERY_PAGES} consecutive result-less pages ends the
+   * search, with {@link MAX_QUERY_PAGES} as an absolute runaway backstop.
+   * A single empty-but-`nextToken`-bearing page deliberately does *not*
+   * stop it — AWS's own documented pagination contract and generated
+   * paginator don't treat an empty page as end-of-results either, and a
+   * heavily-filtered query is a plausible way to get one legitimately,
+   * with real results still on a later page. Either guard firing raises
+   * `QUERY_PAGE_LIMIT_EXCEEDED` rather than returning a short result set.
    */
   private async _queryVectors(
     operation: string,
