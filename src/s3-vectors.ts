@@ -814,17 +814,36 @@ export class AmazonS3Vectors extends VectorStore {
     }
 
     if (ids === undefined) {
-      await this._send('DeleteIndex', () =>
-        this._client.send(
-          new DeleteIndexCommand({
-            vectorBucketName: this.vectorBucketName,
-            indexName: this.indexName,
-          }),
-          { abortSignal: signal },
-        ),
-      );
-      // The index no longer exists — a cached compatibility check against
-      // it would validate a later write against a now-deleted index.
+      try {
+        await this._send('DeleteIndex', () =>
+          this._client.send(
+            new DeleteIndexCommand({
+              vectorBucketName: this.vectorBucketName,
+              indexName: this.indexName,
+            }),
+            { abortSignal: signal },
+          ),
+        );
+      } catch (error: unknown) {
+        // An index that's already gone is exactly the state this call is
+        // asking for, so resolve cleanly rather than surfacing a generic
+        // AWS_REQUEST_FAILED — matching `delete({ ids })`'s documented
+        // idempotency, and making a retry after an ambiguous network
+        // failure (whose first attempt actually succeeded server-side)
+        // safe. Confirmed against real AWS: DeleteIndex on a missing index
+        // returns NotFoundException, the same shape `_getIndex` already
+        // special-cases. `_send` wraps the AWS error, so the original sits
+        // at `.cause` — the same place `_ensureIndexExists` reads its
+        // ConflictException from. An aborted call carries an AbortError
+        // cause instead and is correctly rethrown here.
+        const cause = (error as { cause?: unknown }).cause;
+        if (!isAwsNotFoundException(cause)) throw error;
+      }
+      // Reached whether the index was deleted just now or was already gone.
+      // Either way it no longer exists, and a cached compatibility check
+      // against it would validate a later write against a missing index —
+      // so a stale cache from an earlier write on this instance gets
+      // reconciled in both cases, not only on a successful delete.
       // Bumping the epoch additionally invalidates any write already past
       // this point (mid `_ensureIndexExists`/`_getIndex`), so its
       // now-stale result can't be written into the cache after this clear

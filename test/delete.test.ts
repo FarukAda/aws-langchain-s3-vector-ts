@@ -9,7 +9,7 @@ import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
-import { BASE_CONFIG, createMockClient } from './helpers.js';
+import { BASE_CONFIG, createMockClient, createTestStore, mockExistingIndex } from './helpers.js';
 
 describe('AmazonS3Vectors.delete', () => {
   it('deletes entire index when deleteAll is explicitly true', async () => {
@@ -112,5 +112,52 @@ describe('AmazonS3Vectors.delete', () => {
 
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
+  });
+});
+
+describe('AmazonS3Vectors.delete({ deleteAll }) — idempotency', () => {
+  const notFound = (): Error =>
+    Object.assign(new Error('The specified index could not be found'), {
+      name: 'NotFoundException',
+    });
+
+  it('resolves cleanly when the index is already gone', async () => {
+    // Confirmed against real AWS: DeleteIndex on a missing index returns
+    // NotFoundException — the same shape _getIndex already special-cases.
+    // The realistic trigger is retrying a deleteAll after an ambiguous
+    // network failure whose first attempt actually succeeded server-side.
+    const { store, mock } = createTestStore();
+    mock.on(DeleteIndexCommand).rejects(notFound());
+
+    await expect(store.delete({ deleteAll: true })).resolves.toBeUndefined();
+  });
+
+  it('clears the validated-index cache even when the index was already gone', async () => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], { ids: ['a'] });
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
+
+    mock.on(DeleteIndexCommand).rejects(notFound());
+    await store.delete({ deleteAll: true });
+
+    // Cache cleared, so the next write re-fetches rather than validating
+    // against index info the delete just revealed to be stale.
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'b' })], { ids: ['b'] });
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
+  });
+
+  it('still surfaces a DeleteIndex failure that is not a not-found', async () => {
+    const { store, mock } = createTestStore();
+    mock
+      .on(DeleteIndexCommand)
+      .rejects(Object.assign(new Error('nope'), { name: 'AccessDeniedException' }));
+
+    const error = await store.delete({ deleteAll: true }).catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.AWS_REQUEST_FAILED,
+    );
   });
 });
