@@ -27,6 +27,9 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      # test/ is excluded from tsconfig.json (which builds only src/), so
+      # without this the suite had no type checking in CI at all.
+      - run: npm run typecheck:test
 
   test:
     name: test (node ${{ matrix.node }} on ${{ matrix.os }})

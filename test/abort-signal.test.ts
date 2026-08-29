@@ -19,6 +19,7 @@ import {
   createMockEmbeddings,
   createTestStore,
   mockExistingIndex,
+  sendOptionsOf,
 } from './helpers.js';
 
 describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
@@ -32,7 +33,7 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
       signal: controller.signal,
     });
 
-    expect(mock.commandCalls(PutVectorsCommand)[0]!.args[1]).toEqual({
+    expect(sendOptionsOf(mock.commandCalls(PutVectorsCommand)[0]!)).toEqual({
       abortSignal: controller.signal,
     });
   });
@@ -50,15 +51,15 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
       signal: controller.signal,
     });
 
-    expect(mock.commandCalls(GetIndexCommand)[0]!.args[1]).toEqual({
+    expect(sendOptionsOf(mock.commandCalls(GetIndexCommand)[0]!)).toEqual({
       abortSignal: undefined,
     });
     // CreateIndex takes no signal option at all: index creation is shared
     // across concurrent writers via _ensureIndexExists's memo, so no single
     // caller may cancel it out from under the others. It previously received
     // a literal `undefined` through a parameter no caller ever populated.
-    expect(mock.commandCalls(CreateIndexCommand)[0]!.args[1]).toBeUndefined();
-    expect(mock.commandCalls(PutVectorsCommand)[0]!.args[1]).toEqual({
+    expect(sendOptionsOf(mock.commandCalls(CreateIndexCommand)[0]!)).toBeUndefined();
+    expect(sendOptionsOf(mock.commandCalls(PutVectorsCommand)[0]!)).toEqual({
       abortSignal: controller.signal,
     });
   });
@@ -71,7 +72,7 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
 
     await store.delete({ ids: ['id-1'], signal: controller.signal });
 
-    expect(mock.commandCalls(DeleteVectorsCommand)[0]!.args[1]).toEqual({
+    expect(sendOptionsOf(mock.commandCalls(DeleteVectorsCommand)[0]!)).toEqual({
       abortSignal: controller.signal,
     });
   });
@@ -84,7 +85,7 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
 
     await store.delete({ deleteAll: true, signal: controller.signal });
 
-    expect(mock.commandCalls(DeleteIndexCommand)[0]!.args[1]).toEqual({
+    expect(sendOptionsOf(mock.commandCalls(DeleteIndexCommand)[0]!)).toEqual({
       abortSignal: controller.signal,
     });
   });
@@ -96,7 +97,7 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
 
     await store.getByIds(['id-1'], { signal: controller.signal });
 
-    expect(mock.commandCalls(GetVectorsCommand)[0]!.args[1]).toEqual({
+    expect(sendOptionsOf(mock.commandCalls(GetVectorsCommand)[0]!)).toEqual({
       abortSignal: controller.signal,
     });
   });
@@ -107,19 +108,19 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
     const controller = new AbortController();
 
     await store.similaritySearchVectorWithScore([1, 2, 3], 4, undefined, controller.signal);
-    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[1]).toEqual({
+    expect(sendOptionsOf(mock.commandCalls(QueryVectorsCommand)[0]!)).toEqual({
       abortSignal: controller.signal,
     });
 
     mock.resetHistory();
     await store.similaritySearch('q', 4, undefined, undefined, controller.signal);
-    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[1]).toEqual({
+    expect(sendOptionsOf(mock.commandCalls(QueryVectorsCommand)[0]!)).toEqual({
       abortSignal: controller.signal,
     });
 
     mock.resetHistory();
     await store.similaritySearchWithRelevanceScores('q', 4, undefined, controller.signal);
-    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[1]).toEqual({
+    expect(sendOptionsOf(mock.commandCalls(QueryVectorsCommand)[0]!)).toEqual({
       abortSignal: controller.signal,
     });
   });

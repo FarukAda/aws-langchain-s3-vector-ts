@@ -15,6 +15,7 @@ import {
   createMockClient,
   createMockEmbeddings,
   createTestStore,
+  indexFixture,
   mockExistingIndex,
   mockIndexAutoCreated,
 } from './helpers.js';
@@ -208,7 +209,7 @@ describe('AmazonS3Vectors.addVectors', () => {
       createIndexIfNotExist: false,
     });
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     mock.on(PutVectorsCommand).resolves({});
 
@@ -252,7 +253,7 @@ describe('AmazonS3Vectors.addVectors', () => {
       createIndexIfNotExist: false,
     });
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 5, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 5, distanceMetric: 'cosine' })),
     });
 
     await expect(

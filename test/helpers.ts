@@ -1,6 +1,7 @@
 import {
   CreateIndexCommand,
   GetIndexCommand,
+  type Index,
   PutVectorsCommand,
   S3VectorsClient,
 } from '@aws-sdk/client-s3vectors';
@@ -68,6 +69,65 @@ export function createTestStore(configOverrides: Partial<AmazonS3VectorsConfig> 
   return { store, client, mock, embeddings };
 }
 
+/**
+ * Build a complete `Index` for a mocked `GetIndex` response.
+ *
+ * The SDK's `Index` type requires more than the three fields this library
+ * actually reads (`dimension`, `distanceMetric`, and `indexName` for
+ * messages). Supplying only those left every mock a type error — invisible
+ * to `npm test`, since ts-jest doesn't fail on them, and invisible to
+ * `npm run typecheck`, whose tsconfig excludes `test/`. Filling the rest in
+ * one place keeps the mocks both type-correct and closer to a real response.
+ */
+export function indexFixture(overrides: Partial<Index> = {}): Index {
+  return {
+    vectorBucketName: BASE_CONFIG.vectorBucketName,
+    indexName: BASE_CONFIG.indexName,
+    indexArn: `arn:aws:s3vectors:us-east-1:000000000000:bucket/${BASE_CONFIG.vectorBucketName}/index/${BASE_CONFIG.indexName}`,
+    creationTime: new Date('2026-01-01T00:00:00.000Z'),
+    dataType: 'float32',
+    dimension: 3,
+    distanceMetric: 'cosine',
+    ...overrides,
+  };
+}
+
+/**
+ * A deliberately non-conforming `GetIndex` payload: an `index` is present but
+ * carries none of the attributes this library requires.
+ *
+ * The cast is the point, not a convenience — `Index` demands fields that a
+ * malformed response by definition doesn't have, so this is the one place
+ * where sidestepping the type is the behaviour under test. Used to exercise
+ * the `AWS_INVALID_RESPONSE` guard.
+ */
+export function malformedIndexFixture(): Index {
+  return {} as Index;
+}
+
+/**
+ * Read the `send(command, options)` options argument off a recorded call.
+ *
+ * `aws-sdk-client-mock` types a call's `args` as the 1-tuple `[Command]`,
+ * but the runtime signature takes a second options argument — which is
+ * exactly where this library threads `abortSignal`. Indexing `args[1]`
+ * directly is therefore correct at runtime and a type error at compile
+ * time; the cast lives here once, with the reason, instead of at every
+ * assertion site.
+ *
+ * Returns the argument exactly as passed, `undefined` included. Do not
+ * default it to `{}`: "no options argument at all" and "options carrying an
+ * undefined signal" are different facts, and at least one test asserts on
+ * precisely that difference (`CreateIndex` is called with no options, since
+ * index creation is shared across concurrent writers and no single caller
+ * may cancel it).
+ */
+export function sendOptionsOf(call: {
+  args: readonly unknown[];
+}): { abortSignal?: AbortSignal } | undefined {
+  return call.args[1] as { abortSignal?: AbortSignal } | undefined;
+}
+
 /** Configure `mock` so `GetIndexCommand` rejects as not-found. */
 export function mockIndexNotFound(mock: AwsClientStub<S3VectorsClient>): void {
   const notFoundError = Object.assign(new Error('Not found'), { name: 'NotFoundException' });
@@ -91,8 +151,6 @@ export function mockIndexAutoCreated(mock: AwsClientStub<S3VectorsClient>): void
  * resolves.
  */
 export function mockExistingIndex(mock: AwsClientStub<S3VectorsClient>): void {
-  mock.on(GetIndexCommand).resolves({
-    index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
-  });
+  mock.on(GetIndexCommand).resolves({ index: indexFixture() });
   mock.on(PutVectorsCommand).resolves({});
 }

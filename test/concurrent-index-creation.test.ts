@@ -15,7 +15,9 @@ import {
   createMockClient,
   createMockEmbeddings,
   createTestStore,
+  indexFixture,
   mockIndexNotFound,
+  sendOptionsOf,
 } from './helpers.js';
 
 describe('AmazonS3Vectors concurrent index creation', () => {
@@ -67,7 +69,7 @@ describe('AmazonS3Vectors concurrent index creation', () => {
     mock
       .on(GetIndexCommand)
       .rejectsOnce(notFoundError)
-      .resolves({ index: { indexName: 'test-index', dimension: 5, distanceMetric: 'cosine' } });
+      .resolves({ index: indexFixture(indexFixture({ dimension: 5, distanceMetric: 'cosine' })) });
     const conflictError = Object.assign(new Error('already exists'), { name: 'ConflictException' });
     mock.on(CreateIndexCommand).rejects(conflictError);
 
@@ -107,7 +109,7 @@ describe('index-validation cache — concurrency', () => {
     });
     mock.on(GetIndexCommand).callsFake(async () => {
       await gate;
-      return { index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' } };
+      return { index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })) };
     });
     mock.on(PutVectorsCommand).resolves({});
     mock.on(DeleteIndexCommand).resolves({});
@@ -128,7 +130,7 @@ describe('index-validation cache — concurrency', () => {
     // reuse a cache entry for an index that was deleted mid-first-write.
     mock.resetHistory();
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'y' })], { ids: ['id-2'] });
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
@@ -142,7 +144,7 @@ describe('index-validation cache — concurrency', () => {
     });
     mock.on(GetIndexCommand).callsFake(async () => {
       await gate;
-      return { index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' } };
+      return { index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })) };
     });
     mock.on(PutVectorsCommand).resolves({});
     mock.on(DeleteIndexCommand).resolves({});
@@ -160,7 +162,7 @@ describe('index-validation cache — concurrency', () => {
 
     mock.resetHistory();
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'y' })], { ids: ['id-2'] });
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
@@ -209,7 +211,9 @@ describe('index-validation cache — concurrency', () => {
     // A's abort reach — and cancel — the AWS call B also depends on).
     const errorA = await writeA.catch((e: unknown) => e);
     expect((errorA as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
-    expect(mock.commandCalls(GetIndexCommand)[0]!.args[1]).toEqual({ abortSignal: undefined });
+    expect(sendOptionsOf(mock.commandCalls(GetIndexCommand)[0]!)).toEqual({
+      abortSignal: undefined,
+    });
   });
 
   it("a caller's signal that never fires still sees a genuine index-creation failure surface normally, not swallowed or misreported as ABORTED", async () => {
@@ -236,7 +240,7 @@ describe('index-validation cache — concurrency', () => {
   it('makes zero AWS calls when addVectors is called with an already-aborted signal and no cached index info', async () => {
     const { store, mock } = createTestStore();
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     mock.on(CreateIndexCommand).resolves({});
     mock.on(PutVectorsCommand).resolves({});
@@ -270,7 +274,7 @@ describe('delete({deleteAll: true}) racing an in-flight PutVectors call', () => 
   it('does not resurrect the cleared cache when a racing PutVectors call resolves after the delete', async () => {
     const { store, mock } = createTestStore();
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     mock.on(PutVectorsCommand).resolves({});
     mock.on(DeleteIndexCommand).resolves({});
@@ -306,7 +310,7 @@ describe('delete({deleteAll: true}) racing an in-flight PutVectors call', () => 
     // must re-validate from scratch.
     mock.resetHistory();
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'c' })], { ids: ['id-3'] });
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
@@ -315,7 +319,7 @@ describe('delete({deleteAll: true}) racing an in-flight PutVectors call', () => 
   it('surfaces a clean coded error, not a hang, when a racing PutVectors call fails against the deleted index', async () => {
     const { store, mock } = createTestStore();
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     mock.on(PutVectorsCommand).resolves({});
     mock.on(DeleteIndexCommand).resolves({});

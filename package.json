@@ -33,6 +33,7 @@
     "build": "tsc6",
     "typecheck": "tsc6 --noEmit",
     "typecheck:types": "tsc6 --noEmit -p tsconfig.types.json",
+    "typecheck:test": "tsc6 --noEmit -p tsconfig.test.json",
     "test:package-smoke": "node --test test/package-smoke/smoke.test.mjs",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",

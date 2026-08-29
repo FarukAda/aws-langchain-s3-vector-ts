@@ -2,11 +2,11 @@ import { GetIndexCommand, PutVectorsCommand, QueryVectorsCommand } from '@aws-sd
 import { describe, it, expect } from '@jest/globals';
 
 import { AmazonS3Vectors } from '../../src/s3-vectors.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from '../helpers.js';
+import { BASE_CONFIG, createMockClient, createMockEmbeddings, indexFixture } from '../helpers.js';
 
 function seededStore() {
   const { client, mock } = createMockClient();
-  mock.on(GetIndexCommand).resolves({ index: {} });
+  mock.on(GetIndexCommand).resolves({ index: indexFixture() });
   mock.on(PutVectorsCommand).resolves({});
   mock.on(QueryVectorsCommand).resolves({
     vectors: [

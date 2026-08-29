@@ -15,6 +15,8 @@ import {
   createMockClient,
   createMockEmbeddings,
   createTestStore,
+  indexFixture,
+  malformedIndexFixture,
   mockIndexNotFound,
 } from './helpers.js';
 
@@ -24,7 +26,7 @@ describe('AmazonS3Vectors index compatibility validation', () => {
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 5, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 5, distanceMetric: 'cosine' })),
     });
 
     const error = await store
@@ -48,7 +50,7 @@ describe('AmazonS3Vectors index compatibility validation', () => {
     });
 
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'euclidean' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'euclidean' })),
     });
 
     const error = await store
@@ -68,7 +70,7 @@ describe('AmazonS3Vectors index compatibility validation', () => {
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     mock.on(PutVectorsCommand).resolves({});
 
@@ -82,7 +84,7 @@ describe('AmazonS3Vectors index compatibility validation', () => {
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
 
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     mock.on(PutVectorsCommand).resolves({});
 
@@ -193,7 +195,7 @@ describe('_getIndex — malformed GetIndex response', () => {
 
   it('throws a coded AWS_INVALID_RESPONSE error when index is present but dimension/distanceMetric are missing', async () => {
     const { store, mock } = createTestStore();
-    mock.on(GetIndexCommand).resolves({ index: {} });
+    mock.on(GetIndexCommand).resolves({ index: malformedIndexFixture() });
 
     const error = await store
       .addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] })
@@ -229,7 +231,7 @@ describe('later write batches — validation against the established index', () 
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     mock.on(PutVectorsCommand).resolves({});
 
@@ -253,7 +255,7 @@ describe('later write batches — validation against the established index', () 
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     mock.on(DeleteIndexCommand).resolves({});
 

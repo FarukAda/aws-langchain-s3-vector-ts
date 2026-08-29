@@ -5,12 +5,14 @@ import { Document } from '@langchain/core/documents';
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import { BASE_CONFIG, createMockClient, createMockEmbeddings, indexFixture } from './helpers.js';
 
 describe('AmazonS3Vectors error surface', () => {
   it('wraps AWS failures as S3VectorsError with operation context', async () => {
     const { client, mock } = createMockClient();
-    mock.on(GetIndexCommand).resolves({ index: { dimension: 3, distanceMetric: 'cosine' } });
+    mock
+      .on(GetIndexCommand)
+      .resolves({ index: indexFixture({ dimension: 3, distanceMetric: 'cosine' }) });
     mock
       .on(PutVectorsCommand)
       .rejects(Object.assign(new Error('denied'), { name: 'AccessDeniedException' }));

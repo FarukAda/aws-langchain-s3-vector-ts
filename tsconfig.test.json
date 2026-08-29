@@ -1,0 +1,21 @@
+{
+  // Type-checks the test suite, which tsconfig.json deliberately excludes
+  // (it builds only src/, with rootDir/outDir set for the published bundle).
+  //
+  // Without this, test/ had no TypeScript project covering it at all: `npm run
+  // typecheck` skipped it by exclusion and ts-jest does not fail a run on type
+  // errors, so 32 of them accumulated while every gate reported green — visible
+  // only as squiggles in an editor. `npm run typecheck:test` is wired into CI
+  // alongside the src typecheck so that can't happen again.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "inlineSources": false
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist", "coverage"]
+}

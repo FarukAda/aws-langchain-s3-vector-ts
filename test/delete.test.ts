@@ -9,7 +9,13 @@ import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
-import { BASE_CONFIG, createMockClient, createTestStore, mockExistingIndex } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createTestStore,
+  indexFixture,
+  mockExistingIndex,
+} from './helpers.js';
 
 describe('AmazonS3Vectors.delete', () => {
   it('deletes entire index when deleteAll is explicitly true', async () => {
@@ -88,7 +94,7 @@ describe('AmazonS3Vectors.delete', () => {
     });
 
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
     });
     mock.on(PutVectorsCommand).resolves({});
 
@@ -103,7 +109,7 @@ describe('AmazonS3Vectors.delete', () => {
     // dimension. If the cache weren't cleared, this write would wrongly
     // succeed against the stale dimension-3 verdict instead of re-fetching.
     mock.on(GetIndexCommand).resolves({
-      index: { indexName: 'test-index', dimension: 5, distanceMetric: 'cosine' },
+      index: indexFixture(indexFixture({ dimension: 5, distanceMetric: 'cosine' })),
     });
 
     await expect(

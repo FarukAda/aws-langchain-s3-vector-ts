@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The test suite had no TypeScript project covering it.** `tsconfig.json` builds only `src/` and explicitly excludes `test/`, so `npm run typecheck` — and CI's typecheck job — never looked at a single test file. ts-jest doesn't fail a run on type errors either, so 32 of them had accumulated while every gate reported green, visible only as squiggles in an editor. Fixed the 32 (a shared `indexFixture` for mocked `GetIndex` payloads, and a `sendOptionsOf` accessor for the `send(command, options)` argument that `aws-sdk-client-mock` types as a 1-tuple), and added `tsconfig.test.json` plus a `typecheck:test` script wired into CI so the gap can't silently reopen. Test-only; no shipped code changed.
+
 ## [0.9.0] - 2026-08-29
 
 Remediation of an independent code review run against the v0.8.0 tag. That review closed every prior finding and reported none of its own still open, so this release comes from a fresh full read of the source plus direct verification of the assumptions the previous round left standing. Two of the five findings were reproduced with a probe before being fixed; one of them was pinned as *intended* behaviour by the existing test suite.
