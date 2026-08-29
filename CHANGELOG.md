@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-29
+
+Remediation of an independent code review run against the v0.8.0 tag. That review closed every prior finding and reported none of its own still open, so this release comes from a fresh full read of the source plus direct verification of the assumptions the previous round left standing. Two of the five findings were reproduced with a probe before being fixed; one of them was pinned as *intended* behaviour by the existing test suite.
+
+### Breaking
+
+- `similaritySearch` and `similaritySearchWithScore` now throw a coded `VALIDATION` error when an `AbortSignal` is passed as the 4th argument. That position is the `Callbacks` slot, and a signal there was silently discarded: the search ran to completion, uncancelled, after already spending a billable `embedQuery` call. Pass the signal as the 5th argument. `similaritySearchWithRelevanceScores` is unchanged — it historically accepted the signal in that slot, so honouring it there remains a documented back-compat affordance.
+- The `QueryVectors` page guard no longer stops at a flat 100 pages. `QUERY_PAGE_LIMIT_EXCEEDED` now fires on lack of *progress* (10 consecutive result-less pages) or a 1,000-page runaway ceiling, and its message names which one fired. Searches that previously failed at page 100 while still making progress now succeed.
+
+### Fixed
+
+- **`addDocuments` kept embedding after the abort signal fired.** The signal was checked once per concurrent group rather than once per batch, so a signal firing partway through a group still let every remaining batch in it spend a full, uncancellable, billable embedding call — up to 9 extra calls, or roughly 1,800 documents at the default `batchSize` of 200. Reproduced before the fix: aborting during the second embed call still produced 11 `embedDocuments` calls instead of 2. An abort mid-group now also reports `context.writtenIds`, like every other partial failure.
+- **The page guard failed legitimate searches.** `MAX_QUERY_PAGES` was exactly `MAX_TOP_K / 100`, resting on the belief that AWS always fills a page to 100 results. AWS documents the limit as "Results per page in a QueryVectors response: **up to** 100" — a maximum, not a guarantee — so a shorter page is a conforming response and the cap had zero headroom: one 99-result page anywhere in a `k = 10,000` search pushed it to 101 pages and rejected a valid query. The suite pinned this as intended behaviour (one result per page with `k = 500` asserted failure at page 100, though that search converges at page 500).
+- **A nullish AWS response surfaced as a raw `TypeError`.** `_send` wraps only the AWS call, so the property reads on a resolved response sit outside its `catch`. `QueryVectors` and `GetVectors` responses are now checked for being an object at all before any field is read, throwing `AWS_INVALID_RESPONSE` — the same guarantee the existing field-level guards already gave, for the same non-conforming-client population.
+
+### Added
+
+- A `QueryVectors` failure on a continuation page now explains itself: it names the page it was on and how many results it had collected, and points at re-issuing the original query. AWS documents pagination tokens as valid for only "several minutes" and publishes no dedicated expired-token exception, so this is keyed on what the library knows for certain — that the failing call carried a `nextToken` — rather than on a guessed exception name. A first-page failure and a caller-driven abort pass through unchanged.
+
+### Notes
+
+- Every AWS limit the library encodes was re-verified against AWS's published limits page rather than carried forward: `topK` ≤ 10,000, PutVectors/DeleteVectors ≤ 500, GetVectors ≤ 100, non-filterable metadata keys ≤ 10, filterable metadata ≤ 2 KB, dimension ≤ 4,096. All matched.
+- The prior review's two open uncertainties (IM1, IM4) needed no new regression tests: both are already exercised by the mocked unit suite, which runs at 100% branch coverage. What neither has is a *live* trigger, and the review itself established that none can exist.
+
 ## [0.8.0] - 2026-08-29
 
 Remediation of an independent code review run against the v0.7.0 tag, plus three defects found while verifying that review's own claims. Every finding below was reproduced before being fixed.

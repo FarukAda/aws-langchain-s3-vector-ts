@@ -395,7 +395,7 @@ The codes are stable and exhaustive:
 | `INDEX_CONFIG_MISMATCH` | The index's actual dimension or distance metric disagrees with this store's configuration. |
 | `ABORTED` | The supplied `AbortSignal` fired before or during the operation. |
 | `AWS_INVALID_RESPONSE` | An AWS response was missing, or carried an unusable value for, a field this library requires — a non-numeric `distance`, an unrecognised `distanceMetric`, or a malformed `GetIndex` payload. |
-| `QUERY_PAGE_LIMIT_EXCEEDED` | A search hit this library's 100-page `QueryVectors` limit with more pages available and fewer than `k` results collected. `context.pagesScanned` and `context.resultsCollected` say how far short it fell — narrow the filter or lower `k`. A search that legitimately runs out of matches returns what it found, without error. |
+| `QUERY_PAGE_LIMIT_EXCEEDED` | A paginated search stopped without reaching `k` while more pages were still available — either 10 consecutive pages returned no results at all, or the 1,000-page runaway ceiling was reached. `context.pagesScanned` and `context.resultsCollected` say how far short it fell, and the message names which guard fired — narrow the filter or lower `k`. A search that legitimately runs out of matches returns what it found, without error, and a sparse search that keeps making progress keeps paging. |
 | `NOT_IMPLEMENTED` | `maxMarginalRelevanceSearch`, which this store intentionally does not implement. |
 | `UNEXPECTED_ERROR` | A failure that never touched AWS — a raw throw from a caller-supplied embeddings model, or input malformed enough to bypass validation. |
 
@@ -504,6 +504,8 @@ An aborted operation rejects with a coded `S3VectorsError` (`code: "ABORTED"`), 
 One exception: the shared index existence-check/creation calls (`GetIndex`/`CreateIndex`) triggered whenever a write needs the index checked or created — whether or not another caller happens to be racing it — are not tied to any single caller's signal, so that a concurrent sibling's write sharing that same in-flight check can never be cancelled by another caller's abort. A practical consequence: aborting mid-index-creation rejects your own call promptly, but the index may still end up created.
 
 One signature note: `similaritySearchWithRelevanceScores` takes the signal as its fifth argument, matching `similaritySearch` and `similaritySearchWithScore`. It also still accepts an `AbortSignal` in the fourth position, where earlier versions expected it, so existing callers keep working either way.
+
+`similaritySearch` and `similaritySearchWithScore` do **not** accept a signal in that fourth position — it is the `Callbacks` slot, and a signal there used to be silently discarded, letting the search run uncancelled after already spending a billable `embedQuery` call. Since 0.9.0 they raise a coded `VALIDATION` error naming the fifth slot instead.
 
 One real limitation: `embedDocuments`/`embedQuery` (from your embeddings model) have no cancellation support in LangChain's `EmbeddingsInterface`, so a batch already being embedded when the signal fires still completes — only the AWS side (and any batch not yet started) is actually cancelled.
 
