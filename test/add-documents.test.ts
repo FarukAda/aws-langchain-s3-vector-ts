@@ -97,3 +97,19 @@ describe('AmazonS3Vectors.addDocuments without embeddings', () => {
     }
   });
 });
+
+describe('AmazonS3Vectors.addDocuments ids-option validation', () => {
+  it('rejects a non-array ids option before embedding or writing', async () => {
+    const { store, mock, embeddings } = createTestStore();
+    mockExistingIndex(mock);
+
+    const error = await store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      .addDocuments([new Document({ pageContent: 'a' })], { ids: 'x' as any })
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe('ids must be an array.');
+    expect(embeddings.embedDocuments).not.toHaveBeenCalled();
+  });
+});

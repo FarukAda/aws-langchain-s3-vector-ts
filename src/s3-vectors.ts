@@ -300,6 +300,7 @@ export class AmazonS3Vectors extends VectorStore {
   ): Promise<string[]> {
     this._validateIsArray('addVectors', 'vectors', vectors);
     this._validateIsArray('addVectors', 'documents', documents);
+    this._validateIdsOption('addVectors', options?.ids);
     if (vectors.length !== documents.length) {
       throw this._validationError(
         'addVectors',
@@ -384,6 +385,7 @@ export class AmazonS3Vectors extends VectorStore {
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
     this._validateIsArray('addDocuments', 'documents', documents);
+    this._validateIdsOption('addDocuments', options?.ids);
     // Checked before the empty-batch short-circuit below — a caller passing
     // a stale/mismatched `ids` array alongside an empty `documents` array is
     // still a real caller mistake and shouldn't be silently swallowed into
@@ -526,6 +528,7 @@ export class AmazonS3Vectors extends VectorStore {
         `Number of metadatas (${metadatas.length}) must match number of texts (${texts.length})`,
       );
     }
+    this._validateIdsOption('addTexts', options?.ids);
     const docs = texts.map(
       (text, i) => new Document({ pageContent: text, metadata: metadatas?.[i] ?? {} }),
     );
@@ -1054,6 +1057,21 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
+   * Reject a non-array `ids` option before it is ever used as one. Shared
+   * by all three write methods rather than inlined three times: a string of
+   * the right length (`'abc'` alongside three vectors) otherwise passes the
+   * count check below and is then sliced and indexed exactly like an array,
+   * silently writing each *character* as a vector key and returning the
+   * string itself as the caller's id list — wrong ids committed to AWS with
+   * no error at all.
+   */
+  private _validateIdsOption(operation: string, ids: string[] | undefined): void {
+    if (ids !== undefined) {
+      this._validateIsArray(operation, 'ids', ids);
+    }
+  }
+
+  /**
    * Reject a non-positive batchSize before it can drive an infinite loop,
    * and one that exceeds AWS's own per-call limit for this operation
    * before spending a round trip to discover the same thing from AWS.
@@ -1316,6 +1334,10 @@ export class AmazonS3Vectors extends VectorStore {
     signal?: AbortSignal,
   ): Promise<S3OutputVector[]> {
     this._validateK(operation, k);
+    // Both vector-search entry points funnel through here, so one check
+    // covers both — and it also catches an embeddings model that returned a
+    // non-array from embedQuery on the text-search path.
+    this._validateIsArray(operation, 'query vector', input.queryVector.float32);
     this._validateFilter(operation, input.filter);
 
     const results: S3OutputVector[] = [];

@@ -151,6 +151,31 @@ describe('AmazonS3Vectors.addVectors', () => {
     expect((error as Error).message).toBe('documents must be an array.');
   });
 
+  it('rejects a non-array ids option with a coded VALIDATION error, not silent corruption', async () => {
+    mockExistingIndex(mock);
+
+    const error = await store
+      .addVectors(
+        [
+          [1, 2, 3],
+          [1, 2, 3],
+          [1, 2, 3],
+        ],
+        [
+          new Document({ pageContent: 'a' }),
+          new Document({ pageContent: 'b' }),
+          new Document({ pageContent: 'c' }),
+        ],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+        { ids: 'abc' as any },
+      )
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe('ids must be an array.');
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
+  });
+
   it('returns empty array for empty input', async () => {
     const ids = await store.addVectors([], []);
     expect(ids).toEqual([]);

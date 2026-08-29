@@ -621,3 +621,32 @@ describe('AmazonS3Vectors read-path distance-metric validation', () => {
     expect((error as Error).message).toContain('did not include a distanceMetric');
   });
 });
+
+describe('AmazonS3Vectors query-vector validation', () => {
+  it('rejects a non-array query vector before calling AWS', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ distanceMetric: 'cosine', vectors: [] });
+
+    const error = await store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      .similaritySearchVectorWithScore('nope' as any, 1)
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe('query vector must be an array.');
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
+  it('rejects a non-array embedding in similaritySearchByVector', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({ distanceMetric: 'cosine', vectors: [] });
+
+    const error = await store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      .similaritySearchByVector('nope' as any, 1)
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+});
