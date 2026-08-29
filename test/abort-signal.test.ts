@@ -182,6 +182,65 @@ describe('AmazonS3Vectors AbortSignal — stops before starting more uncancellab
     expect(embedCalls).toBe(1);
   });
 
+  it('stops embedding the moment the signal fires inside a concurrent group, not at the group boundary', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+
+    // 12 batches: batch 0 is embedded and put alone, then the remaining 11
+    // are processed in groups of MAX_CONCURRENT_BATCH_CALLS (10) + 1. The
+    // signal fires during the SECOND embed call — the first batch *inside*
+    // the first group. Every later batch in that group is an expensive,
+    // uncancellable, billable embedDocuments call for work nobody wants
+    // anymore, so none of them may start.
+    const controller = new AbortController();
+    let embedCalls = 0;
+    const embeddings: EmbeddingsInterface = {
+      embedDocuments: async (texts: string[]) => {
+        embedCalls += 1;
+        if (embedCalls === 2) controller.abort();
+        return texts.map(() => [1, 2, 3]);
+      },
+      embedQuery: async () => [1, 2, 3],
+    };
+    const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+
+    const docs = Array.from({ length: 12 }, (_, i) => new Document({ pageContent: `d-${i}` }));
+
+    const error = await store
+      .addDocuments(docs, { batchSize: 1, signal: controller.signal })
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
+    expect(embedCalls).toBe(2);
+  });
+
+  it('reports ids already written when the signal fires inside a concurrent group', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+
+    const controller = new AbortController();
+    let embedCalls = 0;
+    const embeddings: EmbeddingsInterface = {
+      embedDocuments: async (texts: string[]) => {
+        embedCalls += 1;
+        if (embedCalls === 2) controller.abort();
+        return texts.map(() => [1, 2, 3]);
+      },
+      embedQuery: async () => [1, 2, 3],
+    };
+    const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+
+    const docs = Array.from({ length: 12 }, (_, i) => new Document({ pageContent: `d-${i}` }));
+
+    const error = await store
+      .addDocuments(docs, { batchSize: 1, ids: docs.map((_, i) => `id-${i}`), signal: controller.signal })
+      .catch((e: unknown) => e);
+
+    // Batch 0 was durably written before the abort — an aborted write must
+    // still say what already landed, exactly like every other partial failure.
+    expect((error as { context: { writtenIds?: string[] } }).context.writtenIds).toEqual(['id-0']);
+  });
+
   it('does not embed the first batch at all when the signal is already aborted before the call', async () => {
     const { client, mock } = createMockClient();
     mockExistingIndex(mock);

@@ -495,11 +495,6 @@ export class AmazonS3Vectors extends VectorStore {
     const rest = offsetBatches(batches.slice(1), firstBatch.length);
 
     for (const group of chunk(rest, MAX_CONCURRENT_BATCH_CALLS)) {
-      // embedDocuments has no signal support, so it can't self-cancel the
-      // way _send()'s AWS calls do — check explicitly before spending an
-      // expensive, uncancellable call on a batch nobody wants anymore.
-      this._checkAborted('addDocuments', signal);
-
       // Embed every batch in the group sequentially — embedDocuments is
       // never called concurrently for two batches, since most embedding
       // providers rate-limit aggressively and this library gives no
@@ -511,6 +506,15 @@ export class AmazonS3Vectors extends VectorStore {
       const withVectors: { batch: Document[]; offset: number; vectors: number[][] }[] = [];
       try {
         for (const { batch, offset: batchOffset } of group) {
+          // Checked per batch, not once per group. embedDocuments has no
+          // signal support, so it can't self-cancel the way _send()'s AWS
+          // calls do, and a group holds up to MAX_CONCURRENT_BATCH_CALLS
+          // batches — checking only at the group boundary let every
+          // remaining batch in the group still spend an expensive,
+          // uncancellable, billable embedding call after the signal had
+          // already fired. Inside the try, so an abort here reports
+          // writtenIds like every other partial failure.
+          this._checkAborted('addDocuments', signal);
           withVectors.push({ batch, offset: batchOffset, vectors: await embedBatch(batch) });
         }
       } catch (error: unknown) {
