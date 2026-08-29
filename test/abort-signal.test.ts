@@ -233,7 +233,11 @@ describe('AmazonS3Vectors AbortSignal — stops before starting more uncancellab
     const docs = Array.from({ length: 12 }, (_, i) => new Document({ pageContent: `d-${i}` }));
 
     const error = await store
-      .addDocuments(docs, { batchSize: 1, ids: docs.map((_, i) => `id-${i}`), signal: controller.signal })
+      .addDocuments(docs, {
+        batchSize: 1,
+        ids: docs.map((_, i) => `id-${i}`),
+        signal: controller.signal,
+      })
       .catch((e: unknown) => e);
 
     // Batch 0 was durably written before the abort — an aborted write must
@@ -263,6 +267,74 @@ describe('AmazonS3Vectors AbortSignal — stops before starting more uncancellab
 
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
     expect(embedCalls).toBe(0);
+  });
+});
+
+describe('similaritySearch / similaritySearchWithScore — a signal in the callbacks slot fails closed', () => {
+  // The Callbacks slot is the 4th argument on both methods, per
+  // @langchain/core's VectorStore signature, and this store accepts and
+  // ignores it. A signal passed there was silently discarded: the search ran
+  // to completion, having already spent a billable embedQuery call, and the
+  // caller's cancellation never happened. Failing closed names the right slot
+  // instead — this is exactly the mistake that silently defeated an earlier
+  // regression test of our own.
+  it.each([
+    [
+      'similaritySearch',
+      (s: AmazonS3Vectors, sig: AbortSignal) => s.similaritySearch('q', 4, undefined, sig as never),
+    ],
+    [
+      'similaritySearchWithScore',
+      (s: AmazonS3Vectors, sig: AbortSignal) =>
+        s.similaritySearchWithScore('q', 4, undefined, sig as never),
+    ],
+  ])('%s rejects an AbortSignal in the 4th slot before embedding', async (_label, call) => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+
+    let embedQueryCalls = 0;
+    const embeddings: EmbeddingsInterface = {
+      embedDocuments: async (texts: string[]) => texts.map(() => [1, 2, 3]),
+      embedQuery: async () => {
+        embedQueryCalls += 1;
+        return [1, 2, 3];
+      },
+    };
+    const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+
+    const error = await call(store, new AbortController().signal).catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain('4th argument');
+    expect((error as Error).message).toContain('5th');
+    // Rejected before spending the billable, uncancellable embedding call.
+    expect(embedQueryCalls).toBe(0);
+  });
+
+  it('still accepts a real Callbacks value in the 4th slot', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    await expect(store.similaritySearch('q', 4, undefined, [])).resolves.toEqual([]);
+    await expect(store.similaritySearchWithScore('q', 4, undefined, [])).resolves.toEqual([]);
+  });
+
+  it('still honors a signal in the 5th slot', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await store
+      .similaritySearch('q', 4, undefined, undefined, controller.signal)
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
   });
 });
 

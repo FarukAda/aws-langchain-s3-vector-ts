@@ -669,6 +669,12 @@ export class AmazonS3Vectors extends VectorStore {
    * @remarks
    * Validates `k` before embedding — an invalid `k` shouldn't cost a
    * billable `embedQuery` call before failing.
+   *
+   * @param _callbacks - Accepted and ignored, per `@langchain/core`'s
+   * `VectorStore` signature. Passing an `AbortSignal` here throws a coded
+   * `VALIDATION` error rather than silently running the search uncancelled —
+   * the signal belongs in the fifth argument.
+   * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
    */
   async similaritySearchWithScore(
     query: string,
@@ -678,10 +684,12 @@ export class AmazonS3Vectors extends VectorStore {
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
     // Everything cheap and synchronous runs before the billable — and
-    // uncancellable — embedQuery call: an invalid k, an invalid filter, or a
-    // signal that already fired should not cost an embedding round trip
-    // before failing. _validateFilter runs again inside _queryVectors for
-    // the direct-vector entry points; running it twice here is free.
+    // uncancellable — embedQuery call: a signal in the wrong slot, an
+    // invalid k, an invalid filter, or a signal that already fired should
+    // not cost an embedding round trip before failing. _validateFilter runs
+    // again inside _queryVectors for the direct-vector entry points;
+    // running it twice here is free.
+    this._rejectSignalInCallbacksSlot('similaritySearchWithScore', _callbacks);
     this._validateK('similaritySearchWithScore', k);
     this._validateFilter('similaritySearchWithScore', filter as __DocumentType | undefined);
     // embedQuery has no signal support (LangChain's EmbeddingsInterface
@@ -702,6 +710,12 @@ export class AmazonS3Vectors extends VectorStore {
    * query with the indexing embedding model. This override routes through
    * {@link similaritySearchWithScore}, so a configured `queryEmbeddings`
    * model is used for the query, matching `asRetriever()`'s behavior.
+   *
+   * @param _callbacks - Accepted and ignored, per `@langchain/core`'s
+   * `VectorStore` signature. Passing an `AbortSignal` here throws a coded
+   * `VALIDATION` error rather than silently running the search uncancelled —
+   * the signal belongs in the fifth argument.
+   * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
    */
   async similaritySearch(
     query: string,
@@ -710,6 +724,10 @@ export class AmazonS3Vectors extends VectorStore {
     _callbacks?: Callbacks,
     signal?: AbortSignal,
   ): Promise<Document[]> {
+    // Checked here as well as in the delegate: this forwards `undefined`
+    // into that slot, so the delegate's own check can never see what this
+    // caller actually passed.
+    this._rejectSignalInCallbacksSlot('similaritySearch', _callbacks);
     return (await this.similaritySearchWithScore(query, k, filter, undefined, signal)).map(
       ([doc]) => doc,
     );
@@ -1187,6 +1205,38 @@ export class AmazonS3Vectors extends VectorStore {
   private _validateIdsOption(operation: string, ids: string[] | undefined): void {
     if (ids !== undefined) {
       this._validateIsArray(operation, 'ids', ids);
+    }
+  }
+
+  /**
+   * Reject an `AbortSignal` handed to the `Callbacks` parameter slot.
+   *
+   * @remarks
+   * `@langchain/core`'s `VectorStore` reserves the fourth argument of
+   * {@link similaritySearch} and {@link similaritySearchWithScore} for
+   * `Callbacks`, which this store accepts and ignores; the `AbortSignal`
+   * belongs in the fifth. A signal passed in the fourth was silently
+   * discarded — the search ran to completion, having spent a billable
+   * `embedQuery` call, and the caller's cancellation simply never happened.
+   *
+   * Silently dropping a cancellation is the one outcome this library treats
+   * as unacceptable elsewhere (it refuses to guess at a missing distance,
+   * and refuses to return a short result set), so this fails closed and
+   * names the right slot instead. {@link similaritySearchWithRelevanceScores}
+   * deliberately does *not* do this: it historically accepted the signal
+   * there, so honoring it stays a documented back-compat affordance.
+   *
+   * Safe to duck-type: neither `CallbackManager` nor `BaseCallbackHandler`
+   * carries a boolean `aborted` alongside an `addEventListener`.
+   */
+  private _rejectSignalInCallbacksSlot(operation: string, value: unknown): void {
+    if (isAbortSignalLike(value)) {
+      throw this._validationError(
+        operation,
+        'An AbortSignal was passed as the 4th argument, which is the Callbacks slot — it ' +
+          'would be ignored and the search would run uncancelled. Pass the signal as the 5th ' +
+          `argument instead: ${operation}(query, k, filter, undefined, signal).`,
+      );
     }
   }
 

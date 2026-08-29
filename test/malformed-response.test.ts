@@ -71,9 +71,11 @@ describe('AmazonS3Vectors — a mid-pagination QueryVectors failure explains its
         vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
         nextToken: 'page-2',
       })
-      .rejects(Object.assign(new Error('The pagination token is not valid.'), {
-        name: 'ValidationException',
-      }));
+      .rejects(
+        Object.assign(new Error('The pagination token is not valid.'), {
+          name: 'ValidationException',
+        }),
+      );
 
     const error = await store
       .similaritySearchVectorWithScore([1, 2, 3], 50)
