@@ -17,6 +17,14 @@ export enum S3VectorsErrorCode {
   /** The requested operation is not implemented by this vector store. */
   NOT_IMPLEMENTED = 'NOT_IMPLEMENTED',
   /**
+   * A `QueryVectors` search hit this library's internal page limit with
+   * pages still outstanding and fewer than `k` results collected. Distinct
+   * from a search that legitimately ran out of matches, which returns
+   * however many it found without error — that ambiguity is exactly what
+   * this code exists to remove.
+   */
+  QUERY_PAGE_LIMIT_EXCEEDED = 'QUERY_PAGE_LIMIT_EXCEEDED',
+  /**
    * A failure that didn't come from an AWS request — a raw throw from
    * caller-supplied code (e.g. an embeddings model) or caller input that
    * bypassed validation (e.g. a malformed argument to a static factory).

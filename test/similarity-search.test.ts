@@ -405,15 +405,66 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     const { store, mock } = createTestStore();
 
     // A response that keeps returning nextToken without ever making
-    // progress must still terminate — bounded, not stopped-on-empty-page.
+    // progress must still terminate — bounded, not stopped-on-empty-page —
+    // and must say so rather than returning a silently short result set.
     mock
       .on(QueryVectorsCommand)
       .resolves({ vectors: [], nextToken: 'still-more', distanceMetric: 'cosine' });
 
-    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 500);
+    const error = await store
+      .similaritySearchVectorWithScore([1, 2, 3], 500)
+      .catch((e: unknown) => e);
 
-    expect(results).toEqual([]);
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED,
+    );
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(100);
+  });
+
+  it('reports how far short it fell in the error context', async () => {
+    const { store, mock } = createTestStore();
+
+    // One usable result per page, forever: 100 pages collects 100 of the
+    // 500 requested. Returning those 100 silently would be indistinguishable
+    // from a search that legitimately only had 100 matches.
+    mock.on(QueryVectorsCommand).callsFake(() => ({
+      distanceMetric: 'cosine',
+      vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
+      nextToken: 'more',
+    }));
+
+    const error = await store
+      .similaritySearchVectorWithScore([1, 2, 3], 500)
+      .catch((e: unknown) => e);
+
+    expect(
+      (error as { context: { pagesScanned: number; resultsCollected: number } }).context,
+    ).toMatchObject({ pagesScanned: 100, resultsCollected: 100 });
+  });
+
+  it('does not throw at the page cap once k is already satisfied', async () => {
+    const { store, mock } = createTestStore();
+
+    mock.on(QueryVectorsCommand).callsFake(() => ({
+      distanceMetric: 'cosine',
+      vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
+      nextToken: 'more',
+    }));
+
+    await expect(store.similaritySearchVectorWithScore([1, 2, 3], 3)).resolves.toHaveLength(3);
+  });
+
+  it('does not throw when pagination legitimately ends short of k', async () => {
+    const { store, mock } = createTestStore();
+
+    // No nextToken: the result set really is exhausted, which is a normal
+    // outcome and must stay distinguishable from hitting the page cap.
+    mock.on(QueryVectorsCommand).resolves({
+      distanceMetric: 'cosine',
+      vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
+    });
+
+    await expect(store.similaritySearchVectorWithScore([1, 2, 3], 50)).resolves.toHaveLength(1);
   });
 
   it('rejects k values that are not a positive integer', async () => {

@@ -17,6 +17,17 @@ export interface S3VectorsErrorContext {
   /** Ids confirmed durably deleted before a partial `delete({ ids })` failure. */
   readonly deletedIds?: string[];
   /**
+   * `QueryVectors` pages scanned before this library's page limit stopped
+   * the search. Only set on a `QUERY_PAGE_LIMIT_EXCEEDED` error.
+   */
+  readonly pagesScanned?: number;
+  /**
+   * Results collected before this library's page limit stopped the search.
+   * Only set on a `QUERY_PAGE_LIMIT_EXCEEDED` error — compare against the
+   * requested `k` to see how far short the search fell.
+   */
+  readonly resultsCollected?: number;
+  /**
    * Ids confirmed found (and already fetched) before a partial `getByIds`
    * failure — either a `GetVectors` batch rejecting while sibling batches
    * in the same concurrency group succeed, or an id genuinely not found

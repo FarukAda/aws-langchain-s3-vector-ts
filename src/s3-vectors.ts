@@ -1461,6 +1461,30 @@ export class AmazonS3Vectors extends VectorStore {
       pageCount++;
     } while (nextToken && results.length < k && pageCount < MAX_QUERY_PAGES);
 
+    // The loop exits for exactly three reasons, and this combination — more
+    // pages still available, fewer than k collected — can only mean the page
+    // cap stopped it. Returning short here would be indistinguishable from a
+    // search that legitimately exhausted its matches, so it fails closed
+    // instead, matching how this file already refuses to guess at a missing
+    // distance. Truthiness, not `!== undefined`, so this agrees exactly with
+    // the loop's own condition for an empty-string token.
+    if (nextToken && results.length < k) {
+      throw new S3VectorsError(
+        `QueryVectors for index "${this.indexName}" hit this library's ${MAX_QUERY_PAGES}-page ` +
+          `limit after collecting ${results.length} of the ${k} requested result(s), with more ` +
+          'pages still available. Narrow the metadata filter or lower k — a result set this ' +
+          'sparse cannot be satisfied within the page limit.',
+        S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED,
+        {
+          operation,
+          vectorBucketName: this.vectorBucketName,
+          indexName: this.indexName,
+          pagesScanned: pageCount,
+          resultsCollected: results.length,
+        },
+      );
+    }
+
     return results.slice(0, k);
   }
 
