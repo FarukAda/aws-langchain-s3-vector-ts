@@ -992,6 +992,10 @@ export class AmazonS3Vectors extends VectorStore {
         }
 
         const batchIds = group[i]!;
+        // Same guarantee as the query path: a nullish GetVectors response
+        // from a non-conforming client must not surface as a raw TypeError
+        // on the property read below.
+        this._assertResponseObject(result.value, 'getByIds', 'GetVectors');
         const outputVectors = (result.value.vectors ?? []) as S3OutputVector[];
         const vectorMap = new Map<string, S3OutputVector>();
         for (const v of outputVectors) {
@@ -1384,6 +1388,72 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
+   * Reject a nullish AWS response before any field is read off it.
+   *
+   * @remarks
+   * {@link _send} wraps only the AWS call itself, so the property reads that
+   * follow a successful `send` sit outside its `catch`. A client that
+   * resolves with `undefined`/`null` — a mock, a stub, an incompatible SDK
+   * version, a custom transport — therefore produced a raw, uncoded
+   * `TypeError` there, breaking this library's guarantee that every failure
+   * arrives as a coded {@link S3VectorsError}. Takes `unknown` so the
+   * nullish comparison stays legal against the SDK's non-nullable output
+   * types.
+   */
+  private _assertResponseObject(value: unknown, operation: string, commandName: string): void {
+    if (typeof value !== 'object' || value === null) {
+      throw new S3VectorsError(
+        `${commandName} for index "${this.indexName}" resolved without a response object (got ` +
+          `${JSON.stringify(value) ?? String(value)}). The response may be malformed, or come ` +
+          'from an incompatible SDK version or a mocked/stubbed client.',
+        S3VectorsErrorCode.AWS_INVALID_RESPONSE,
+        { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
+      );
+    }
+  }
+
+  /**
+   * Add pagination context to a `QueryVectors` failure that happened on a
+   * continuation page.
+   *
+   * @remarks
+   * A continuation request carries a `nextToken`, and AWS documents those as
+   * remaining valid for only "several minutes", with re-issuing the original
+   * query as the documented remedy — so a mid-pagination failure has a
+   * specific, actionable cause that a generic `AWS_REQUEST_FAILED` hides.
+   * Deliberately keyed on a fact this library knows for certain (the failing
+   * call was a continuation, not the first page) rather than on an exception
+   * name: AWS publishes no dedicated expired-token exception for this
+   * operation, so matching one would be a guess.
+   *
+   * The first page can't have an expired token, and an abort is the caller's
+   * own doing rather than anything to re-issue — both are returned unchanged.
+   */
+  private _explainPaginationFailure(
+    error: unknown,
+    operation: string,
+    pageCount: number,
+    resultsCollected: number,
+    k: number,
+  ): S3VectorsError {
+    const base = this._normalizeToS3VectorsError(error, operation);
+    if (pageCount === 0 || base.code === S3VectorsErrorCode.ABORTED) return base;
+    return new S3VectorsError(
+      `${base.message} This failed while fetching page ${pageCount + 1} of a paginated ` +
+        `QueryVectors search, with ${resultsCollected} of the ${k} requested result(s) already ` +
+        'collected. Pagination tokens stay valid for only a few minutes — if the search ran ' +
+        'long, re-issue the original query to start a new pagination session.',
+      base.code,
+      {
+        ...base.context,
+        pagesScanned: pageCount,
+        resultsCollected,
+      },
+      base.cause,
+    );
+  }
+
+  /**
    * Run an AWS call, surfacing any failure as a coded {@link S3VectorsError}.
    * An `AbortSignal` firing before or during the call surfaces as `ABORTED`
    * rather than `AWS_REQUEST_FAILED` — it wasn't AWS that failed, the caller
@@ -1461,18 +1531,31 @@ export class AmazonS3Vectors extends VectorStore {
     let emptyPageStreak = 0;
 
     do {
-      const response = await this._send('QueryVectors', () =>
-        this._client.send(
-          new QueryVectorsCommand({
-            vectorBucketName: this.vectorBucketName,
-            indexName: this.indexName,
-            topK: k,
-            nextToken,
-            ...input,
-          }),
-          { abortSignal: signal },
-        ),
-      );
+      let response;
+      try {
+        response = await this._send('QueryVectors', () =>
+          this._client.send(
+            new QueryVectorsCommand({
+              vectorBucketName: this.vectorBucketName,
+              indexName: this.indexName,
+              topK: k,
+              nextToken,
+              ...input,
+            }),
+            { abortSignal: signal },
+          ),
+        );
+      } catch (error: unknown) {
+        throw this._explainPaginationFailure(error, operation, pageCount, results.length, k);
+      }
+
+      // The response object itself, not only its fields. `_send` wraps just
+      // the AWS call, so every property read below happens outside its catch
+      // — a nullish response surfaced as a raw, uncoded TypeError, breaking
+      // this library's guarantee that every failure is a coded
+      // S3VectorsError. Same population the field-level guards defend
+      // against: a mocked, stubbed or otherwise non-conforming client.
+      this._assertResponseObject(response, operation, 'QueryVectors');
 
       if (pageCount === 0) {
         // A positive shape check, not `=== undefined`: an explicit null (or
