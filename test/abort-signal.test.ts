@@ -37,7 +37,7 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
     });
   });
 
-  it('forwards signal to GetIndex/CreateIndex/PutVectors via addDocuments', async () => {
+  it('forwards signal to PutVectors but not the shared index calls, via addDocuments', async () => {
     const { store, mock } = createTestStore();
     const notFound = Object.assign(new Error('not found'), { name: 'NotFoundException' });
     mock.on(GetIndexCommand).rejects(notFound);
@@ -53,9 +53,11 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
     expect(mock.commandCalls(GetIndexCommand)[0]!.args[1]).toEqual({
       abortSignal: undefined,
     });
-    expect(mock.commandCalls(CreateIndexCommand)[0]!.args[1]).toEqual({
-      abortSignal: undefined,
-    });
+    // CreateIndex takes no signal option at all: index creation is shared
+    // across concurrent writers via _ensureIndexExists's memo, so no single
+    // caller may cancel it out from under the others. It previously received
+    // a literal `undefined` through a parameter no caller ever populated.
+    expect(mock.commandCalls(CreateIndexCommand)[0]!.args[1]).toBeUndefined();
     expect(mock.commandCalls(PutVectorsCommand)[0]!.args[1]).toEqual({
       abortSignal: controller.signal,
     });

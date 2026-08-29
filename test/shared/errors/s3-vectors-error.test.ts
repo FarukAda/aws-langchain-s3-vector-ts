@@ -1,7 +1,11 @@
+import { GetIndexCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
+import { Document } from '@langchain/core/documents';
 
+import { AmazonS3Vectors } from '../../../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../../../src/shared/errors/error-code.js';
 import { isS3VectorsError, S3VectorsError } from '../../../src/shared/errors/s3-vectors-error.js';
+import { BASE_CONFIG, createMockClient, createMockEmbeddings } from '../../helpers.js';
 
 describe('S3VectorsError', () => {
   it('carries code, context, and cause', () => {
@@ -32,5 +36,34 @@ describe('S3VectorsError', () => {
     expect(isS3VectorsError(new Error('x'))).toBe(false);
     expect(isS3VectorsError(null)).toBe(false);
     expect(isS3VectorsError('S3VectorsError')).toBe(false);
+  });
+});
+
+describe('S3VectorsErrorContext.instance — serialization safety', () => {
+  // context.instance is a live store handle carrying `_client`, and that
+  // client carries credentials. It is safe to JSON.stringify only because
+  // Serializable#toJSON() short-circuits while lc_serializable is false.
+  // AmazonS3Vectors pins that flag rather than inheriting it; this test is
+  // what makes an upstream default change fail CI instead of silently
+  // leaking credentials into structured logs.
+  it('never serializes client internals through context.instance', async () => {
+    const { client, mock } = createMockClient();
+    mock
+      .on(GetIndexCommand)
+      .rejects(Object.assign(new Error('denied'), { name: 'AccessDeniedException' }));
+
+    const error = (await AmazonS3Vectors.fromDocuments(
+      [new Document({ pageContent: 'a' })],
+      createMockEmbeddings(),
+      { ...BASE_CONFIG, client },
+    ).catch((e: unknown) => e)) as S3VectorsError;
+
+    expect(error.context.instance).toBeDefined();
+
+    const serialized = JSON.stringify(error.context.instance);
+    expect(serialized).not.toContain('_client');
+    expect(serialized).not.toContain('credentials');
+    expect(serialized).not.toContain('accessKeyId');
+    expect(JSON.parse(serialized)).toMatchObject({ type: 'not_implemented' });
   });
 });

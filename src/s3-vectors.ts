@@ -159,6 +159,17 @@ export class AmazonS3Vectors extends VectorStore {
   /** @internal discriminator used by LangChain */
   declare FilterType: Record<string, unknown>;
 
+  /**
+   * Pinned here rather than left to `@langchain/core`'s default.
+   * {@link S3VectorsErrorContext.instance} hands a live store handle to
+   * callers, and `Serializable#toJSON()` renders it as a harmless
+   * type-identifier stub — instead of dumping instance fields, `_client`
+   * and its credentials included — only while this is `false`. Declaring
+   * it explicitly keeps that true even if the upstream default ever
+   * changes; a regression test asserts no client internals serialize.
+   */
+  lc_serializable = false;
+
   // ── Config ────────────────────────────────────────────────────────────
 
   readonly vectorBucketName: string;
@@ -1918,8 +1929,14 @@ export class AmazonS3Vectors extends VectorStore {
    * and S3 Vectors has no `UpdateIndex`, so a document over that size
    * would only fail at write time, against an index that can never be
    * fixed without deleting it (and every vector already in it).
+   *
+   * Deliberately takes no `AbortSignal`. Its only caller is
+   * {@link _ensureIndexExists}, whose GetIndex/CreateIndex work is shared
+   * across concurrent writers — no single caller may cancel it out from
+   * under the others. A parameter here would imply a cancellability that
+   * does not exist.
    */
-  private async _createIndex(dimension: number, signal?: AbortSignal): Promise<void> {
+  private async _createIndex(dimension: number): Promise<void> {
     const MAX_NON_FILTERABLE_KEYS = 10;
     const configuredKeys = this.nonFilterableMetadataKeys ?? [];
     const withPageContentKey =
@@ -1962,7 +1979,6 @@ export class AmazonS3Vectors extends VectorStore {
             ? { metadataConfiguration: { nonFilterableMetadataKeys: withPageContentKey } }
             : {}),
         }),
-        { abortSignal: signal },
       ),
     );
   }

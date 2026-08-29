@@ -47,11 +47,12 @@ export interface S3VectorsErrorContext {
    * Unlike every other field here, this is a live object handle, not
    * plain diagnostic data — treat it as a reference for programmatic
    * recovery (`error.context.instance.delete({ ids: writtenIds })`), not
-   * as something to log. (It happens to `JSON.stringify` safely — this
-   * class inherits LangChain's `Serializable#toJSON()`, which renders it
-   * as a small type-identifier stub rather than dumping internal state —
-   * but that stub is rarely useful in a log line, so prefer logging the
-   * other context fields individually instead.)
+   * as something to log. It does `JSON.stringify` safely: `AmazonS3Vectors`
+   * pins `lc_serializable = false`, so LangChain's `Serializable#toJSON()`
+   * short-circuits to a small type-identifier stub rather than dumping
+   * internal state, and a regression test asserts no `_client` or
+   * credentials appear in the output. That stub is rarely useful in a log
+   * line, so prefer logging the other context fields individually.
    */
   readonly instance?: AmazonS3Vectors;
 }
