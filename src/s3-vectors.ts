@@ -629,10 +629,19 @@ export class AmazonS3Vectors extends VectorStore {
     _callbacks?: Callbacks,
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
+    // Everything cheap and synchronous runs before the billable — and
+    // uncancellable — embedQuery call: an invalid k, an invalid filter, or a
+    // signal that already fired should not cost an embedding round trip
+    // before failing. _validateFilter runs again inside _queryVectors for
+    // the direct-vector entry points; running it twice here is free.
     this._validateK('similaritySearchWithScore', k);
+    this._validateFilter('similaritySearchWithScore', filter as __DocumentType | undefined);
     // embedQuery has no signal support (LangChain's EmbeddingsInterface
-    // doesn't accept one), so it can't be cancelled mid-call — only the
-    // QueryVectors call after it can.
+    // doesn't accept one), so it can't self-cancel the way _send()'s AWS
+    // calls do — check explicitly, matching addDocuments's guard before its
+    // own embedDocuments call. Only the QueryVectors call after it can be
+    // cancelled mid-flight.
+    this._checkAborted('similaritySearchWithScore', signal);
     const queryVector = await this._getQueryEmbeddings().embedQuery(query);
     return this.similaritySearchVectorWithScore(queryVector, k, filter, signal);
   }

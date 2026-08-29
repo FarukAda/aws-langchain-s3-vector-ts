@@ -714,3 +714,44 @@ describe('AmazonS3Vectors response guards — present-but-invalid values', () =>
     );
   });
 });
+
+describe('AmazonS3Vectors text search — checks before the billable embedQuery', () => {
+  it('does not call embedQuery when the signal is already aborted', async () => {
+    const { client, mock } = createMockClient();
+    const embeddings = createMockEmbeddings();
+    const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+    mock.on(QueryVectorsCommand).resolves({ distanceMetric: 'cosine', vectors: [] });
+
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await store
+      .similaritySearch('q', 4, undefined, undefined, controller.signal)
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
+    expect(embeddings.embedQuery).not.toHaveBeenCalled();
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
+  it('does not call embedQuery when the filter is an empty object', async () => {
+    const { store, embeddings } = createTestStore();
+
+    const error = await store.similaritySearch('q', 4, {}).catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(embeddings.embedQuery).not.toHaveBeenCalled();
+  });
+
+  it('does not call embedQuery when the filter is not a plain object', async () => {
+    const { store, embeddings } = createTestStore();
+
+    const error = await store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed filter
+      .similaritySearchWithScore('q', 4, new Map() as any)
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(embeddings.embedQuery).not.toHaveBeenCalled();
+  });
+});
