@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-29
+
+Remediation of an independent code review run against the v0.7.0 tag, plus three defects found while verifying that review's own claims. Every finding below was reproduced before being fixed.
+
+### Breaking
+
+- A `config.client` that is not an `S3VectorsClient` now throws a coded `VALIDATION` error instead of emitting a `console.warn` and silently building a replacement. The replacement was constructed from the ambient credential chain and default region, so a caller who passed an explicit but wrong client could silently read and write against a different AWS account. `client: null`/`undefined` is unaffected — it is read as "not provided", the same way a `null` filter is already read as "no filter".
+- A malformed or absent `distanceMetric` in a `QueryVectors` response now reports `AWS_INVALID_RESPONSE` rather than `INDEX_CONFIG_MISMATCH`. The two conditions were conflated under one code; a *valid* metric that disagrees with this store's configuration still reports `INDEX_CONFIG_MISMATCH`.
+- A search that hits the 100-page `QueryVectors` limit with more pages available and fewer than `k` results collected now throws the new `QUERY_PAGE_LIMIT_EXCEEDED` instead of silently returning a short result set.
+
+### Added
+
+- `S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED`, with `context.pagesScanned` and `context.resultsCollected`, so a truncated search is distinguishable from one that legitimately exhausted its matches.
+- `similaritySearchWithRelevanceScores` now accepts an `AbortSignal` in its fifth parameter, matching `similaritySearch` and `similaritySearchWithScore`. The fourth parameter accepts `Callbacks | AbortSignal` so the historical call style keeps working.
+- A regression test asserting that `S3VectorsErrorContext.instance` never serializes client internals, and an explicit `lc_serializable = false` on `AmazonS3Vectors` so that guarantee no longer rests on an unpinned `@langchain/core` default.
+- A README table documenting every `S3VectorsErrorCode` and when it is raised.
+
+### Fixed
+
+**Silent data corruption:**
+
+- `addVectors`/`addDocuments`/`addTexts` never checked that a caller-supplied `options.ids` was actually an array. A string of matching length — `'abc'` alongside three vectors — passed the count check and was then sliced and indexed exactly like an array, silently writing each *character* as a vector key to AWS and returning the string itself as the caller's id list. No error was raised anywhere: wrong ids committed durably, with the usual `writtenIds` recovery path useless because the caller believed they had supplied their own ids. The `_validateIsArray` guards added in 0.6.0 covered six argument positions but missed this one in all three write methods. Not identified by the review; found while verifying it.
+
+**Error-contract fixes:**
+
+- The constructor threw a raw, uncoded `TypeError` for `client: null` — `null !== undefined` is `true`, so evaluation reached `null.config` before the intended fallback path could run — breaking the guarantee that every failure surfaces as a typed `S3VectorsError`.
+- `similaritySearchVectorWithScore`'s missing-`distance` guard (added in 0.7.0) tested `=== undefined` only. An explicit `null` passed it and reached the relevance-score conversion, where `1.0 - null` coerces to `1.0` — the *best possible* score, and precisely the silent misranking 0.7.0 set out to close, reached through a different value. Now checked with `typeof` plus `Number.isFinite`, which also rejects `NaN` and `±Infinity`.
+- `_getIndex`'s response-shape guard had the same `=== undefined` gap: a literal `null` index reached `index.dimension` and threw a `TypeError` that was caught and wrapped, but as `AWS_REQUEST_FAILED` carrying raw internal text (`Cannot read properties of null`) rather than the `AWS_INVALID_RESPONSE` diagnosis the same function already produces for every other malformed shape.
+- `delete({ deleteAll: true })` against an already-deleted index surfaced a generic `AWS_REQUEST_FAILED` instead of behaving idempotently. Confirmed against real AWS that `DeleteIndex` on a missing index returns `NotFoundException` — the same shape `_getIndex` already special-cases. Because the cache clear (`_validatedIndexInfo = null`, `_indexEpoch++`) ran only on a *successful* delete, a stale cache from an earlier write on the same instance was also left unreconciled when the delete instead revealed the index was already gone; it now runs in both cases.
+
+**Cancellation and cost:**
+
+- `similaritySearchWithScore` validated only `k` before embedding, so an already-aborted signal still paid for a full, uncancellable, billable `embedQuery` call before failing — contradicting the README's documented pre-abort behaviour, and inconsistent with `addDocuments`, which has guarded its analogous `embedDocuments` call since 0.6.0. Filter validation had the same shape, running after the embed call even though it is exactly as cheap and synchronous as the `k` check deliberately hoisted above it. Both now run first, covering all three text-search entry points.
+- `similaritySearchWithRelevanceScores` placed `signal` in the parameter slot every other text-based method reserves for `Callbacks`, so a caller following that house pattern — `(query, k, filter, undefined, signal)` — had cancellation silently dropped. The review attributed this to generic `VectorStore` callers; that mechanism does not hold, since `@langchain/core`'s `VectorStore` does not declare this method at all. The house-pattern inconsistency is the reproducible defect.
+
+**Validation gaps:**
+
+- Neither `similaritySearchVectorWithScore` nor `similaritySearchByVector` checked that the query vector was an array; a non-array reached AWS as a malformed `float32` payload. Now validated in `_queryVectors`, where both entry points converge.
+- 0.7.0 extended the per-batch dimension check to every batch, but only for *within-batch* consistency — a later batch was still never checked against the actual index dimension, since only batch 0 goes through `_validateBeforeWrite`. A uniformly-wrong-dimension later batch therefore reached `PutVectors` and surfaced AWS's generic `ValidationException` instead of the coded `INDEX_CONFIG_MISMATCH` the identical mistake gets in batch 0. Batch 0 has already cached the index's dimension by then, so later batches are now checked for free.
+
+**Data preservation:**
+
+- `createDocument` deleted the `pageContentMetadataKey` entry unconditionally after reading it, so a *non-string* value under that key — reachable when something other than this library writes to the same index — vanished from the returned metadata entirely. The empty `pageContent` for that case is intentional and tested; losing the raw value with no flag was not. The key is now deleted only when its value was actually consumed as page content.
+
+**Diagnostics and code quality:**
+
+- The empty-batch validation message fired for a one-item batch containing a zero-dimensional vector — the only case that can actually reach it, since both write methods return early on empty input and `chunk()` never yields an empty batch. Reworded to name both possibilities without misattributing the cause.
+- `getByIds` inferred "this batch has duplicate ids" from the response map being smaller than the request, which is also true when an id is simply missing — triggering a `structuredClone` on a result the missing-id throw discards anyway. Now compared against a `Set` of the requested ids. No behavioural change; the wasteful clone could never reach a caller.
+- `_createIndex` declared an `AbortSignal` parameter no caller ever populated. Its only caller, `_ensureIndexExists`, deliberately never passes one — that GetIndex/CreateIndex work is shared across concurrent writers and no single caller may cancel it out from under the others — so the parameter implied a cancellability that does not exist and only ever forwarded a literal `undefined`.
+
+### Notes on verification
+
+Two findings cannot be reproduced against a correctly-functioning AWS endpoint, by nature rather than for lack of effort. The response-guard fixes (`distance`, `distanceMetric`, `_getIndex`) require a malformed response: AWS and Smithy omit absent optional fields rather than emitting a literal `null`, so only a mocked, stubbed, or non-conforming custom client can produce the triggering input — which is exactly the scenario the code's own error messages name. The page-limit fix would need more than 10,000 real indexed vectors under a filter selective enough to under-fill 100 consecutive pages. Both are covered by unit tests. What the live suite does confirm is the inverse: real `QueryVectors` responses always carry a finite numeric `distance` and a `distanceMetric` of `cosine`/`euclidean`, so the new guards do not misfire against the real service.
+
 ## [0.7.0] - 2026-08-28
 
 ### Added
