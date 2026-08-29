@@ -52,15 +52,35 @@ const MAX_GET_BATCH_SIZE = 100;
 const MAX_CONCURRENT_BATCH_CALLS = 10;
 
 /**
- * Max `QueryVectors` pages per search — defense-in-depth against a
- * response that keeps returning `nextToken` without ever satisfying `k`.
- * AWS's page size is fixed (confirmed live: `topK` of 101, 1,000, and
- * 10,000 each still return exactly 100 vectors per page — it isn't a
- * caller-tunable or query-content-dependent value), and `topK` itself
- * caps at 10,000, so 100 pages (10,000 / 100) is the most any legitimate
- * search could ever need. This only stops a response that never converges.
+ * Consecutive result-less `QueryVectors` pages tolerated before a search is
+ * judged non-converging. Reset by any page that returns at least one vector.
+ *
+ * This — not a flat page count — is what actually separates the pathology
+ * this guard exists for ("a response that keeps returning `nextToken`
+ * without ever satisfying `k`") from a legitimately sparse search. An empty
+ * page carrying a `nextToken` is a conforming response with real results
+ * still to come, so a handful in a row is tolerated; an unbroken run of them
+ * is not progress by any definition.
  */
-const MAX_QUERY_PAGES = 100;
+const MAX_EMPTY_QUERY_PAGES = 10;
+
+/**
+ * Absolute ceiling on `QueryVectors` pages per search. Deliberately a
+ * runaway backstop with generous headroom, **not** a tight bound on what a
+ * legitimate search needs.
+ *
+ * AWS publishes the page size as "Results per page in a QueryVectors
+ * response: **up to** 100" — a maximum, not a guarantee — so a short page is
+ * a conforming response and the number of pages needed to collect `k` is not
+ * `k / 100`. A previous version of this constant was exactly
+ * `MAX_TOP_K / 100` (100 pages), which left zero headroom: a single 99-result
+ * page anywhere in a `k = 10,000` search pushed it to 101 pages and failed a
+ * completely valid query. This value is 10x the all-pages-full minimum for
+ * the largest `k` AWS accepts.
+ *
+ * @see https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html
+ */
+const MAX_QUERY_PAGES = 1_000;
 
 /** AWS's own ceiling for `topK` (confirmed live: `QueryVectors` rejects anything above this). */
 const MAX_TOP_K = 10_000;
@@ -1438,6 +1458,7 @@ export class AmazonS3Vectors extends VectorStore {
     const results: S3OutputVector[] = [];
     let nextToken: string | undefined;
     let pageCount = 0;
+    let emptyPageStreak = 0;
 
     do {
       const response = await this._send('QueryVectors', () =>
@@ -1476,22 +1497,36 @@ export class AmazonS3Vectors extends VectorStore {
 
       const page = (response.vectors ?? []) as S3OutputVector[];
       results.push(...page);
+      // Progress, not raw page count, is what distinguishes a legitimately
+      // sparse search from one that will never converge — a page that
+      // delivered results is progress no matter how many pages preceded it.
+      emptyPageStreak = page.length === 0 ? emptyPageStreak + 1 : 0;
       nextToken = response.nextToken;
       pageCount++;
-    } while (nextToken && results.length < k && pageCount < MAX_QUERY_PAGES);
+    } while (
+      nextToken &&
+      results.length < k &&
+      emptyPageStreak < MAX_EMPTY_QUERY_PAGES &&
+      pageCount < MAX_QUERY_PAGES
+    );
 
-    // The loop exits for exactly three reasons, and this combination — more
-    // pages still available, fewer than k collected — can only mean the page
-    // cap stopped it. Returning short here would be indistinguishable from a
-    // search that legitimately exhausted its matches, so it fails closed
-    // instead, matching how this file already refuses to guess at a missing
-    // distance. Truthiness, not `!== undefined`, so this agrees exactly with
-    // the loop's own condition for an empty-string token.
+    // The loop exits for exactly four reasons, and this combination — more
+    // pages still available, fewer than k collected — can only mean one of
+    // the two safety guards stopped it. Returning short here would be
+    // indistinguishable from a search that legitimately exhausted its
+    // matches, so it fails closed instead, matching how this file already
+    // refuses to guess at a missing distance. Truthiness, not `!== undefined`,
+    // so this agrees exactly with the loop's own condition for an
+    // empty-string token.
     if (nextToken && results.length < k) {
+      const reason =
+        emptyPageStreak >= MAX_EMPTY_QUERY_PAGES
+          ? `${MAX_EMPTY_QUERY_PAGES} consecutive pages returned no results at all`
+          : `this library's ${MAX_QUERY_PAGES}-page ceiling was reached`;
       throw new S3VectorsError(
-        `QueryVectors for index "${this.indexName}" hit this library's ${MAX_QUERY_PAGES}-page ` +
-          `limit after collecting ${results.length} of the ${k} requested result(s), with more ` +
-          'pages still available. Narrow the metadata filter or lower k — a result set this ' +
+        `QueryVectors for index "${this.indexName}" stopped after ${pageCount} page(s) having ` +
+          `collected ${results.length} of the ${k} requested result(s), with more pages still ` +
+          `available: ${reason}. Narrow the metadata filter or lower k — a result set this ` +
           'sparse cannot be satisfied within the page limit.',
         S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED,
         {

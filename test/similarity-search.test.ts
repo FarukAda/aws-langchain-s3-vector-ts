@@ -401,12 +401,14 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(2);
   });
 
-  it('bounds pagination at MAX_QUERY_PAGES when a response never converges', async () => {
+  it('stops on an unbroken run of result-less pages, not on a raw page count', async () => {
     const { store, mock } = createTestStore();
 
     // A response that keeps returning nextToken without ever making
     // progress must still terminate — bounded, not stopped-on-empty-page —
     // and must say so rather than returning a silently short result set.
+    // What ends it is the lack of progress, so it ends after the streak
+    // limit rather than after some far larger page ceiling.
     mock
       .on(QueryVectorsCommand)
       .resolves({ vectors: [], nextToken: 'still-more', distanceMetric: 'cosine' });
@@ -418,15 +420,37 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     expect((error as { code: S3VectorsErrorCode }).code).toBe(
       S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED,
     );
-    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(100);
+    expect((error as Error).message).toContain('consecutive pages returned no results');
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(10);
   });
 
-  it('reports how far short it fell in the error context', async () => {
+  it('keeps paging a sparse-but-progressing search until k is satisfied', async () => {
     const { store, mock } = createTestStore();
 
-    // One usable result per page, forever: 100 pages collects 100 of the
-    // 500 requested. Returning those 100 silently would be indistinguishable
-    // from a search that legitimately only had 100 matches.
+    // One usable result per page, forever. This converges — it just takes
+    // one page per result. AWS documents its page size as "up to 100", so a
+    // short page is a conforming response and this is a legitimate search;
+    // the previous flat 100-page cap failed it at page 100 with only 100 of
+    // the 500 requested results.
+    mock.on(QueryVectorsCommand).callsFake(() => ({
+      distanceMetric: 'cosine',
+      vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
+      nextToken: 'more',
+    }));
+
+    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 500);
+
+    expect(results).toHaveLength(500);
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(500);
+  });
+
+  it('still bounds a progressing search at the absolute page ceiling', async () => {
+    const { store, mock } = createTestStore();
+
+    // One result per page with k above the page ceiling: every page makes
+    // progress, so the empty-page guard never fires, and only the runaway
+    // backstop can stop it. It must still fail closed rather than return a
+    // silently short result set.
     mock.on(QueryVectorsCommand).callsFake(() => ({
       distanceMetric: 'cosine',
       vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
@@ -434,12 +458,35 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     }));
 
     const error = await store
-      .similaritySearchVectorWithScore([1, 2, 3], 500)
+      .similaritySearchVectorWithScore([1, 2, 3], 2000)
       .catch((e: unknown) => e);
 
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(
+      S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED,
+    );
+    expect((error as Error).message).toContain('1000-page ceiling');
     expect(
       (error as { context: { pagesScanned: number; resultsCollected: number } }).context,
-    ).toMatchObject({ pagesScanned: 100, resultsCollected: 100 });
+    ).toMatchObject({ pagesScanned: 1000, resultsCollected: 1000 });
+  });
+
+  it('tolerates a short run of result-less pages when real results follow', async () => {
+    const { store, mock } = createTestStore();
+
+    // Nine empty pages is under the streak limit, so the tenth page's real
+    // result must still be collected rather than the search bailing early.
+    let call = 0;
+    mock.on(QueryVectorsCommand).callsFake(() => {
+      call += 1;
+      if (call <= 9) return { distanceMetric: 'cosine', vectors: [], nextToken: 'more' };
+      return {
+        distanceMetric: 'cosine',
+        vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
+      };
+    });
+
+    await expect(store.similaritySearchVectorWithScore([1, 2, 3], 5)).resolves.toHaveLength(1);
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(10);
   });
 
   it('does not throw at the page cap once k is already satisfied', async () => {
