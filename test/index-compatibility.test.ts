@@ -1,4 +1,9 @@
-import { CreateIndexCommand, GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
+import {
+  CreateIndexCommand,
+  DeleteIndexCommand,
+  GetIndexCommand,
+  PutVectorsCommand,
+} from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
@@ -216,5 +221,60 @@ describe('_getIndex — a literal null index', () => {
     expect(isS3VectorsError(error)).toBe(true);
     expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
     expect((error as Error).message).not.toContain('Cannot read properties');
+  });
+});
+
+describe('later write batches — validation against the established index', () => {
+  it('gives a later batch the coded INDEX_CONFIG_MISMATCH batch 0 would get', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+    mock.on(GetIndexCommand).resolves({
+      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+    });
+    mock.on(PutVectorsCommand).resolves({});
+
+    const error = await store
+      .addVectors(
+        [
+          [1, 2, 3],
+          [1, 2, 3, 4, 5, 6],
+        ],
+        [new Document({ pageContent: 'a' }), new Document({ pageContent: 'b' })],
+        { ids: ['a', 'b'], batchSize: 1 },
+      )
+      .catch((e: unknown) => e);
+
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
+    // Only batch 0 reached AWS — the bad batch failed locally.
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
+  });
+
+  it('lets a later batch through to AWS when a concurrent deleteAll cleared the cache', async () => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+    mock.on(GetIndexCommand).resolves({
+      index: { indexName: 'test-index', dimension: 3, distanceMetric: 'cosine' },
+    });
+    mock.on(DeleteIndexCommand).resolves({});
+
+    let puts = 0;
+    mock.on(PutVectorsCommand).callsFake(async () => {
+      puts += 1;
+      // Between batch 0 and batch 1, wipe the index — clearing the cache
+      // the later-batch check would otherwise consult.
+      if (puts === 1) await store.delete({ deleteAll: true });
+      return {};
+    });
+
+    await store.addVectors(
+      [
+        [1, 2, 3],
+        [1, 2, 3],
+      ],
+      [new Document({ pageContent: 'a' }), new Document({ pageContent: 'b' })],
+      { ids: ['a', 'b'], batchSize: 1 },
+    );
+
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(2);
   });
 });

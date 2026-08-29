@@ -1601,6 +1601,20 @@ export class AmazonS3Vectors extends VectorStore {
 
     if (batchOffset === 0) {
       await this._validateBeforeWrite(firstVector, operation, signal);
+    } else if (this._validatedIndexInfo !== null) {
+      // Batch 0 already established (or created) the index and cached its
+      // dimension/metric, so later batches can be checked against that cache
+      // for free — no extra GetIndex round trip. Without this, a
+      // uniformly-wrong-dimension later batch passes the within-batch
+      // consistency check above and reaches PutVectors, surfacing AWS's
+      // generic ValidationException instead of the coded
+      // INDEX_CONFIG_MISMATCH the identical mistake gets in batch 0.
+      //
+      // The cache is null only when a concurrent deleteAll cleared it, in
+      // which case there is nothing to validate against and the write
+      // proceeds to fail naturally against the deleted index, exactly as
+      // it already did.
+      this._assertIndexCompatible(this._validatedIndexInfo, firstVector, operation);
     }
 
     await this._send('PutVectors', () =>
