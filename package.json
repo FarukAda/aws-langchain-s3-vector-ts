@@ -1,17 +1,24 @@
 {
   "name": "@farukada/aws-langchain-s3-vector-ts",
-  "version": "0.9.0",
+  "version": "1.0.0-rc.1",
   "license": "MIT",
   "description": "LangChain-compatible Amazon S3 Vectors store for TypeScript",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "main": "./dist/cjs/index.js",
+  "types": "./dist/cjs/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
-    }
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -30,7 +37,11 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "prebuild": "npm run clean",
-    "build": "tsc6",
+    "build": "npm run build:esm && npm run build:cjs",
+    "build:esm": "tsc6 -p tsconfig.json",
+    "build:cjs": "tsc6 -p tsconfig.cjs.json && node -e \"require('node:fs').writeFileSync('dist/cjs/package.json', JSON.stringify({ type: 'commonjs' }) + '\\n')\"",
+    "pack:check": "node scripts/pack-check.mjs && publint && attw --pack . --profile node16",
+    "prepublishOnly": "npm run pack:check",
     "typecheck": "tsc6 --noEmit",
     "typecheck:types": "tsc6 --noEmit -p tsconfig.types.json",
     "typecheck:test": "tsc6 --noEmit -p tsconfig.test.json",
@@ -62,7 +73,7 @@
     "similarity-search"
   ],
   "engines": {
-    "node": ">=20",
+    "node": ">=22",
     "npm": ">=10.0.0"
   },
   "peerDependencies": {
@@ -70,6 +81,7 @@
     "@langchain/core": "^1.2.9"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@aws-sdk/client-s3vectors": "^3.1117.0",
     "@eslint/js": "^10.0.1",
     "@jest/globals": "^30.4.1",
@@ -78,6 +90,7 @@
     "@smithy/types": "^4.17.2",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.2.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "aws-sdk-client-mock": "^4.1.0",
     "depcheck": "^1.4.7",
     "eslint": "^10.9.1",
@@ -93,11 +106,11 @@
     "jscpd": "^5.0.16",
     "knip": "^6.32.2",
     "prettier": "^3.9.6",
+    "publint": "^0.3.24",
     "ts-jest": "^29.4.12",
     "typedoc": "^0.28.20",
     "typedoc-plugin-markdown": "^4.12.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "@typescript/native": "npm:typescript@^7.0.2",
     "typescript-eslint": "^8.68.0"
   },
   "prettier": {

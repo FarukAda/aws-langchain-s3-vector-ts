@@ -48,7 +48,7 @@ export function createMockEmbeddings(dimension = 3): EmbeddingsInterface {
       docs.map((_, i) => Array.from({ length: dimension }, (__, d) => i + d * 0.1)),
     ),
     embedQuery: jest.fn(async () => Array.from({ length: dimension }, (_, d) => 99 + d * 0.1)),
-  } as unknown as EmbeddingsInterface;
+  };
 }
 
 /**

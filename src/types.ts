@@ -1,4 +1,8 @@
-import type { S3VectorsClient, S3VectorsClientConfig } from '@aws-sdk/client-s3vectors';
+import type {
+  EncryptionConfiguration,
+  S3VectorsClient,
+  S3VectorsClientConfig,
+} from '@aws-sdk/client-s3vectors';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -62,9 +66,54 @@ export interface AmazonS3VectorsConfig {
   /**
    * When `true`, the index is created automatically if it does not exist
    * on the first `addVectors` / `addDocuments` call.
+   *
+   * Note that `false` does **not** remove the need for `s3vectors:GetIndex`
+   * permission: every first write on an instance calls `GetIndex` once to
+   * validate the index's dimension and distance metric against this
+   * store's configuration, regardless of this flag. The flag only controls
+   * whether a *missing* index is created (`CreateIndex`) or left to fail
+   * at `PutVectors`.
    * @defaultValue `true`
    */
   readonly createIndexIfNotExist?: boolean;
+
+  /**
+   * Server-side encryption to request for an index this store creates
+   * (`createIndexIfNotExist: true`). Forwarded verbatim to `CreateIndex`;
+   * accepts the SDK's own shape, e.g. `{ sseType: 'aws:kms', kmsKeyArn: '…' }`.
+   * Ignored for an index that already exists — S3 Vectors has no
+   * `UpdateIndex`, so encryption is fixed at creation.
+   *
+   * When omitted, AWS applies the vector bucket's default encryption
+   * (`AES256` unless the bucket was configured otherwise). Set this if
+   * your organisation requires a customer-managed KMS key on every index,
+   * or pre-create the index with your own tooling and use
+   * `createIndexIfNotExist: false`.
+   */
+  readonly encryptionConfiguration?: EncryptionConfiguration;
+
+  /**
+   * Tags to apply to an index this store creates (`createIndexIfNotExist:
+   * true`), for cost allocation or attribute-based access control.
+   * Forwarded verbatim to `CreateIndex` (`Record<string, string>`, up to
+   * AWS's 50-tag limit). Ignored for an index that already exists.
+   */
+  readonly tags?: Record<string, string>;
+
+  /**
+   * Maximum number of `PutVectors` / `DeleteVectors` / `GetVectors`
+   * calls this store keeps in flight at once during a batched
+   * `addDocuments`, `addVectors`, `delete({ ids })` or `getByIds`.
+   *
+   * Raise it to ingest faster against a generous account-level rate
+   * limit; lower it (down to `1` for strictly sequential calls) if you
+   * share the account's S3 Vectors request quota with other workloads or
+   * see sustained `ThrottlingException`s even with the SDK's own retries.
+   * Peak memory for in-flight write payloads scales with
+   * `maxConcurrentBatchCalls × batchSize`.
+   * @defaultValue `10`
+   */
+  readonly maxConcurrentBatchCalls?: number;
 
   /**
    * Optional custom function that converts a raw distance value into a
@@ -123,9 +172,16 @@ export interface AmazonS3VectorsConfig {
   readonly retryMode?: 'standard' | 'adaptive' | 'legacy';
 }
 
-// ─── Internal types ──────────────────────────────────────────────────────────
+// ─── Output / parameter types ────────────────────────────────────────────────
 
-/** Shape of a single vector as returned by QueryVectors / GetVectors. */
+/**
+ * Shape of a single vector as returned by QueryVectors / GetVectors.
+ *
+ * Public: this is the input type of the exported `createDocument` helper,
+ * so a caller mapping their own `QueryVectors` responses (for example from
+ * a Lambda that calls the SDK directly) can build the same `Document`
+ * shape this store produces.
+ */
 export interface S3OutputVector {
   readonly key: string;
   readonly metadata?: Record<string, unknown>;

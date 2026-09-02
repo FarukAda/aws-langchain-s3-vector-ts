@@ -1,0 +1,18 @@
+{
+  // The CommonJS half of the dual build. Same source, same declarations,
+  // emitted as CommonJS into dist/cjs; `npm run build:cjs` then drops a
+  // package.json marker there so Node (and TypeScript reading the .d.ts files
+  // beside it) treat that subtree as CommonJS despite the root "type": "module".
+  //
+  // `module: CommonJS` needs a resolution mode other than NodeNext, and
+  // `node10` is deprecated in TypeScript 6 and removed in 7. `bundler` is the
+  // one both accept: it resolves the same `.js`-suffixed relative imports the
+  // ESM build uses, and the emitted `require()` calls are what Node resolves
+  // at runtime, under its own rules.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./dist/cjs"
+  }
+}

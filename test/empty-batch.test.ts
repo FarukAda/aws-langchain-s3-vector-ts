@@ -18,7 +18,7 @@ describe('AmazonS3Vectors empty-batch dimension guard', () => {
     const emptyEmbeddings: EmbeddingsInterface = {
       embedDocuments: jest.fn(async () => []),
       embedQuery: jest.fn(async () => []),
-    } as unknown as EmbeddingsInterface;
+    };
 
     const store = new AmazonS3Vectors(emptyEmbeddings, { ...BASE_CONFIG, client });
 

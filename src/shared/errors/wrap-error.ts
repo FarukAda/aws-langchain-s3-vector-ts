@@ -31,9 +31,84 @@ export function toError(value: unknown): Error {
 }
 
 /**
+ * AWS exception names that are worth retrying after a backoff. The SDK's own
+ * retry strategy has usually already retried these before the error reaches
+ * this library; a caller seeing one here is looking at exhausted attempts.
+ */
+const RETRYABLE_AWS_ERROR_NAMES = new Set([
+  'ThrottlingException',
+  'TooManyRequestsException',
+  'ServiceUnavailableException',
+  'InternalServerException',
+  'InternalServerError',
+  'RequestTimeout',
+  'RequestTimeoutException',
+]);
+
+type AwsDiagnostics = Pick<
+  S3VectorsErrorContext,
+  'awsErrorName' | 'httpStatusCode' | 'requestId' | 'retryable'
+>;
+
+/**
+ * Lift the fields an operator needs first — exception name, HTTP status,
+ * request id, retryability — off an AWS SDK error so they sit on the
+ * {@link S3VectorsErrorContext} instead of only being reachable by walking
+ * `cause`. Every read is shape-checked.
+ *
+ * Only an AWS-shaped cause contributes anything: one carrying the SDK's
+ * `$metadata`, or one whose name follows the service-exception convention
+ * (`…Exception`). A plain `TypeError` from caller code, or an `AbortError`,
+ * is not an AWS error and must not be presented as one.
+ */
+function awsDiagnostics(cause: unknown): AwsDiagnostics {
+  if (typeof cause !== 'object' || cause === null) return {};
+  const candidate = cause as {
+    name?: unknown;
+    $metadata?: unknown;
+    $retryable?: unknown;
+  };
+  const name = typeof candidate.name === 'string' ? candidate.name : undefined;
+  const metadata =
+    typeof candidate.$metadata === 'object' && candidate.$metadata !== null
+      ? (candidate.$metadata as { httpStatusCode?: unknown; requestId?: unknown })
+      : undefined;
+  if (metadata === undefined && !(name !== undefined && name.endsWith('Exception'))) return {};
+
+  const out: {
+    awsErrorName?: string;
+    httpStatusCode?: number;
+    requestId?: string;
+    retryable: boolean;
+  } = { retryable: false };
+  if (name !== undefined) out.awsErrorName = name;
+  if (typeof metadata?.httpStatusCode === 'number') out.httpStatusCode = metadata.httpStatusCode;
+  if (typeof metadata?.requestId === 'string') out.requestId = metadata.requestId;
+  out.retryable =
+    candidate.$retryable !== undefined ||
+    (name !== undefined && RETRYABLE_AWS_ERROR_NAMES.has(name)) ||
+    out.httpStatusCode === 429 ||
+    (out.httpStatusCode !== undefined && out.httpStatusCode >= 500);
+  return out;
+}
+
+/** Render the diagnostics as a parenthetical for the error message, or '' if there are none. */
+function describeDiagnostics(diagnostics: AwsDiagnostics): string {
+  const parts: string[] = [];
+  if (diagnostics.awsErrorName !== undefined) parts.push(diagnostics.awsErrorName);
+  if (diagnostics.httpStatusCode !== undefined) parts.push(`HTTP ${diagnostics.httpStatusCode}`);
+  if (diagnostics.requestId !== undefined) parts.push(`requestId ${diagnostics.requestId}`);
+  return parts.length === 0 ? '' : ` (${parts.join(', ')})`;
+}
+
+/**
  * Wrap an unknown AWS failure into a coded {@link S3VectorsError}. An error that
  * is already an {@link S3VectorsError} is returned unchanged so the layer nearest
  * the failure keeps ownership of the message and code.
+ *
+ * The AWS exception name, HTTP status and request id (when the cause carries
+ * them) are surfaced both in the message and on the context, so a log line
+ * or an AWS Support case can be opened from the error alone.
  */
 export function wrapAwsError(
   cause: unknown,
@@ -41,6 +116,7 @@ export function wrapAwsError(
   context: S3VectorsErrorContext,
 ): S3VectorsError {
   if (isS3VectorsError(cause)) return cause;
-  const message = `${context.operation} failed: ${toError(cause).message}`;
-  return new S3VectorsError(message, code, context, cause);
+  const diagnostics = awsDiagnostics(cause);
+  const message = `${context.operation} failed${describeDiagnostics(diagnostics)}: ${toError(cause).message}`;
+  return new S3VectorsError(message, code, { ...context, ...diagnostics }, cause);
 }

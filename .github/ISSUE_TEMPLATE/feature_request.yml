@@ -1,0 +1,20 @@
+name: Feature request
+description: A capability the store should have
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: How the API or what the store writes would change, how it fits docs/STABILITY.md, and whether the Python langchain-aws reference does the same.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

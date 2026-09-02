@@ -1,4 +1,4 @@
-[**AWS LangChain S3 Vector TypeScript v0.9.0**](../README.md)
+[**AWS LangChain S3 Vector TypeScript**](../README.md)
 
 ***
 
@@ -8,7 +8,7 @@
 
 > **euclideanRelevanceScoreFn**(`distance`): `number`
 
-Defined in: [relevance-scores.ts:38](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/relevance-scores.ts#L38)
+Defined in: [relevance-scores.ts:38](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/relevance-scores.ts#L38)
 
 Convert a **euclidean distance** to a relevance score, using the same
 heuristic as the Python `langchain-aws` reference implementation.

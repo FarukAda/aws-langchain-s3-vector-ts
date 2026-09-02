@@ -7,7 +7,7 @@ Contributions are welcome — please open an issue to discuss non-trivial change
 ```bash
 git clone https://github.com/FarukAda/aws-langchain-s3-vector-ts.git
 cd aws-langchain-s3-vector-ts
-nvm use                # reads .nvmrc → Node 22 (the package itself supports Node >=20; see engines.node)
+nvm use                # reads .nvmrc → Node 22, the package's floor (see engines.node)
 npm ci
 npm test               # unit tests, enforced at 100% coverage
 npm run build
@@ -17,9 +17,9 @@ npm run build
 
 - `npm run lint` and `npm run typecheck` must pass with no output.
 - `npm test` must pass with 100% statement/branch/function/line coverage (enforced by the Jest `coverageThreshold` in `jest.config.cjs` — a PR that drops coverage fails CI).
-- `npm run build` must succeed.
+- `npm run build` and `npm run pack:check` must succeed; the latter guards the tarball's listing and its `exports` map (publint, arethetypeswrong) after a change to `package.json` or the build configuration.
 - New behavior needs new tests; behavioral changes need a `CHANGELOG.md` entry under `## [Unreleased]` ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format).
-- CI (`.github/workflows/ci.yml`) runs lint, typecheck, the full test matrix (3 OS × Node 20/22/24), a production-dependency `npm audit`, and a build — on every push to `main` and every PR targeting it. `codeql.yml` (static analysis) and `dependency-review.yml` (fails on a newly-introduced high-severity+ vulnerable dependency) run alongside it on PRs targeting `main`; `scorecard.yml` runs weekly and on push to `main`, publishing a security-practices score to the public [OpenSSF Scorecard](https://scorecard.dev/) dataset.
+- CI (`.github/workflows/ci.yml`) runs lint, every typecheck, knip, depcheck, jscpd, actionlint, a docs-drift check, the full test matrix (3 OS × Node 22/24), a build, `npm audit` over the whole installed tree, the package checks (`npm run pack:check`, then the packed-tarball smoke that imports, requires and type-checks the published surface), and the type checks plus unit tier against every peer at the floor of its declared range — on every push to `main` and every PR targeting it. A PR that changes `src/` without a `CHANGELOG.md` entry fails. `codeql.yml` (static analysis) and `dependency-review.yml` (fails on a newly-introduced high-severity+ vulnerable dependency) run alongside it on PRs targeting `main`; `scorecard.yml` runs weekly and on push to `main`, publishing a security-practices score to the public [OpenSSF Scorecard](https://scorecard.dev/) dataset.
 
 ## Coding Standards
 
@@ -39,7 +39,7 @@ Use [GitHub Issues](https://github.com/FarukAda/aws-langchain-s3-vector-ts/issue
 
 ## Release Process
 
-Releases are handled by the maintainer via a tag-triggered GitHub Actions workflow (`.github/workflows/release.yml`) using npm Trusted Publishing (OIDC) — no manual `npm publish` or long-lived npm token involved. Version numbers follow [Semantic Versioning](https://semver.org/); for a `0.x` package, breaking changes bump the minor version.
+Releases are handled by the maintainer via a tag-triggered GitHub Actions workflow (`.github/workflows/release.yml`) using npm Trusted Publishing (OIDC) — no manual `npm publish` or long-lived npm token involved. Version numbers follow [Semantic Versioning](https://semver.org/); what a major, minor and patch may change is stated in [`docs/STABILITY.md`](./docs/STABILITY.md). A prerelease tag (`v1.0.0-rc.1`) publishes under the `next` dist-tag and a plain tag under `latest`, and the workflow refuses to publish until every check run on the tagged commit has succeeded.
 
 ## Code of Conduct
 

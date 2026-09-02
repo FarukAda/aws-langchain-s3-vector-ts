@@ -16,7 +16,11 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // tsconfig.test.json is a superset of tsconfig.json (src + test), so
+        // one program covers both and the test suite gets the same
+        // type-aware rules as src — no-floating-promises in particular,
+        // which is what catches an un-awaited `expect(...).rejects`.
+        project: ['./tsconfig.test.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -83,10 +87,20 @@ export default tseslint.config(
       'no-instanceof/no-instanceof': 'error',
     },
   },
-  // Disable type-checked rules for test files (not in tsconfig include).
+  // Tests keep every type-aware rule on. Only rules that fight idiomatic
+  // Jest code are relaxed: `jest.fn()` mocks and `.rejects` matchers are
+  // deliberately loosely typed, and `unbound-method` misfires on passing
+  // `store.method` references into `expect(...)`.
   {
     files: ['test/**/*.ts', 'tests/**/*.ts'],
-    ...tseslint.configs.disableTypeChecked,
+    rules: {
+      '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+    },
   },
   {
     ignores: ['dist/', 'coverage/', 'node_modules/', '*.config.*', 'reports/'],

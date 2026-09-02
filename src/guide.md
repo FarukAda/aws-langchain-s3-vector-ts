@@ -90,7 +90,7 @@ The library supports five search methods:
 
 The text-based methods reserve a `Callbacks` slot (accepted and ignored) so they line up with LangChain’s own signatures; the vector-based ones take the `AbortSignal` one position earlier, since they have no callbacks slot. `k` and the filter are validated, and the signal is checked, *before* the query is embedded — an invalid argument or an already-aborted signal never costs a billable `embedQuery` call.
 
-Passing an `AbortSignal` in that `Callbacks` slot raises a coded `VALIDATION` error on `similaritySearch` and `similaritySearchWithScore` rather than being silently ignored: the search would otherwise run to completion, uncancelled, after already spending a billable `embedQuery` call. Pass it as the fifth argument instead. (`similaritySearchWithRelevanceScores` is the one exception — see below.)
+Passing an `AbortSignal` in that `Callbacks` slot raises a coded `VALIDATION` error on all three text-based searches rather than being silently ignored: the search would otherwise run to completion, uncancelled, after already spending a billable `embedQuery` call. Pass it as the fifth argument instead.
 
 **Distance vs. relevance:** S3 Vectors returns a *distance* (lower = more similar). LangChain expects a *relevance score* (higher = more relevant). The library provides built-in conversion functions:
 
@@ -99,7 +99,7 @@ Passing an `AbortSignal` in that `Callbacks` slot raises a coded `VALIDATION` er
 
 You can also provide your own via `relevanceScoreFn` in the config.
 
-Call `similaritySearchWithRelevanceScores(query, k, filter?, callbacks?, signal?)` to get `[Document, score][]` tuples with the conversion already applied. For backwards compatibility this method also accepts an `AbortSignal` in the fourth position, where earlier versions expected it.
+Call `similaritySearchWithRelevanceScores(query, k, filter?, callbacks?, signal?)` to get `[Document, score][]` tuples with the conversion already applied. Through 0.x this method also honored an `AbortSignal` in the fourth position, where earlier versions expected it; since 1.0 it takes the signal fifth like its siblings, and a signal in the fourth slot is rejected the same way.
 
 ## Advanced Patterns
 

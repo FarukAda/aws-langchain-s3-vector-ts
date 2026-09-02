@@ -1,4 +1,4 @@
-import { Document } from '@langchain/core/documents';
+import { Document, type DocumentInterface } from '@langchain/core/documents';
 
 import type { S3OutputVector } from '../types.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
@@ -17,7 +17,7 @@ import { S3VectorsError } from './errors/s3-vectors-error.js';
  *         silently overwritten.
  */
 export function buildPutMetadata(
-  doc: Document,
+  doc: DocumentInterface,
   pageContentMetadataKey: string | null,
   operation: string,
 ): Record<string, unknown> {
