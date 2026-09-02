@@ -32,6 +32,43 @@ export interface S3VectorsErrorContext {
    */
   readonly resultsCollected?: number;
   /**
+   * The AWS exception name (`"AccessDeniedException"`, `"ThrottlingException"`,
+   * `"ValidationException"`, …) when the failure came from an AWS SDK call.
+   * Lifted off `cause.name` so a log line or alert can branch on it without
+   * walking `cause`. Set on `AWS_REQUEST_FAILED` and `INDEX_NOT_FOUND`
+   * errors whose cause is an SDK error; absent otherwise.
+   */
+  readonly awsErrorName?: string;
+  /** HTTP status of the failed AWS response (`cause.$metadata.httpStatusCode`), when known. */
+  readonly httpStatusCode?: number;
+  /**
+   * The AWS request id (`cause.$metadata.requestId`), when known. This is the
+   * identifier AWS Support asks for — it also appears in the error message.
+   */
+  readonly requestId?: string;
+  /**
+   * Whether the failed AWS call is worth retrying after a backoff. `true` for
+   * throttling (`ThrottlingException`, `TooManyRequestsException`, HTTP 429),
+   * transient service errors (`ServiceUnavailableException`,
+   * `InternalServerException`, HTTP 5xx) and anything the SDK itself marked
+   * `$retryable`. Only set when the cause is an AWS SDK error; a non-AWS
+   * failure (an embeddings model throwing, a validation error) leaves it
+   * `undefined`. Note the SDK's own retry strategy (3 attempts by default)
+   * has usually already run before an error reaches this library — a
+   * `retryable: true` error means those attempts were exhausted.
+   */
+  readonly retryable?: boolean;
+  /**
+   * `true` when a `PutVectors` failure (`NotFoundException` or
+   * `ValidationException`) made the store discard its cached index
+   * dimension/distance metric. The next write on this instance re-checks
+   * the index with `GetIndex` — and, with `createIndexIfNotExist`,
+   * re-creates a missing one — instead of trusting a cache that may
+   * describe an index deleted or re-created outside this process. A
+   * caller that retries writes can treat this as "retrying is worth it".
+   */
+  readonly indexCacheInvalidated?: true;
+  /**
    * Ids confirmed found (and already fetched) before a partial `getByIds`
    * failure — either a `GetVectors` batch rejecting while sibling batches
    * in the same concurrency group succeed, or an id genuinely not found
@@ -51,12 +88,17 @@ export interface S3VectorsErrorContext {
    * Unlike every other field here, this is a live object handle, not
    * plain diagnostic data — treat it as a reference for programmatic
    * recovery (`error.context.instance.delete({ ids: writtenIds })`), not
-   * as something to log. It does `JSON.stringify` safely: `AmazonS3Vectors`
-   * pins `lc_serializable = false`, so LangChain's `Serializable#toJSON()`
-   * short-circuits to a small type-identifier stub rather than dumping
-   * internal state, and a regression test asserts no `_client` or
-   * credentials appear in the output. That stub is rarely useful in a log
-   * line, so prefer logging the other context fields individually.
+   * as something to log. To keep it out of logs by accident it is defined
+   * as a **non-enumerable** property: `JSON.stringify(error.context)`,
+   * `util.inspect(error)`, `console.error(error)`, `{ ...error.context }`
+   * and `Object.keys(error.context)` all omit it, while direct access
+   * (`error.context.instance`) works as normal. Even when reached
+   * explicitly it serializes safely: `AmazonS3Vectors` pins
+   * `lc_serializable = false`, so LangChain's `Serializable#toJSON()`
+   * short-circuits to a small type-identifier stub, and the store's
+   * `lc_kwargs` never hold `credentials` or the `client`. Regression tests
+   * assert no `_client` or credential material appears in any of those
+   * renderings.
    */
   readonly instance?: AmazonS3Vectors;
 }

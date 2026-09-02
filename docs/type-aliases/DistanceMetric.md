@@ -8,6 +8,6 @@
 
 > **DistanceMetric** = `"euclidean"` \| `"cosine"`
 
-Defined in: [types.ts:7](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/types.ts#L7)
+Defined in: [types.ts:11](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/types.ts#L11)
 
 Distance metrics supported by Amazon S3 Vectors indexes.

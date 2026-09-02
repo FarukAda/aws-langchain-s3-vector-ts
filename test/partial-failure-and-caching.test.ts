@@ -172,13 +172,24 @@ describe('AmazonS3Vectors partial-write failure reports writtenIds', () => {
     expect(new Set(writtenIds)).toEqual(new Set(['id-1', 'id-3']));
   });
 
-  it('addDocuments: when two batches in the same group both fail, reports the first failure and still counts every succeeding sibling', async () => {
+  it('addDocuments: when two in-flight puts both fail, reports the first failure and still counts every sibling that succeeded alongside them', async () => {
     const { client, mock } = createMockClient();
     mockExistingIndex(mock);
-    mock.on(PutVectorsCommand).callsFake((input) => {
+    // Every put is slow relative to the (synchronous-mock) embedding, so
+    // all four pipelined puts are in flight together before any settles.
+    // id-2 then fails first, id-3 second; id-4 and id-5 succeed alongside.
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    mock.on(PutVectorsCommand).callsFake(async (input) => {
       const key = input.vectors?.[0]?.key;
-      if (key === 'id-2') throw new Error('first failure');
-      if (key === 'id-3') throw new Error('second failure');
+      if (key === 'id-2') {
+        await delay(5);
+        throw new Error('first failure');
+      }
+      if (key === 'id-3') {
+        await delay(10);
+        throw new Error('second failure');
+      }
+      await delay(15);
       return {};
     });
 
@@ -192,7 +203,48 @@ describe('AmazonS3Vectors partial-write failure reports writtenIds', () => {
     expect((error as Error).message).toContain('first failure');
     expect((error as Error).message).not.toContain('second failure');
     const writtenIds = (error as { context: { writtenIds?: string[] } }).context.writtenIds;
-    expect(new Set(writtenIds)).toEqual(new Set(['id-1', 'id-4', 'id-5']));
+    // Document order, not completion order — id-4/id-5 finished after the
+    // failures but are still reported in their original position.
+    expect(writtenIds).toEqual(['id-1', 'id-4', 'id-5']);
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(5);
+  });
+
+  it('addDocuments: a PutVectors failure stops later batches from being embedded or written', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    // id-2's put rejects after 1ms; every embedding takes 10ms — so by the
+    // time the batch after id-2 has been embedded, the failure is known.
+    mock.on(PutVectorsCommand).callsFake(async (input) => {
+      if (input.vectors?.[0]?.key === 'id-2') {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        throw new Error('throttled');
+      }
+      return {};
+    });
+    let embedCalls = 0;
+    const embeddings: EmbeddingsInterface = {
+      embedDocuments: async (texts: string[]) => {
+        embedCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return texts.map(() => [1, 2, 3]);
+      },
+      embedQuery: async () => [1, 2, 3],
+    };
+    const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+    const ids = ['id-1', 'id-2', 'id-3', 'id-4', 'id-5', 'id-6'];
+    const docs = ids.map((id) => new Document({ pageContent: id }));
+
+    const error = await store.addDocuments(docs, { ids, batchSize: 1 }).catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as Error).message).toContain('throttled');
+    const writtenIds = (error as { context: { writtenIds?: string[] } }).context.writtenIds;
+    expect(writtenIds).toEqual(['id-1']);
+    // Batch id-3 was embedded while id-2's put was rejecting (embedding is
+    // pipelined), but its put never started, and nothing after it was
+    // embedded at all.
+    expect(embedCalls).toBe(3);
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(2);
   });
 });
 

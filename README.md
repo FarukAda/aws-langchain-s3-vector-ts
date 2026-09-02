@@ -70,8 +70,8 @@ graph LR
 
 1. Documents are chunked into batches of 200 (configurable).
 2. Each batch is embedded via the supplied `EmbeddingsInterface`.
-3. On the first write this store instance makes (not just the first batch of *this* call), if `createIndexIfNotExist` is enabled (default), the library checks whether the index exists (via `GetIndexCommand`) and creates it (via `CreateIndexCommand`) with the correct `dimension` inferred from the first vector. The result is cached for the instance's lifetime — every write after that is a single `PutVectorsCommand` call, no repeated `GetIndexCommand` round trip, regardless of `createIndexIfNotExist`.
-4. Vectors plus metadata are sent via `PutVectorsCommand` — one SDK call per batch.
+3. On the first write this store instance makes (not just the first batch of *this* call), the library checks the index via `GetIndexCommand` — always, regardless of `createIndexIfNotExist`, to validate its dimension and distance metric against this store's configuration — and, if it is missing and `createIndexIfNotExist` is enabled (default), creates it via `CreateIndexCommand` with the `dimension` inferred from the first vector. The result is cached for the instance's lifetime — every write after that is a single `PutVectorsCommand` call, no repeated `GetIndexCommand` round trip. (The cache is dropped automatically if a later `PutVectors` reports the index gone or changed; see [Concurrency](#concurrency).)
+4. Vectors plus metadata are sent via `PutVectorsCommand` — one SDK call per batch, pipelined against the embedding of the next batch, at most `maxConcurrentBatchCalls` in flight.
 5. Page content is stored as a special metadata key (`_page_content` by default) and transparently extracted on reads.
 
 **Data flow on read (`similaritySearch*`):**
@@ -99,7 +99,10 @@ npm install @farukada/aws-langchain-s3-vector-ts @aws-sdk/client-s3vectors @lang
 
 - **Node.js** `>= 20` — matches the minimum required by both peer dependencies (`@aws-sdk/client-s3vectors`, `@langchain/core`). (Publishing this package to npm separately requires Node ≥24, for npm Trusted Publishing's npm-CLI requirement — that's a CI/release-only constraint and doesn't affect consumers.)
 - **npm** `>= 10.0.0`.
-- **Module format:** ESM only. If you consume this package from a CommonJS project, use dynamic `import()`.
+- **Module format:** ESM only (`"type": "module"`, a single `import` entry in `exports`, no CommonJS build). From a CommonJS project you have two options:
+  - **`require()` directly** on Node ≥ 20.19 / ≥ 22.12 / any 24.x, where [`require(esm)`](https://nodejs.org/api/modules.html#loading-ecmascript-modules-using-require) is enabled by default: `const { AmazonS3Vectors } = require('@farukada/aws-langchain-s3-vector-ts');` works because this package has no top-level `await`. Confirmed against the built package.
+  - **Dynamic `import()`** on Node 20.0–20.18 or 22.0–22.11: `const { AmazonS3Vectors } = await import('@farukada/aws-langchain-s3-vector-ts');`.
+- **Tree-shaking:** the package declares `"sideEffects": false` — importing one export does not pull in module-level side effects, so bundlers may drop what you don't use.
 
 ### Basic Usage
 
@@ -341,7 +344,10 @@ As of 2026-04, CDK L2 constructs for S3 Vectors are not yet available. Use `CfnR
 | `endpoint` | `string` | — | Custom endpoint URL |
 | `dataType` | `"float32"` | `"float32"` | Vector data type (S3 Vectors currently only supports `float32`) |
 | `distanceMetric` | `"cosine" \| "euclidean"` | `"cosine"` | Distance metric for similarity search |
-| `createIndexIfNotExist` | `boolean` | `true` | Auto-create the index on first write |
+| `createIndexIfNotExist` | `boolean` | `true` | Auto-create the index on first write. `false` still calls `GetIndex` once per instance to validate dimension/metric — see [IAM Permissions](#-iam-permissions) |
+| `encryptionConfiguration` | `EncryptionConfiguration` (SDK type) | bucket default | Server-side encryption for an index **this store creates**, e.g. `{ sseType: "aws:kms", kmsKeyArn: "arn:aws:kms:…" }`. Ignored for an existing index (encryption is fixed at creation; S3 Vectors has no `UpdateIndex`) |
+| `tags` | `Record<string, string>` | — | Tags applied to an index **this store creates** (cost allocation, ABAC). Ignored for an existing index |
+| `maxConcurrentBatchCalls` | `number` | `10` | Cap on concurrent `PutVectors`/`DeleteVectors`/`GetVectors` calls during batched writes, deletes and fetches. Lower it (down to `1`) to share a quota with other workloads; raise it against a generous rate limit. Peak in-flight write payload scales with `maxConcurrentBatchCalls × batchSize` — see [Rate Limits, Payload Limits and Cost](#rate-limits-payload-limits-and-cost) |
 | `pageContentMetadataKey` | `string \| null` | `"_page_content"` | Metadata key for storing `Document.pageContent`; `null` to disable round-tripping |
 | `nonFilterableMetadataKeys` | `string[]` | — | Metadata keys excluded from query filters (reduces index size for large values). When this library creates a new index, `pageContentMetadataKey` is automatically added to this list too (unless doing so would exceed S3 Vectors' 10-key cap) — see [Non-Filterable Metadata Keys](#non-filterable-metadata-keys). |
 | `queryEmbeddings` | `EmbeddingsInterface` | — | Separate embedding model for queries only |
@@ -352,13 +358,23 @@ As of 2026-04, CDK L2 constructs for S3 Vectors are not yet available. Use `CfnR
 
 Full generated API docs: see [`docs/`](docs/) (TypeDoc output).
 
+Only the options listed above are read by this library. The constructor builds its `S3VectorsClient` from exactly `region`, `credentials`, `endpoint`, `maxAttempts` and `retryMode` — any other `S3VectorsClientConfig` field (a custom `requestHandler`, `logger`, `customUserAgent`, a proxy, a fully custom `retryStrategy`, …) is **not** passed through. Build the client yourself and hand it in via `client` for anything beyond those five; every operation then flows through your client unchanged.
+
 ### Retries
 
-Throttling (`TooManyRequestsException`) and transient 5xx failures are retried automatically by the AWS SDK. Tune the behaviour with `maxAttempts` / `retryMode`, or pass a fully pre-configured `client`.
+Throttling (`ThrottlingException` / `TooManyRequestsException`, HTTP 429) and transient 5xx failures are retried automatically by the AWS SDK's retry strategy — **3 attempts total (1 + 2 retries) with exponential backoff and jitter** under the default `"standard"` mode. This library adds no retry layer of its own: an `AWS_REQUEST_FAILED` error you catch means the SDK's attempts were exhausted.
+
+Tune it with `maxAttempts` / `retryMode`, or pass a fully pre-configured `client`:
+
+- **`retryMode: "adaptive"`** is the better default for bulk ingest against a shared account. It adds a client-side token bucket that slows the *request rate* on throttling instead of only retrying — so a large `addDocuments` against a busy quota degrades to a steady trickle rather than a burst of 429s that exhaust `maxAttempts`.
+- **`maxAttempts`** controls attempts per individual call (e.g. one `PutVectors` batch), not per `addDocuments`. Raising it lengthens the worst-case time a single batch can block.
+- Every `AWS_REQUEST_FAILED` error carries `context.retryable` (`true` for throttling and 5xx), `context.awsErrorName`, `context.httpStatusCode` and `context.requestId`, so an application-level retry or dead-letter decision can be made from the error alone — see [Errors](#errors).
+
+The embeddings side is different: `embedDocuments`/`embedQuery` come from *your* embeddings model, and this library never retries them (the interface gives no way to know whether a failure is safe to retry). Configure retries on the embeddings client itself.
 
 ### Errors
 
-Every failure — validation, not-found, or an underlying AWS error — is surfaced as a single typed `S3VectorsError` carrying a `code` (`S3VectorsErrorCode`), a `context` (`{ operation, vectorBucketName, indexName }`), and the original `cause`. Detect it with the exported `isS3VectorsError()` guard — it's a proper TypeScript type guard, so a caught `unknown` narrows to `S3VectorsError` without a cast:
+Every failure — validation, not-found, or an underlying AWS error — is surfaced as a single typed `S3VectorsError` carrying a `code` (`S3VectorsErrorCode`), a `context` (`{ operation, vectorBucketName, indexName, … }`), and the original `cause`. Detect it with the exported `isS3VectorsError()` guard — it's a proper TypeScript type guard, so a caught `unknown` narrows to `S3VectorsError` without a cast:
 
 ```typescript
 try {
@@ -388,10 +404,10 @@ The codes are stable and exhaustive:
 
 | Code | Raised when |
 | --- | --- |
-| `VALIDATION` | Caller input was invalid — mismatched counts, a non-array argument, a bad batch size, an empty filter, a reserved metadata key, or a `client` that is not an `S3VectorsClient`. |
-| `NOT_FOUND` | A requested vector id was not found by `getByIds`. |
+| `VALIDATION` | Caller input was invalid — mismatched counts, a non-array argument, a bad batch size, an empty filter, a reserved metadata key, an empty-string or duplicate vector id within one write call, or a `client` that is not an `S3VectorsClient`. |
+| `NOT_FOUND` | A requested vector id was not found by `getByIds` (see [`getByIds` and missing ids](#getbyids-and-missing-ids)). |
 | `EMBEDDINGS_MISSING` | An operation needed an embedding model but none was configured. |
-| `AWS_REQUEST_FAILED` | An underlying AWS S3 Vectors request failed. |
+| `AWS_REQUEST_FAILED` | An underlying AWS S3 Vectors request failed. `context.awsErrorName`/`httpStatusCode`/`requestId`/`retryable` say which and whether to retry. When a `PutVectors` fails with `NotFoundException` or `ValidationException` after this instance had already validated the index, `context.indexCacheInvalidated` is `true`: the store has discarded its cached dimension/metric and the *next* write re-checks the index (and, with `createIndexIfNotExist`, re-creates a missing one) — the recovery path for an index deleted or re-created outside this process. |
 | `INDEX_CONFIG_MISMATCH` | The index's actual dimension or distance metric disagrees with this store's configuration. |
 | `ABORTED` | The supplied `AbortSignal` fired before or during the operation. |
 | `AWS_INVALID_RESPONSE` | An AWS response was missing, or carried an unusable value for, something this library requires — a non-numeric `distance`, an unrecognised `distanceMetric`, a malformed `GetIndex` payload, or a `QueryVectors`/`GetVectors` response that wasn't an object at all. Reachable only from a mocked, stubbed or otherwise non-conforming client. |
@@ -399,9 +415,21 @@ The codes are stable and exhaustive:
 | `NOT_IMPLEMENTED` | `maxMarginalRelevanceSearch`, which this store intentionally does not implement. |
 | `UNEXPECTED_ERROR` | A failure that never touched AWS — a raw throw from a caller-supplied embeddings model, or input malformed enough to bypass validation. |
 
+**Logging errors safely.** `error.context.instance` (set only by the `fromDocuments`/`fromTexts` factories) is a live store handle for programmatic recovery. It is a *non-enumerable* property, so `JSON.stringify(error.context)`, `util.inspect(error)`, `console.error(error)` and structured loggers all omit it; direct access still works. Independently of that, the store never keeps `credentials` or the SDK `client` in any enumerable field (they are excluded from LangChain's `lc_kwargs`), so printing a store — or an error that carries one — cannot leak credential material. Regression tests pin both.
+
 ### Maximal Marginal Relevance (MMR)
 
 `maxMarginalRelevanceSearch` is intentionally **not** implemented, matching the Python `langchain-aws` reference. Use metadata pre-filtering or client-side re-ranking when you need result diversity.
+
+### Non-goals
+
+Deliberately outside this library's scope, so you can plan around them rather than wait for them:
+
+- **Listing/scanning vectors** (`ListVectors`). Enumeration is an operational task with its own pagination and cost profile; call the SDK's `ListVectorsCommand` directly with your own client. The exported `createDocument(vector, pageContentMetadataKey)` helper turns each returned vector into the same `Document` shape this store produces.
+- **Bucket lifecycle** (`CreateVectorBucket`, bucket policies, encryption defaults). The vector bucket is infrastructure — provision it with the console, CLI or IaC.
+- **A retry layer of its own.** Retries are the AWS SDK's job; configure them there (see [Retries](#retries)).
+- **Client-side metadata-size enforcement.** See [Rate Limits, Payload Limits and Cost](#rate-limits-payload-limits-and-cost) for why.
+- **MMR**, as above.
 
 ### Observability
 
@@ -413,13 +441,41 @@ The library emits no logs by design — no `console.*` call exists anywhere in `
 
 Documents are embedded one batch at a time (default: 200 docs per batch, matching the Python `langchain-aws` implementation) — `embedDocuments` is never called concurrently for two batches, since most embedding providers rate-limit aggressively and this library gives no retry/backoff guarantee for that call.
 
-Once a batch is embedded, its `PutVectors` call is dispatched without waiting for it to finish before embedding the next batch — up to 10 `PutVectors` calls run concurrently (AWS's SDK already retries throttling there), the same concurrency `delete()`/`getByIds()` already use for `DeleteVectors`/`GetVectors`. `addVectors` (no embedding step) parallelizes its `PutVectors` calls the same way. The very first batch of any write is always sent alone, since it's the one that creates or validates the index.
+Embedding and writing are **pipelined**. Once a batch is embedded, its `PutVectors` call is dispatched and the *next* batch is embedded immediately, without waiting for that put to finish — so a large ingest is bounded by embedding time, not embedding-plus-put time. At most `maxConcurrentBatchCalls` (default 10) `PutVectors` calls are in flight at once; when that window is full, embedding pauses until one settles (AWS's SDK already retries throttling on the put side). `delete()`/`getByIds()` use the same cap for `DeleteVectors`/`GetVectors`, and `addVectors` (no embedding step) dispatches its `PutVectors` calls under it too. The very first batch of any write is always embedded and sent alone, since it's the one that creates or validates the index.
 
-Net effect: peak memory for in-flight vectors is bounded by roughly 10× `batchSize` rather than 1× — for large ingests this is a meaningfully higher ceiling in exchange for real write throughput.
+Peak memory for in-flight vectors is therefore bounded by roughly `(maxConcurrentBatchCalls + 1) × batchSize` vectors — a deliberately higher ceiling than a strict one-batch-at-a-time loop, in exchange for real write throughput. Tune either knob:
 
 ```typescript
+// Smaller batches, default concurrency:
 await store.addDocuments(largeDocs, { batchSize: 50 });
+
+// Strictly sequential AWS calls (share a tight account quota):
+const gentle = new AmazonS3Vectors(embeddings, { ...config, maxConcurrentBatchCalls: 1 });
 ```
+
+On a failure, no further batch is embedded or written; the error is thrown only after every `PutVectors` already in flight has settled, so `context.writtenIds` is complete and in document order.
+
+### Rate Limits, Payload Limits and Cost
+
+The limits this library enforces locally (failing fast with a `VALIDATION` error, before any round trip) and the ones it leaves to AWS:
+
+| Limit | Value | Enforced |
+|---|---|---|
+| Vectors per `PutVectors` call (`batchSize` for `addDocuments`/`addVectors`/`addTexts`) | ≤ 500 (default 200) | locally |
+| Keys per `DeleteVectors` call (`batchSize` for `delete`) | ≤ 500 (default 500) | locally |
+| Keys per `GetVectors` call (`batchSize` for `getByIds`) | ≤ 100 (default 100) | locally |
+| `k` (`topK`) per query | 1 – 10,000 | locally |
+| Results per `QueryVectors` page | up to 100 (paginated transparently) | — |
+| Vector ids | non-empty strings, unique within one write call | locally |
+| Vector dimension | consistent within a batch and with the index (1 – 4,096 per AWS) | within-batch and vs. index locally; absolute range by AWS |
+| Filterable metadata per vector | 2,048 bytes | AWS |
+| Total metadata per vector | 40,960 bytes | AWS |
+| Non-filterable metadata keys per index | 10 | locally (when this library creates the index) |
+| Request payload per call | AWS's per-request limit | AWS |
+
+The metadata byte caps are not checked locally on purpose: probing the live service shows the counted size isn't a simple `JSON.stringify(...).length`, and AWS doesn't publish the algorithm — a guessed formula would reject metadata AWS accepts, or go stale silently. AWS's own error is specific (`"Filterable metadata must have at most 2048 bytes"` / `"Metadata object must have at most 40960 bytes"`); see [Non-Filterable Metadata Keys](#non-filterable-metadata-keys) for keeping large text out of the filterable budget. Request-rate quotas are account-level and published by AWS; see [Retries](#retries) for how to behave under them.
+
+**Cost model, briefly.** S3 Vectors bills per API request plus storage; the request count is what this library's knobs control. A write of *N* documents costs `ceil(N / batchSize)` `PutVectors` requests plus one `GetIndex` (and possibly one `CreateIndex`) per store instance lifetime, plus whatever your embeddings provider charges. A `similaritySearch` with `k > 100` costs one `QueryVectors` request per 100-result page. `getByIds`/`delete` cost `ceil(N / batchSize)` requests each. Larger `batchSize` values therefore mean fewer billable requests — the default 200 for writes is a balance between request count and the size of a failed batch to retry; raise it toward 500 for bulk backfills. `maxConcurrentBatchCalls` changes *how fast* those requests are issued, not how many. Check the [S3 Vectors pricing page](https://aws.amazon.com/s3/pricing/) for current rates.
 
 ### Non-Filterable Metadata Keys
 
@@ -466,6 +522,21 @@ const store = new AmazonS3Vectors(embeddings, {
 
 If a document's own metadata already uses the reserved `pageContentMetadataKey` name, `addDocuments`/`addVectors` throws a `VALIDATION`-coded `S3VectorsError` rather than silently overwriting that field — rename the field or configure a different `pageContentMetadataKey`.
 
+### `getByIds` and missing ids
+
+`getByIds` **throws** (`NOT_FOUND`) when any requested id is absent, rather than returning fewer documents than ids. This matches the Python `langchain-aws` `AmazonS3Vectors.get_by_ids`, but is stricter than `@langchain/core`'s generic `VectorStore.getByIds` contract, which permits a store to skip missing ids silently. The strict behaviour is deliberate: an id you asked for that isn't there is a data-integrity signal, and throwing means a result array can never be silently misaligned against the id list you passed in. If your workflow expects some ids to be gone (a soft-deleted cache, a best-effort prefetch), catch the error and read `context.foundIds` — every id that *was* found is listed there, so you don't refetch from scratch:
+
+```typescript
+try {
+  docs = await store.getByIds(ids);
+} catch (e) {
+  if (isS3VectorsError(e) && e.code === S3VectorsErrorCode.NOT_FOUND) {
+    const found = new Set(e.context.foundIds);
+    docs = await store.getByIds(ids.filter((id) => found.has(id)));
+  } else throw e;
+}
+```
+
 ### Deep-Copy Metadata on Duplicate-ID Fetches
 
 When `getByIds` is called with duplicate IDs, returned documents get independently-cloned metadata (via `structuredClone`) so mutating one does not affect the other — matching the Python reference implementation's behaviour exactly.
@@ -488,6 +559,10 @@ Multiple concurrent writers — whether separate calls on the same store instanc
 
 `delete({ deleteAll: true })` running concurrently with an in-progress write is not specially handled — if the delete wins the race, the write's remaining batches are expected to fail (e.g. against a since-deleted index) rather than being coordinated. Unit tests cover the case where a write has already passed local validation and is inside its actual `PutVectors` call when the delete lands, confirming this library's own state (its index-validation cache in particular) doesn't corrupt or hang under either ordering — that hasn't been separately confirmed against live AWS for this exact interleaving. If your application deletes and writes to the same index concurrently, treat that write's failure as expected and handle it, rather than assuming both always succeed independently.
 
+**An index deleted or re-created outside this process.** Each store instance caches the index's dimension and distance metric after its first successful write, so later writes skip `GetIndex`. If another process (an ops script, a redeploy, a different service) deletes the index — or re-creates it with a different dimension — that cache is stale, and the next `PutVectors` fails with AWS's `NotFoundException`/`ValidationException`. The store treats either as "the cache can no longer be trusted": it discards the cache, marks the error with `context.indexCacheInvalidated: true`, and the *next* write re-checks the index via `GetIndex` — re-creating a missing one when `createIndexIfNotExist` is on. So exactly one write fails, and an ordinary application-level retry recovers, without restarting the process.
+
+**What `deleteAll` actually deletes.** `delete({ deleteAll: true })` calls `DeleteIndex` — it removes the *index*, not just its vectors. Everything attached to the index goes with it: its encryption configuration, tags, non-filterable-metadata configuration, and the resource any index-scoped IAM statements point at. A later write with `createIndexIfNotExist: true` re-creates the index from *this store's* configuration (`dimension` from the first vector, `distanceMetric`, `nonFilterableMetadataKeys`, `encryptionConfiguration`, `tags`), which may differ from how the original was provisioned. S3 Vectors has no "truncate" operation; if the index itself must survive, delete vectors by id instead.
+
 ### Cancellation (`AbortSignal`)
 
 Every method that calls AWS accepts an `AbortSignal` — `addVectors`, `addDocuments`, `addTexts`, `delete`, `getByIds`, `similaritySearch*`, and the `fromTexts`/`fromDocuments` static factories:
@@ -508,6 +583,8 @@ One signature note: `similaritySearchWithRelevanceScores` takes the signal as it
 `similaritySearch` and `similaritySearchWithScore` do **not** accept a signal in that fourth position — it is the `Callbacks` slot, and a signal there used to be silently discarded, letting the search run uncancelled after already spending a billable `embedQuery` call. Since 0.9.0 they raise a coded `VALIDATION` error naming the fifth slot instead.
 
 One real limitation: `embedDocuments`/`embedQuery` (from your embeddings model) have no cancellation support in LangChain's `EmbeddingsInterface`, so a batch already being embedded when the signal fires still completes — only the AWS side (and any batch not yet started) is actually cancelled.
+
+A second one, on the retriever path: `store.asRetriever()` is `@langchain/core`'s generic `VectorStoreRetriever`, and its `invoke(query, { signal })` does **not** forward that signal to this store's `similaritySearch` — LangChain's runnable config `signal` governs the runnable chain, not the underlying store call. A retriever invocation cancelled mid-query therefore rejects promptly at the chain level, but the `QueryVectors` request (and the `embedQuery` call before it) still runs to completion. If cancellation of the AWS call matters (per-request timeouts in a request handler, for instance), call `store.similaritySearch(query, k, filter, undefined, signal)` directly instead of going through the retriever.
 
 ### Custom Retriever Configuration
 
@@ -535,8 +612,8 @@ const retriever = store.asRetriever({
 | `similaritySearchVectorWithScore(vector, k?, filter?, signal?)` | `Promise<[Document, number][]>` | Vector query → documents with distance |
 | `similaritySearchByVector(vector, k?, filter?, signal?)` | `Promise<Document[]>` | Vector query → documents |
 | `maxMarginalRelevanceSearch(query, options, callbacks?)` | never resolves | Always throws `NOT_IMPLEMENTED` — intentionally unsupported |
-| `getByIds(ids, options?)` | `Promise<Document[]>` | Retrieve documents by vector IDs |
-| `delete(params?)` | `Promise<void>` | Delete by IDs, or the entire index when `{ deleteAll: true }` is passed |
+| `getByIds(ids, options?)` | `Promise<Document[]>` | Retrieve documents by vector IDs; throws `NOT_FOUND` if any id is missing (see [`getByIds` and missing ids](#getbyids-and-missing-ids)) |
+| `delete(params?)` | `Promise<void>` | Delete by IDs, or the **entire index** (`DeleteIndex`, not a bulk vector delete) when `{ deleteAll: true }` is passed — see [Concurrency](#concurrency) for what that removes |
 | `asRetriever(options?)` | `VectorStoreRetriever` | Convert to a LangChain retriever |
 
 ### Static Factories
@@ -611,9 +688,11 @@ The store uses the following S3 Vectors actions. The IAM policy below enumerates
 
 **Reducing the policy further:**
 
-- If you pre-create the index (disabling `createIndexIfNotExist`), remove `s3vectors:CreateIndex` and `s3vectors:GetIndex`.
+- If you pre-create the index (disabling `createIndexIfNotExist`), remove `s3vectors:CreateIndex` — but **keep `s3vectors:GetIndex`**. Every first write on a store instance calls `GetIndex` once, regardless of `createIndexIfNotExist`, to validate the index's dimension and distance metric against this store's configuration (the result is cached for the instance's lifetime). Without it, the first `addDocuments`/`addVectors` fails with an `AccessDeniedException` on `GetIndex` before anything is written.
 - If you never call `delete()`, remove `s3vectors:DeleteIndex` and `s3vectors:DeleteVectors`.
-- If your application is read-only, keep only the `S3VectorsRead` statement.
+- If your application is read-only (`similaritySearch*`, `getByIds`), keep only the `S3VectorsRead` statement — the read path never calls `GetIndex`.
+
+**A missing *bucket* is not a missing index.** `GetIndex` against a vector bucket that doesn't exist returns `NotFoundException`, the same exception as for a missing index. With `createIndexIfNotExist: true` the store therefore proceeds to `CreateIndex`, which then fails with its own `NotFoundException` naming the bucket. There is no bucket-level pre-check (`GetVectorBucket` would be one more permission and one more round trip on every cold start); if you see a `CreateIndex … NotFoundException`, check the bucket name and region first.
 
 ## 🧪 Testing
 

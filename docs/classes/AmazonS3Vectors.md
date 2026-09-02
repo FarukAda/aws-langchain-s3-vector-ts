@@ -6,7 +6,7 @@
 
 # Class: AmazonS3Vectors
 
-Defined in: [s3-vectors.ts:182](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L182)
+Defined in: [s3-vectors.ts:197](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L197)
 
 LangChain vector store backed by **Amazon S3 Vectors**.
 
@@ -59,7 +59,7 @@ const results = await store.similaritySearch("space adventure", 4);
 
 > **new AmazonS3Vectors**(`embeddings`, `config`): `AmazonS3Vectors`
 
-Defined in: [s3-vectors.ts:262](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L262)
+Defined in: [s3-vectors.ts:288](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L288)
 
 Create a new Amazon S3 Vectors store
 
@@ -91,7 +91,7 @@ Configuration options for the store
 
 > `readonly` **createIndexIfNotExist**: `boolean`
 
-Defined in: [s3-vectors.ts:205](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L205)
+Defined in: [s3-vectors.ts:225](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L225)
 
 ***
 
@@ -99,7 +99,7 @@ Defined in: [s3-vectors.ts:205](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > `readonly` **dataType**: `"float32"`
 
-Defined in: [s3-vectors.ts:201](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L201)
+Defined in: [s3-vectors.ts:221](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L221)
 
 ***
 
@@ -107,7 +107,15 @@ Defined in: [s3-vectors.ts:201](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > `readonly` **distanceMetric**: [`DistanceMetric`](../type-aliases/DistanceMetric.md)
 
-Defined in: [s3-vectors.ts:202](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L202)
+Defined in: [s3-vectors.ts:222](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L222)
+
+***
+
+### encryptionConfiguration
+
+> `readonly` **encryptionConfiguration**: `EncryptionConfiguration` \| `undefined`
+
+Defined in: [s3-vectors.ts:226](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L226)
 
 ***
 
@@ -115,11 +123,12 @@ Defined in: [s3-vectors.ts:202](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **FilterType**: `Record`\<`string`, `unknown`\>
 
-Defined in: [s3-vectors.ts:184](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L184)
+Defined in: [s3-vectors.ts:204](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L204)
 
-**`Internal`**
-
-discriminator used by LangChain
+The metadata-filter shape accepted by every search method (S3 Vectors'
+native filter syntax, e.g. `{ genre: "scifi" }` or `{ $and: [...] }`).
+This is the type LangChain's `VectorStore` reads via `this['FilterType']`
+— a public part of the contract, not an implementation detail.
 
 #### Overrides
 
@@ -131,7 +140,7 @@ discriminator used by LangChain
 
 > `readonly` **indexName**: `string`
 
-Defined in: [s3-vectors.ts:200](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L200)
+Defined in: [s3-vectors.ts:220](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L220)
 
 ***
 
@@ -139,7 +148,7 @@ Defined in: [s3-vectors.ts:200](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **lc\_serializable**: `boolean` = `false`
 
-Defined in: [s3-vectors.ts:195](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L195)
+Defined in: [s3-vectors.ts:215](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L215)
 
 Pinned here rather than left to `@langchain/core`'s default.
 [S3VectorsErrorContext.instance](../interfaces/S3VectorsErrorContext.md#instance) hands a live store handle to
@@ -155,11 +164,19 @@ changes; a regression test asserts no client internals serialize.
 
 ***
 
+### maxConcurrentBatchCalls
+
+> `readonly` **maxConcurrentBatchCalls**: `number`
+
+Defined in: [s3-vectors.ts:228](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L228)
+
+***
+
 ### nonFilterableMetadataKeys
 
 > `readonly` **nonFilterableMetadataKeys**: `string`[] \| `undefined`
 
-Defined in: [s3-vectors.ts:203](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L203)
+Defined in: [s3-vectors.ts:223](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L223)
 
 ***
 
@@ -167,7 +184,15 @@ Defined in: [s3-vectors.ts:203](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > `readonly` **pageContentMetadataKey**: `string` \| `null`
 
-Defined in: [s3-vectors.ts:204](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L204)
+Defined in: [s3-vectors.ts:224](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L224)
+
+***
+
+### tags
+
+> `readonly` **tags**: `Record`\<`string`, `string`\> \| `undefined`
+
+Defined in: [s3-vectors.ts:227](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L227)
 
 ***
 
@@ -175,7 +200,7 @@ Defined in: [s3-vectors.ts:204](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > `readonly` **vectorBucketName**: `string`
 
-Defined in: [s3-vectors.ts:199](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L199)
+Defined in: [s3-vectors.ts:219](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L219)
 
 ## Methods
 
@@ -183,7 +208,7 @@ Defined in: [s3-vectors.ts:199](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **\_selectRelevanceScoreFn**(): (`distance`) => `number`
 
-Defined in: [s3-vectors.ts:1136](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L1136)
+Defined in: [s3-vectors.ts:1276](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L1276)
 
 **`Internal`**
 
@@ -199,7 +224,7 @@ Select the correct relevance-score function.
 
 > `abstract` **\_vectorstoreType**(): `string`
 
-Defined in: [s3-vectors.ts:323](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L323)
+Defined in: [s3-vectors.ts:373](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L373)
 
 Returns a string representing the type of vector store, which subclasses
 must implement to identify their specific vector storage type.
@@ -220,7 +245,7 @@ A string indicating the vector store type.
 
 > **addDocuments**(`documents`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [s3-vectors.ts:444](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L444)
+Defined in: [s3-vectors.ts:511](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L511)
 
 Embed documents and store them in the vector index.
 
@@ -228,7 +253,7 @@ Embed documents and store them in the vector index.
 
 ##### documents
 
-`Document`\<`Record`\<`string`, `any`\>\>[]
+`DocumentInterface`\<`Record`\<`string`, `any`\>\>[]
 
 Array of documents to embed and store
 
@@ -275,22 +300,34 @@ embedding-provider load low for large document sets (matching the
 Python `langchain-aws` implementation) — `embedDocuments` is never
 called concurrently for two batches, since most embedding providers
 rate-limit aggressively and this library gives no retry/backoff
-guarantee for that call. Once a batch is embedded, its `PutVectors`
-call is dispatched without waiting for it to finish before embedding
-the next batch, up to 10 `PutVectors` calls in flight at once — AWS's
-own SDK already retries throttling there. Peak memory for in-flight
-vectors is therefore bounded by roughly `10 × batchSize`, not
-`batchSize` alone, in exchange for meaningfully higher write
-throughput on large ingests.
+guarantee for that call. Embedding and writing are **pipelined**: once
+a batch is embedded, its `PutVectors` call is dispatched and the next
+batch is embedded immediately, without waiting for that put to finish.
+At most [maxConcurrentBatchCalls](#maxconcurrentbatchcalls) (default 10) `PutVectors`
+calls are in flight at once; when that window is full, embedding
+pauses until one of them settles. AWS's own SDK already retries
+throttling on the put side. Peak memory for in-flight vectors is
+therefore bounded by roughly `(maxConcurrentBatchCalls + 1) × batchSize`
+vectors, in exchange for meaningfully higher write throughput on
+large ingests than a strict embed-then-put loop.
+
+The very first batch is the exception: it is embedded and written
+alone, and awaited, before anything else starts — it is the one that
+creates or validates the index, and every later batch depends on that
+having happened.
 
 #### Throws
 
-Error if count of IDs doesn't match count of documents. On a
-partial-write failure (a later batch fails after earlier ones already
-committed), the thrown [S3VectorsError](S3VectorsError.md)'s `context.writtenIds`
-lists every id that was durably written before the failure — check it
-before retrying, especially for auto-generated ids, which would
-otherwise be impossible to find or reconcile again.
+Error if count of IDs doesn't match count of documents, or if
+any id (supplied or taken from a document) is not a non-empty string
+or appears more than once in the same call. On a partial-write failure
+(a later batch fails after earlier ones already committed), the thrown
+[S3VectorsError](S3VectorsError.md)'s `context.writtenIds` lists every id that was
+durably written before the failure — check it before retrying,
+especially for auto-generated ids, which would otherwise be impossible
+to find or reconcile again. A failure stops further batches from being
+embedded or written; the error is thrown only after every `PutVectors`
+call already in flight has settled, so `writtenIds` is complete.
 
 #### Overrides
 
@@ -302,7 +339,7 @@ otherwise be impossible to find or reconcile again.
 
 > **addTexts**(`texts`, `metadatas?`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [s3-vectors.ts:581](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L581)
+Defined in: [s3-vectors.ts:697](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L697)
 
 Add texts (with optional metadata) to the vector store.
 
@@ -363,7 +400,7 @@ Error if count of metadatas doesn't match count of texts
 
 > **addVectors**(`vectors`, `documents`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [s3-vectors.ts:357](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L357)
+Defined in: [s3-vectors.ts:411](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L411)
 
 Add pre-computed vectors alongside their documents to the store.
 
@@ -377,7 +414,7 @@ Array of embedding vectors (one per document)
 
 ##### documents
 
-`Document`\<`Record`\<`string`, `any`\>\>[]
+`DocumentInterface`\<`Record`\<`string`, `any`\>\>[]
 
 Array of documents corresponding to each vector
 
@@ -423,12 +460,16 @@ if it does not already exist and `createIndexIfNotExist` is `true`.
 
 #### Throws
 
-Error if counts of vectors, documents, or IDs don't match. On a
-partial-write failure (a later batch fails after earlier ones already
-committed), the thrown [S3VectorsError](S3VectorsError.md)'s `context.writtenIds`
-lists every id that was durably written before the failure — check it
-before retrying, especially for auto-generated ids, which would
-otherwise be impossible to find or reconcile again.
+Error if counts of vectors, documents, or IDs don't match, or
+if any id (supplied or taken from a document) is not a non-empty
+string or appears more than once in the same call — S3 Vectors keys
+must be non-empty, and a duplicate key inside one call would silently
+overwrite an earlier vector with a later one. On a partial-write
+failure (a later batch fails after earlier ones already committed),
+the thrown [S3VectorsError](S3VectorsError.md)'s `context.writtenIds` lists every
+id that was durably written before the failure — check it before
+retrying, especially for auto-generated ids, which would otherwise be
+impossible to find or reconcile again.
 
 #### Overrides
 
@@ -440,7 +481,7 @@ otherwise be impossible to find or reconcile again.
 
 > **delete**(`params?`): `Promise`\<`void`\>
 
-Defined in: [s3-vectors.ts:852](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L852)
+Defined in: [s3-vectors.ts:982](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L982)
 
 Delete vectors by ID, or delete the entire index.
 
@@ -477,7 +518,7 @@ tells you exactly what already happened.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1115](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L1115)
+Defined in: [s3-vectors.ts:1255](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L1255)
 
 Static factory: create an AmazonS3Vectors instance and add
 the given documents to the store.
@@ -486,7 +527,7 @@ the given documents to the store.
 
 ##### docs
 
-`Document`\<`Record`\<`string`, `any`\>\>[]
+`DocumentInterface`\<`Record`\<`string`, `any`\>\>[]
 
 ##### embeddings
 
@@ -518,7 +559,7 @@ instance from the same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1077](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L1077)
+Defined in: [s3-vectors.ts:1217](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L1217)
 
 Static factory: create an AmazonS3Vectors instance, embed
 the given texts, and add them to the store.
@@ -555,7 +596,7 @@ the given texts, and add them to the store.
 
 > **getByIds**(`ids`, `options?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:960](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L960)
+Defined in: [s3-vectors.ts:1100](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L1100)
 
 Retrieve documents by their vector IDs.
 
@@ -597,6 +638,16 @@ The order of the returned documents matches the order of the input IDs.
 When duplicate IDs are present, metadata is deep-copied (via `structuredClone`)
 to prevent shared-reference mutations between returned documents.
 
+**Missing ids throw** (`NOT_FOUND`) rather than being skipped. This
+matches the Python `langchain-aws` `AmazonS3Vectors.get_by_ids`, but is
+stricter than `@langchain/core`'s generic `VectorStore.getByIds`
+contract, which allows a store to return fewer documents than ids. An
+id that is not there is treated as a data-integrity signal, not a
+normal outcome — the throwing behaviour means a caller can never
+misalign a shorter result array against its id list. To tolerate
+missing ids, catch the error and read `context.foundIds`, or check
+existence first.
+
 #### Throws
 
 Error if any ID is not found in the vector store, or if a
@@ -612,7 +663,7 @@ caller doesn't have to re-fetch everything from scratch.
 
 > **maxMarginalRelevanceSearch**(`_query`, `_options`, `_callbacks?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:815](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L815)
+Defined in: [s3-vectors.ts:934](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L934)
 
 Maximal Marginal Relevance (MMR) search — **not supported** by this store.
 
@@ -659,7 +710,7 @@ Always, with code `NOT_IMPLEMENTED`.
 
 > **similaritySearch**(`query`, `k?`, `filter?`, `_callbacks?`, `signal?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:724](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L724)
+Defined in: [s3-vectors.ts:840](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L840)
 
 Run a text-based similarity search and return documents (no scores).
 
@@ -713,7 +764,7 @@ model is used for the query, matching `asRetriever()`'s behavior.
 
 > **similaritySearchByVector**(`embedding`, `k?`, `filter?`, `signal?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:745](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L745)
+Defined in: [s3-vectors.ts:861](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L861)
 
 Return documents most similar to a raw embedding vector (no scores).
 
@@ -747,7 +798,7 @@ Abort an in-progress search (see [similaritySearchVectorWithScore](#similarityse
 
 > **similaritySearchVectorWithScore**(`query`, `k`, `filter?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:622](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L622)
+Defined in: [s3-vectors.ts:738](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L738)
 
 Core similarity search returning `[Document, distance]` tuples.
 
@@ -807,11 +858,14 @@ result. Fails closed instead of defaulting to the best possible score.
 
 > **similaritySearchWithRelevanceScores**(`query`, `k?`, `filter?`, `callbacksOrSignal?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:781](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L781)
+Defined in: [s3-vectors.ts:900](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L900)
 
 Run a text-based similarity search and return documents with
 *relevance scores* (higher is better), converted from S3 Vectors'
-raw distance via [\_selectRelevanceScoreFn](#_selectrelevancescorefn).
+raw distance via [AmazonS3VectorsConfig.relevanceScoreFn](../interfaces/AmazonS3VectorsConfig.md#relevancescorefn) when
+configured, otherwise the built-in function for the configured
+[distanceMetric](#distancemetric) (`cosineRelevanceScoreFn` /
+`euclideanRelevanceScoreFn`, both exported).
 
 #### Parameters
 
@@ -856,7 +910,7 @@ Abort an in-progress search (see [similaritySearchVectorWithScore](#similarityse
 
 > **similaritySearchWithScore**(`query`, `k?`, `filter?`, `_callbacks?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:683](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/4000a1f7254eb18b0b596902e146bd55873793f4/src/s3-vectors.ts#L683)
+Defined in: [s3-vectors.ts:799](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/s3-vectors.ts#L799)
 
 Run a text-based similarity search and return documents with scores.
 

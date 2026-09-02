@@ -3,6 +3,9 @@ name: Release NPM Package
 on:
   push:
     tags: ['v*']
+  # Manual dispatch is allowed only when run *from a tag ref* — the guard
+  # step below refuses anything else, so a dispatch from `main` can't
+  # publish whatever HEAD happens to be.
   workflow_dispatch:
 
 concurrency:
@@ -21,6 +24,26 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The tag must be exactly `v<package.json version>` — a tag pushed
+      # against a commit whose package.json was never bumped would otherwise
+      # either publish a duplicate version (and fail late, after every gate
+      # ran) or, worse, publish the wrong version number under a tag that
+      # claims another. Also enforces the tag-ref-only rule for dispatches.
+      - name: Verify tag matches package.json version
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "::error::Release must run from a tag ref (got ${GITHUB_REF_TYPE} ${GITHUB_REF})."
+            exit 1
+          fi
+          TAG="${GITHUB_REF_NAME}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "${TAG}" != "v${PKG_VERSION}" ]; then
+            echo "::error::Tag ${TAG} does not match package.json version ${PKG_VERSION} (expected v${PKG_VERSION})."
+            exit 1
+          fi
+          echo "Releasing ${TAG} (package.json version ${PKG_VERSION})."
+
       # Use Node 24 for the publish step. Trusted Publishing requires
       # npm CLI >= 11.5.1, and all Node 22.x releases still bundle
       # npm 10.x as of this writing. Node 24.x ships with npm 11.x.
@@ -33,14 +56,26 @@ jobs:
           cache: npm
 
       # Belt-and-suspenders: ensure npm is new enough for Trusted
-      # Publishing even if the bundled version moves backwards.
-      - run: npm install -g npm@latest
+      # Publishing even if the bundled version moves backwards. Pinned to
+      # an exact version, not `@latest` — a release pipeline must not pull
+      # an unreviewed npm CLI onto the machine that holds the OIDC token.
+      # Bump deliberately, alongside the rest of the toolchain.
+      - run: npm install -g npm@11.11.0
 
       - run: npm ci
-      - run: npm run typecheck
       - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run typecheck:test
+      - run: npm run typecheck:types
       - run: npm test -- --ci
       - run: npm run build
+      # The same consumer-side check CI runs: pack, install into a fresh
+      # project, import the public API. Rebuilds dist internally.
+      - run: npm run test:package-smoke
+
+      # Show exactly what is about to be published — the file list and the
+      # resolved version — in the run log, before anything is irreversible.
+      - run: npm publish --dry-run --access public
 
       # Do NOT set NODE_AUTH_TOKEN here — setting it (even as empty)
       # causes npm to try token auth and bypass OIDC.

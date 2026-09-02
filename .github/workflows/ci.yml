@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   lint:
-    name: lint + typecheck
+    name: lint + typecheck + hygiene
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -30,6 +30,20 @@ jobs:
       # test/ is excluded from tsconfig.json (which builds only src/), so
       # without this the suite had no type checking in CI at all.
       - run: npm run typecheck:test
+      # Compile-time assertions about the *public* type surface
+      # (test/types/*.test-d.ts) — a widened or narrowed signature fails here.
+      - run: npm run typecheck:types
+      # Unused exports / files / dependencies, and dependencies that are
+      # imported but not declared. Both were wired up as scripts but never
+      # run in CI, so they only ever caught what someone remembered to run
+      # locally.
+      - run: npm run unused
+      - run: npm run depcheck
+      # The generated API reference under docs/ is committed. Regenerate
+      # and fail if it drifted from the source — a doc comment edited
+      # without re-running `npm run docs` otherwise ships stale docs.
+      - run: npm run docs
+      - run: git diff --exit-code --ignore-cr-at-eol -- docs
 
   test:
     name: test (node ${{ matrix.node }} on ${{ matrix.os }})
@@ -49,6 +63,22 @@ jobs:
       - run: npm test -- --ci
       - run: npm run build
 
+  package-smoke:
+    name: package smoke (pack + install + import)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      # Builds, `npm pack`s, installs the tarball into a fresh project and
+      # imports the public API from it — the only check that exercises the
+      # `exports` map, `files` allow-list and `main`/`types` as a consumer
+      # sees them, rather than as the repo's own TypeScript program does.
+      - run: npm run test:package-smoke
+
   audit:
     name: npm audit (high+)
     runs-on: ubuntu-latest
@@ -59,4 +89,8 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
-      - run: npm audit --omit=dev --audit-level=high
+      # No `--omit=dev`: this package has no runtime `dependencies` at all
+      # — `@aws-sdk/client-s3vectors` and `@langchain/core` are peers,
+      # installed here via devDependencies. With `--omit=dev` the audit
+      # therefore had an empty tree and passed unconditionally.
+      - run: npm audit --audit-level=high

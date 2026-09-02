@@ -180,7 +180,7 @@ if (!env) {
             {
               key: 'foreign',
               data: { float32: [0.9, 0.8, 0.7, 0.6] },
-              metadata: { _page_content: 12345, other: 'kept' } as never,
+              metadata: { _page_content: 12345, other: 'kept' },
             },
           ],
         }),
