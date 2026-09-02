@@ -99,9 +99,10 @@ npm install @farukada/aws-langchain-s3-vector-ts @aws-sdk/client-s3vectors @lang
 
 - **Node.js** `>= 20` — matches the minimum required by both peer dependencies (`@aws-sdk/client-s3vectors`, `@langchain/core`). (Publishing this package to npm separately requires Node ≥24, for npm Trusted Publishing's npm-CLI requirement — that's a CI/release-only constraint and doesn't affect consumers.)
 - **npm** `>= 10.0.0`.
-- **Module format:** ESM only (`"type": "module"`, a single `import` entry in `exports`, no CommonJS build). From a CommonJS project you have two options:
-  - **`require()` directly** on Node ≥ 20.19 / ≥ 22.12 / any 24.x, where [`require(esm)`](https://nodejs.org/api/modules.html#loading-ecmascript-modules-using-require) is enabled by default: `const { AmazonS3Vectors } = require('@farukada/aws-langchain-s3-vector-ts');` works because this package has no top-level `await`. Confirmed against the built package.
-  - **Dynamic `import()`** on Node 20.0–20.18 or 22.0–22.11: `const { AmazonS3Vectors } = await import('@farukada/aws-langchain-s3-vector-ts');`.
+- **Module format:** dual. The package ships an ES module build (`dist/esm/`) and a CommonJS build (`dist/cjs/`) compiled from the same source, and the `exports` map serves each consumer the matching one with its own declarations — `import` resolves to ESM and `require` to CommonJS on every supported Node version, with no dependence on Node's `require(esm)`. The shape is verified on every commit by [publint](https://publint.dev/) and [arethetypeswrong](https://arethetypeswrong.github.io/), and the packed tarball is installed into a fresh project and used from ESM, CommonJS and a TypeScript 5 consumer in CI.
+  - `import { AmazonS3Vectors } from '@farukada/aws-langchain-s3-vector-ts';` — ESM and TypeScript.
+  - `const { AmazonS3Vectors } = require('@farukada/aws-langchain-s3-vector-ts');` — CommonJS.
+  - A process that mixes both loads two copies of the module. `isS3VectorsError` recognises errors from either copy (it brands with a shared `Symbol.for`, never `instanceof`), so an error thrown inside a CommonJS dependency is still identifiable from ESM code, and vice versa.
 - **Tree-shaking:** the package declares `"sideEffects": false` — importing one export does not pull in module-level side effects, so bundlers may drop what you don't use.
 
 ### Basic Usage
@@ -753,7 +754,8 @@ npm run verify:edge     # null page-content key, raw vectors, duplicate ids, non
 npm run typecheck   # tsc --noEmit
 npm run lint        # ESLint (read-only)
 npm run lint:fix    # ESLint with --fix
-npm run build       # Compile to dist/
+npm run build       # Compile src/ to dist/esm (ESM) and dist/cjs (CommonJS)
+npm run pack:check  # Tarball listing guard, then publint + arethetypeswrong (needs a build)
 npm run docs        # Regenerate TypeDoc output
 ```
 
@@ -786,8 +788,11 @@ test/                             # Unit (100% coverage), contract, property, ty
 ├── contract/                     # VectorStore + MMR contract tests
 ├── property/                     # fast-check invariants (metadata, batching)
 ├── types/                        # Compile-time public-API assertions
-├── package-smoke/                # Packed-tarball import smoke (node --test)
+├── package-smoke/                # Pack, install, then import / require / type-check the tarball (node --test)
 └── integration/                  # Live-AWS integration tests (env-gated)
+
+scripts/
+└── pack-check.mjs                # Tarball listing guard; `npm run pack:check` adds publint + arethetypeswrong
 
 examples/                         # Standalone real-AWS verification scripts (.mjs)
 ├── _harness.mjs / _embeddings.mjs
@@ -802,6 +807,7 @@ examples/                         # Standalone real-AWS verification scripts (.m
 └── release.yml                   # Tag-triggered publish via npm Trusted Publishing (+ SBOM)
 
 docs/                             # TypeDoc-generated API docs (checked in)
+dist/                             # Build output (gitignored): esm/ and cjs/ trees from the same source
 ```
 
 ## 🤝 Contributing

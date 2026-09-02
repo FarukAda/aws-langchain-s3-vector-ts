@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { Document } from '@langchain/core/documents';
 
-import { AmazonS3Vectors } from '../dist/index.js';
+import { AmazonS3Vectors } from '../dist/esm/index.js';
 import { createEmbeddings } from './_embeddings.mjs';
 import { check, requireEnv, section, summary } from './_harness.mjs';
 

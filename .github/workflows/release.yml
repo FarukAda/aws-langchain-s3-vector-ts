@@ -69,8 +69,11 @@ jobs:
       - run: npm run typecheck:types
       - run: npm test -- --ci
       - run: npm run build
-      # The same consumer-side check CI runs: pack, install into a fresh
-      # project, import the public API. Rebuilds dist internally.
+      # The same consumer-side checks CI runs: the tarball's shape (listing,
+      # publint, arethetypeswrong), then pack, install into a fresh project
+      # and use the public API from ESM, CommonJS and TypeScript. The smoke
+      # rebuilds dist internally.
+      - run: npm run pack:check
       - run: npm run test:package-smoke
 
       # Show exactly what is about to be published — the file list and the

@@ -64,7 +64,7 @@ jobs:
       - run: npm run build
 
   package-smoke:
-    name: package smoke (pack + install + import)
+    name: package smoke (pack + lint + install + import)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -73,10 +73,18 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
-      # Builds, `npm pack`s, installs the tarball into a fresh project and
-      # imports the public API from it — the only check that exercises the
-      # `exports` map, `files` allow-list and `main`/`types` as a consumer
-      # sees them, rather than as the repo's own TypeScript program does.
+      - run: npm run build
+      # The tarball's shape, as a resolver sees it: the file listing (both
+      # module trees, no declaration maps, nothing stray), publint, and
+      # arethetypeswrong resolving the `exports` map from ESM, CommonJS and
+      # bundler consumers — a `require` condition that silently lands on an
+      # ES module fails here.
+      - run: npm run pack:check
+      # `npm pack`s, installs the tarball into a fresh project and uses the
+      # public API from it: `import`, `require`, and a TypeScript 5 consumer
+      # type-checked against the shipped declarations — the only check that
+      # exercises the package as a consumer sees it, rather than as the
+      # repo's own TypeScript program does.
       - run: npm run test:package-smoke
 
   audit:

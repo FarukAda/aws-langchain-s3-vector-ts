@@ -1,4 +1,4 @@
-import { isS3VectorsError } from '../dist/index.js';
+import { isS3VectorsError } from '../dist/esm/index.js';
 
 let passed = 0;
 let failed = 0;
