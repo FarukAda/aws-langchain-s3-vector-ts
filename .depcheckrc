@@ -6,6 +6,7 @@
     "typedoc-plugin-markdown",
     "jiti",
     "aws-sdk-client-mock",
-    "@typescript/native"
+    "@typescript/native",
+    "@arethetypeswrong/cli"
   ]
 }

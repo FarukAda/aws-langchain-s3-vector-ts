@@ -133,3 +133,25 @@ test(
     }
   },
 );
+
+test(
+  'pack:check passes with npm dry-run config inherited from a publish',
+  { timeout: 600000 },
+  () => {
+    // `npm publish --dry-run` exports npm_config_dry_run=true to every
+    // lifecycle script it runs, and prepublishOnly runs pack:check. Anything
+    // inside that shells out to `npm pack` inherits the flag, gets no tarball
+    // written, and fails on a file that does not exist — which is exactly how
+    // the first v1.0.0-rc.1 release run died, at the dry-run step, before
+    // publishing. Reproduce that environment and require the check to pass.
+    const root = process.cwd();
+    execSync('npm run build', { cwd: root, stdio: 'ignore' });
+    const output = execSync('npm run pack:check', {
+      cwd: root,
+      env: { ...process.env, npm_config_dry_run: 'true' },
+      stdio: ['ignore', 'pipe', 'inherit'],
+    }).toString();
+    assert.match(output, /pack listing ok/);
+    assert.match(output, /No problems found/);
+  },
+);
