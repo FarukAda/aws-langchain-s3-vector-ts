@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   release:
+    name: publish ${{ github.ref_name }}
     runs-on: ubuntu-latest
     permissions:
       # `contents: write` is needed to create the GitHub release.
@@ -21,6 +22,8 @@ jobs:
       # `id-token: write` is required for npm Trusted Publishing and
       # automatic provenance attestation.
       id-token: write
+      # `checks: read` lets the CI gate below read this commit's check runs.
+      checks: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -29,6 +32,11 @@ jobs:
       # either publish a duplicate version (and fail late, after every gate
       # ran) or, worse, publish the wrong version number under a tag that
       # claims another. Also enforces the tag-ref-only rule for dispatches.
+      #
+      # A prerelease version (one containing `-`, e.g. 1.0.0-rc.1) publishes
+      # under the `next` dist-tag and as a prerelease GitHub release, so
+      # `npm install` without a tag keeps resolving to the last stable
+      # version. A plain version goes to `latest`.
       - name: Verify tag matches package.json version
         run: |
           set -euo pipefail
@@ -42,7 +50,50 @@ jobs:
             echo "::error::Tag ${TAG} does not match package.json version ${PKG_VERSION} (expected v${PKG_VERSION})."
             exit 1
           fi
-          echo "Releasing ${TAG} (package.json version ${PKG_VERSION})."
+          if [[ "${PKG_VERSION}" == *-* ]]; then
+            echo "DIST_TAG=next" >> "$GITHUB_ENV"
+            echo "PRERELEASE=true" >> "$GITHUB_ENV"
+            echo "Releasing ${TAG} (package.json version ${PKG_VERSION}) as a prerelease under the next dist-tag."
+          else
+            echo "DIST_TAG=latest" >> "$GITHUB_ENV"
+            echo "PRERELEASE=false" >> "$GITHUB_ENV"
+            echo "Releasing ${TAG} (package.json version ${PKG_VERSION}) under the latest dist-tag."
+          fi
+
+      # Publishing is gated on the CI that already ran for this commit: every
+      # GitHub Actions check run on it — the OS × Node test matrix, the
+      # package checks, the audit, CodeQL, Scorecard — must have completed
+      # without failing. The gates re-run below catch a broken toolchain on
+      # this runner, but only the matrix proves the other two operating
+      # systems and Node versions, and only the commit's own check runs
+      # carry that. A tag on a commit that never went through CI has no
+      # check runs and times out here rather than publishing. This job's
+      # own check run is excluded from the count.
+      - name: Wait for a fully successful CI run of this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWN_CHECK: publish ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            runs="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100" \
+              --jq '[.check_runs[] | select(.app.slug == "github-actions" and .name != "'"${OWN_CHECK}"'")]')"
+            total="$(jq 'length' <<< "$runs")"
+            settled="$(jq '[.[] | select(.status == "completed" and (.conclusion == "success" or .conclusion == "skipped" or .conclusion == "neutral"))] | length' <<< "$runs")"
+            failed="$(jq '[.[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral"))] | length' <<< "$runs")"
+            echo "CI check runs for ${GITHUB_SHA}: ${settled}/${total} succeeded, ${failed} failed"
+            if [ "${failed}" != "0" ]; then
+              jq -r '.[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")) | "  \(.name): \(.conclusion)"' <<< "$runs"
+              echo "::error::CI failed for ${GITHUB_SHA}; not publishing."
+              exit 1
+            fi
+            if [ "${total}" != "0" ] && [ "${settled}" = "${total}" ]; then
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::CI for ${GITHUB_SHA} did not complete within 30 minutes; not publishing."
+          exit 1
 
       # Use Node 24 for the publish step. Trusted Publishing requires
       # npm CLI >= 11.5.1, and all Node 22.x releases still bundle
@@ -78,14 +129,14 @@ jobs:
 
       # Show exactly what is about to be published — the file list and the
       # resolved version — in the run log, before anything is irreversible.
-      - run: npm publish --dry-run --access public
+      - run: npm publish --dry-run --access public --tag "${DIST_TAG}"
 
       # Do NOT set NODE_AUTH_TOKEN here — setting it (even as empty)
       # causes npm to try token auth and bypass OIDC.
       # The --provenance flag is explicit: npm docs say it is automatic
       # with trusted publishing, but field reports suggest some npm
       # versions still require the flag. It is harmless to include it.
-      - run: npm publish --access public --provenance
+      - run: npm publish --access public --provenance --tag "${DIST_TAG}"
 
       # SBOM for this exact release, generated from the same checkout and
       # lockfile just published — attached to the GitHub Release below so
@@ -95,6 +146,7 @@ jobs:
       - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           generate_release_notes: true
+          prerelease: ${{ env.PRERELEASE == 'true' }}
           files: sbom.cyclonedx.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

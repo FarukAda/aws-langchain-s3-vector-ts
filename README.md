@@ -804,7 +804,7 @@ examples/                         # Standalone real-AWS verification scripts (.m
 ├── dependency-review.yml         # Fails a PR introducing a high-severity+ vulnerable dependency
 ├── scorecard.yml                 # OpenSSF Scorecard, published weekly + on push to main
 ├── integration-live.yml          # Nightly + workflow_dispatch live-AWS smoke via OIDC
-└── release.yml                   # Tag-triggered publish via npm Trusted Publishing (+ SBOM)
+└── release.yml                   # Tag-triggered publish via npm Trusted Publishing, gated on green CI (+ SBOM); `-rc` tags go to `next`
 
 docs/                             # TypeDoc-generated API docs (checked in)
 dist/                             # Build output (gitignored): esm/ and cjs/ trees from the same source

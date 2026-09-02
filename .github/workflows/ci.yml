@@ -20,6 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The CHANGELOG check below diffs a pull request against its base,
+          # which needs the merge base in the clone.
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '20'
@@ -44,6 +48,59 @@ jobs:
       # without re-running `npm run docs` otherwise ships stale docs.
       - run: npm run docs
       - run: git diff --exit-code --ignore-cr-at-eol -- docs
+      # Duplicated source. Wired up as a script long before it ran in CI.
+      - run: npm run cpd
+      # Workflow syntax, expression types and — through shellcheck — the
+      # shell in every `run:` block of every workflow here. The image is
+      # pinned by digest, as every action in this repo is pinned by SHA.
+      - name: Lint workflows (actionlint)
+        run: docker run --rm -v "${PWD}:/repo" -w /repo rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color # v1.7.12
+      # A change under src/ must come with a CHANGELOG entry. Pull requests
+      # only: a push to main has no base to diff against. Dependabot touches
+      # package.json and the lockfile, never src/, so it passes.
+      - name: CHANGELOG entry for source changes
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "${BASE_REF}"
+          changed="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
+          if grep -q '^src/' <<< "${changed}" && ! grep -q '^CHANGELOG\.md$' <<< "${changed}"; then
+            echo "::error::src/ changed without a CHANGELOG.md entry under [Unreleased]."
+            exit 1
+          fi
+
+  peer-floors:
+    name: peer dependency floors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      # The declared peer ranges are a promise. The lockfile installs newer
+      # versions than the ranges' floors, so nothing else here proves the
+      # floors: install every peer at the lowest version its range admits,
+      # then type-check and run the unit tier against it. A floor that was
+      # never published, or an API this code uses that the floor lacks,
+      # fails here rather than on the consumer who pinned it.
+      - name: Install every declared peer at its floor
+        run: |
+          set -euo pipefail
+          read -ra floors <<< "$(node -e '
+            const { peerDependencies } = require("./package.json");
+            console.log(Object.entries(peerDependencies).map(([name, range]) => name + "@" + range.replace(/^[\^~]/, "")).join(" "));
+          ')"
+          echo "installing ${floors[*]}"
+          npm install --no-save "${floors[@]}"
+          npm ls --depth=0 "${floors[@]%@*}" || true
+      - run: npm run typecheck
+      - run: npm run typecheck:test
+      - run: npm run typecheck:types
+      - run: npm test -- --ci
 
   test:
     name: test (node ${{ matrix.node }} on ${{ matrix.os }})

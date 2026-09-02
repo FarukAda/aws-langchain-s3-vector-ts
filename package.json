@@ -41,6 +41,7 @@
     "build:esm": "tsc6 -p tsconfig.json",
     "build:cjs": "tsc6 -p tsconfig.cjs.json && node -e \"require('node:fs').writeFileSync('dist/cjs/package.json', JSON.stringify({ type: 'commonjs' }) + '\\n')\"",
     "pack:check": "node scripts/pack-check.mjs && publint && attw --pack . --profile node16",
+    "prepublishOnly": "npm run pack:check",
     "typecheck": "tsc6 --noEmit",
     "typecheck:types": "tsc6 --noEmit -p tsconfig.types.json",
     "typecheck:test": "tsc6 --noEmit -p tsconfig.test.json",
