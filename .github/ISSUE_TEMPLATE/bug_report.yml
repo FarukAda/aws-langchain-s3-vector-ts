@@ -1,0 +1,69 @@
+name: Bug report
+description: Something behaves differently from what the README documents
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      placeholder: "@farukada/aws-langchain-s3-vector-ts 1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: peers
+    attributes:
+      label: Peer versions
+      description: "@aws-sdk/client-s3vectors and @langchain/core, plus the embeddings package if one is involved (e.g. @langchain/aws)"
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version, module system and runtime
+      placeholder: "22.x, ESM, on Lambda / 24.x, CommonJS, on ECS"
+    validations:
+      required: true
+  - type: checkboxes
+    id: features
+    attributes:
+      label: Configured features
+      options:
+        - label: createIndexIfNotExist false (a pre-created index)
+        - label: a custom or null pageContentMetadataKey
+        - label: nonFilterableMetadataKeys
+        - label: encryptionConfiguration or tags
+        - label: an injected client
+        - label: separate queryEmbeddings
+        - label: batchSize or maxConcurrentBatchCalls tuned away from the defaults
+  - type: dropdown
+    id: operation
+    attributes:
+      label: Operation
+      options:
+        - addDocuments / addTexts / addVectors
+        - similaritySearch* / asRetriever
+        - getByIds
+        - delete
+        - fromTexts / fromDocuments / fromExistingIndex
+        - constructor / index creation
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence of calls that shows the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output
+      description: The error's code, message and context (awsErrorName, httpStatusCode, requestId, writtenIds, …). Redact bucket names, account ids and anything else you consider sensitive.
+      render: text

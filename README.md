@@ -4,7 +4,7 @@
 [![CI](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/codeql.yml/badge.svg)](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/FarukAda/aws-langchain-s3-vector-ts/badge)](https://scorecard.dev/viewer/?uri=github.com/FarukAda/aws-langchain-s3-vector-ts)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/typescript-6.0-blue)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![AWS SDK](https://img.shields.io/badge/AWS%20SDK-v3-orange)](https://aws.amazon.com/sdk-for-javascript/)
@@ -97,7 +97,7 @@ npm install @farukada/aws-langchain-s3-vector-ts @aws-sdk/client-s3vectors @lang
 
 ### Runtime Requirements
 
-- **Node.js** `>= 20` — matches the minimum required by both peer dependencies (`@aws-sdk/client-s3vectors`, `@langchain/core`). (Publishing this package to npm separately requires Node ≥24, for npm Trusted Publishing's npm-CLI requirement — that's a CI/release-only constraint and doesn't affect consumers.)
+- **Node.js** `>= 22`. Node 20 reached end of life on 30 April 2026 and is no longer tested; CI runs 22 and 24 on Linux, macOS and Windows. Both peer dependencies still accept Node 20 and nothing in this package's runtime needs a newer API — the floor tracks maintained Node lines, not a feature. (Publishing this package to npm separately requires Node ≥24, for npm Trusted Publishing's npm-CLI requirement — that's a CI/release-only constraint and doesn't affect consumers.)
 - **npm** `>= 10.0.0`.
 - **Module format:** dual. The package ships an ES module build (`dist/esm/`) and a CommonJS build (`dist/cjs/`) compiled from the same source, and the `exports` map serves each consumer the matching one with its own declarations — `import` resolves to ESM and `require` to CommonJS on every supported Node version, with no dependence on Node's `require(esm)`. The shape is verified on every commit by [publint](https://publint.dev/) and [arethetypeswrong](https://arethetypeswrong.github.io/), and the packed tarball is installed into a fresh project and used from ESM, CommonJS and a TypeScript 5 consumer in CI.
   - `import { AmazonS3Vectors } from '@farukada/aws-langchain-s3-vector-ts';` — ESM and TypeScript.
@@ -697,6 +697,18 @@ The store uses the following S3 Vectors actions. The IAM policy below enumerates
 
 ## 🧪 Testing
 
+### What each tier proves
+
+| Tier | Runs | Proves |
+| --- | --- | --- |
+| Unit (`npm test`) | every push, 3 OS × Node 22/24 | Every code path against a mocked `S3VectorsClient` at 100 % coverage, including the `VectorStore` contract suite, `fast-check` property tests over batching and metadata, and compile-time assertions on the public types. The mocks encode AWS's *documented* responses. |
+| Peer floors | every push | The lower bound of each declared peer range compiles and passes the unit tier, so the ranges in `package.json` are a promise rather than a guess. |
+| Package (`npm run pack:check`, `npm run test:package-smoke`) | every push and every release | The tarball's shape (the file listing, publint, arethetypeswrong), and that the installed package works from ESM, CommonJS and a TypeScript 5 consumer with `skipLibCheck` off. |
+| Live AWS (`npm run test:integration`) | nightly and on demand, against an ephemeral bucket | The real service behaves as the mocks assume: index lifecycle, writes, reads, filters, pagination and the error shapes this library branches on. |
+| Verification scripts (`npm run verify`) | on demand | The whole public API end to end, with real Bedrock embeddings. |
+
+What nothing proves: throughput under a shared account quota, behaviour at AWS's absolute limits (a 20 MiB request, a 10,000-result search) beyond what the live suite samples, and any S3 Vectors behaviour AWS changes between two nightly runs. There is no S3 Vectors emulator, so every check that is not the live suite trusts the documented contract.
+
 ### Unit tests
 
 ```bash
@@ -723,9 +735,9 @@ npm run test:integration
 
 Without `RUN_LIVE_INTEGRATION=1` **and** `AWS_VECTOR_BUCKET` set, the suite prints a skip message and exits 0 — no false passes, no false fails.
 
-**CI run (on-demand):**
+**CI run (nightly and on demand):**
 
-The [`Integration (live AWS)`](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/integration-live.yml) workflow is triggered manually via the GitHub Actions UI (`workflow_dispatch`). It uses GitHub OIDC to assume an IAM role (configured via the `AWS_ROLE_TO_ASSUME` secret) and runs against the bucket named in the `AWS_VECTOR_BUCKET` repository variable.
+The [`Integration (live AWS)`](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/integration-live.yml) workflow runs every night and via `workflow_dispatch`. It assumes an IAM role through GitHub OIDC (the `AWS_ROLE_TO_ASSUME` secret), creates an ephemeral vector bucket (`langchain-vectors-ci`), runs the suite, deletes the bucket again, and fails if it reports success having run zero tests — so a dropped environment variable can never turn the job green without a single AWS call.
 
 ### Verifying against real AWS
 
@@ -799,7 +811,7 @@ examples/                         # Standalone real-AWS verification scripts (.m
 └── verify-core / verify-search / verify-edge-cases
 
 .github/workflows/
-├── ci.yml                        # CI on push/PR to main (3 OS × Node 20/22/24)
+├── ci.yml                        # CI on push/PR to main (3 OS × Node 22/24, peer floors, package checks, hygiene)
 ├── codeql.yml                    # Static analysis on push/PR to main + weekly
 ├── dependency-review.yml         # Fails a PR introducing a high-severity+ vulnerable dependency
 ├── scorecard.yml                 # OpenSSF Scorecard, published weekly + on push to main
@@ -812,7 +824,7 @@ dist/                             # Build output (gitignored): esm/ and cjs/ tre
 
 ## 🤝 Contributing
 
-Contributions are welcome — please open an issue to discuss non-trivial changes before submitting a PR. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for local development setup, coding standards, and PR expectations, and [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) for community expectations.
+Contributions are welcome — please open an issue to discuss non-trivial changes before submitting a PR. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for local development setup, coding standards, and PR expectations, and [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) for community expectations. [`SUPPORT.md`](./SUPPORT.md) says how to get help, and [`docs/STABILITY.md`](./docs/STABILITY.md) states what every `1.x` release promises to keep: the public API, what the store writes to S3 Vectors, the error codes, and the supported Node, TypeScript and peer ranges.
 
 Found a security issue? See [`SECURITY.md`](./SECURITY.md) instead of opening a public issue.
 

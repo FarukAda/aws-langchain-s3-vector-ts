@@ -35,7 +35,7 @@ export interface S3VectorsErrorContext {
    * The AWS exception name (`"AccessDeniedException"`, `"ThrottlingException"`,
    * `"ValidationException"`, …) when the failure came from an AWS SDK call.
    * Lifted off `cause.name` so a log line or alert can branch on it without
-   * walking `cause`. Set on `AWS_REQUEST_FAILED` and `INDEX_NOT_FOUND`
+   * walking `cause`. Set on `AWS_REQUEST_FAILED` and `NOT_FOUND`
    * errors whose cause is an SDK error; absent otherwise.
    */
   readonly awsErrorName?: string;
