@@ -208,7 +208,7 @@ Defined in: [s3-vectors.ts:219](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **\_selectRelevanceScoreFn**(): (`distance`) => `number`
 
-Defined in: [s3-vectors.ts:1276](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1276)
+Defined in: [s3-vectors.ts:1269](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1269)
 
 **`Internal`**
 
@@ -481,7 +481,7 @@ impossible to find or reconcile again.
 
 > **delete**(`params?`): `Promise`\<`void`\>
 
-Defined in: [s3-vectors.ts:982](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L982)
+Defined in: [s3-vectors.ts:975](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L975)
 
 Delete vectors by ID, or delete the entire index.
 
@@ -518,7 +518,7 @@ tells you exactly what already happened.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1255](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1255)
+Defined in: [s3-vectors.ts:1248](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1248)
 
 Static factory: create an AmazonS3Vectors instance and add
 the given documents to the store.
@@ -559,7 +559,7 @@ instance from the same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1217](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1217)
+Defined in: [s3-vectors.ts:1210](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1210)
 
 Static factory: create an AmazonS3Vectors instance, embed
 the given texts, and add them to the store.
@@ -596,7 +596,7 @@ the given texts, and add them to the store.
 
 > **getByIds**(`ids`, `options?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:1100](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1100)
+Defined in: [s3-vectors.ts:1093](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1093)
 
 Retrieve documents by their vector IDs.
 
@@ -663,7 +663,7 @@ caller doesn't have to re-fetch everything from scratch.
 
 > **maxMarginalRelevanceSearch**(`_query`, `_options`, `_callbacks?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:934](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L934)
+Defined in: [s3-vectors.ts:927](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L927)
 
 Maximal Marginal Relevance (MMR) search — **not supported** by this store.
 
@@ -856,9 +856,9 @@ result. Fails closed instead of defaulting to the best possible score.
 
 ### similaritySearchWithRelevanceScores()
 
-> **similaritySearchWithRelevanceScores**(`query`, `k?`, `filter?`, `callbacksOrSignal?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
+> **similaritySearchWithRelevanceScores**(`query`, `k?`, `filter?`, `callbacks?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:900](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L900)
+Defined in: [s3-vectors.ts:899](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L899)
 
 Run a text-based similarity search and return documents with
 *relevance scores* (higher is better), converted from S3 Vectors'
@@ -881,18 +881,17 @@ configured, otherwise the built-in function for the configured
 
 `Record`\<`string`, `unknown`\>
 
-##### callbacksOrSignal?
+##### callbacks?
 
-`AbortSignal` \| `Callbacks`
+`Callbacks`
 
-The `Callbacks` slot every other text-based
-method on this class reserves in this position (accepted and ignored,
-exactly as in those siblings). This method historically took the
-`AbortSignal` here instead, so an `AbortSignal` passed in this position
-is still honored and no existing caller breaks. Prefer passing the
-signal as the fifth argument, matching [similaritySearch](#similaritysearch) and
-[similaritySearchWithScore](#similaritysearchwithscore) — a caller following that house
-pattern previously had their signal silently dropped.
+The `Callbacks` slot every text-based method on this
+class reserves in this position, accepted and ignored exactly as in
+[similaritySearch](#similaritysearch) and [similaritySearchWithScore](#similaritysearchwithscore). An
+`AbortSignal` passed here is rejected with a coded `VALIDATION` error
+before the billable `embedQuery` call, as on those siblings. (Through
+0.x this method honored a signal in this position, where earlier
+versions expected it; 1.0 aligned it with the rest of the class.)
 
 ##### signal?
 

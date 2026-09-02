@@ -121,9 +121,9 @@ function isPlainFilterObject(value: unknown): value is Record<string, unknown> {
 /**
  * True for an `AbortSignal`-shaped value. Duck-typed rather than
  * `instanceof` (banned in this codebase, and unreliable across realms).
- * Used only to disambiguate the one parameter slot that accepts either a
- * `Callbacks` or an `AbortSignal` — neither a `CallbackManager` nor a
- * handler array carries a boolean `aborted`, so the two can't be confused.
+ * Used only to recognise a signal mistakenly passed in the `Callbacks`
+ * slot — neither a `CallbackManager` nor a handler array carries a boolean
+ * `aborted`, so the two can't be confused.
  */
 function isAbortSignalLike(value: unknown): value is AbortSignal {
   if (typeof value !== 'object' || value === null) return false;
@@ -887,32 +887,25 @@ export class AmazonS3Vectors extends VectorStore {
    * {@link distanceMetric} (`cosineRelevanceScoreFn` /
    * `euclideanRelevanceScoreFn`, both exported).
    *
-   * @param callbacksOrSignal - The `Callbacks` slot every other text-based
-   * method on this class reserves in this position (accepted and ignored,
-   * exactly as in those siblings). This method historically took the
-   * `AbortSignal` here instead, so an `AbortSignal` passed in this position
-   * is still honored and no existing caller breaks. Prefer passing the
-   * signal as the fifth argument, matching {@link similaritySearch} and
-   * {@link similaritySearchWithScore} — a caller following that house
-   * pattern previously had their signal silently dropped.
+   * @param callbacks - The `Callbacks` slot every text-based method on this
+   * class reserves in this position, accepted and ignored exactly as in
+   * {@link similaritySearch} and {@link similaritySearchWithScore}. An
+   * `AbortSignal` passed here is rejected with a coded `VALIDATION` error
+   * before the billable `embedQuery` call, as on those siblings. (Through
+   * 0.x this method honored a signal in this position, where earlier
+   * versions expected it; 1.0 aligned it with the rest of the class.)
    * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
    */
   async similaritySearchWithRelevanceScores(
     query: string,
     k = 4,
     filter?: this['FilterType'],
-    callbacksOrSignal?: Callbacks | AbortSignal,
+    callbacks?: Callbacks,
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
-    const effectiveSignal = isAbortSignalLike(callbacksOrSignal) ? callbacksOrSignal : signal;
+    this._rejectSignalInCallbacksSlot('similaritySearchWithRelevanceScores', callbacks);
     const scoreFn = this._selectRelevanceScoreFn();
-    const results = await this.similaritySearchWithScore(
-      query,
-      k,
-      filter,
-      undefined,
-      effectiveSignal,
-    );
+    const results = await this.similaritySearchWithScore(query, k, filter, undefined, signal);
     return results.map(([doc, distance]) => [doc, scoreFn(distance)]);
   }
 
@@ -1412,18 +1405,20 @@ export class AmazonS3Vectors extends VectorStore {
    *
    * @remarks
    * `@langchain/core`'s `VectorStore` reserves the fourth argument of
-   * {@link similaritySearch} and {@link similaritySearchWithScore} for
-   * `Callbacks`, which this store accepts and ignores; the `AbortSignal`
-   * belongs in the fifth. A signal passed in the fourth was silently
-   * discarded — the search ran to completion, having spent a billable
-   * `embedQuery` call, and the caller's cancellation simply never happened.
+   * {@link similaritySearch}, {@link similaritySearchWithScore} and
+   * {@link similaritySearchWithRelevanceScores} for `Callbacks`, which this
+   * store accepts and ignores; the `AbortSignal` belongs in the fifth. A
+   * signal passed in the fourth was silently discarded — the search ran to
+   * completion, having spent a billable `embedQuery` call, and the caller's
+   * cancellation simply never happened.
    *
    * Silently dropping a cancellation is the one outcome this library treats
    * as unacceptable elsewhere (it refuses to guess at a missing distance,
    * and refuses to return a short result set), so this fails closed and
-   * names the right slot instead. {@link similaritySearchWithRelevanceScores}
-   * deliberately does *not* do this: it historically accepted the signal
-   * there, so honoring it stays a documented back-compat affordance.
+   * names the right slot instead. Through 0.x,
+   * {@link similaritySearchWithRelevanceScores} was the exception — it had
+   * historically taken the signal there, so it kept honoring it; 1.0 made
+   * it match its siblings.
    *
    * Safe to duck-type: neither `CallbackManager` nor `BaseCallbackHandler`
    * carries a boolean `aborted` alongside an `addEventListener`.

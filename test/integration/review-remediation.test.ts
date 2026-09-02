@@ -142,7 +142,7 @@ if (!env) {
       expect(calls.query).toBe(embedsAfterWrite);
     }, 120_000);
 
-    it('honors an aborted signal in similaritySearchWithRelevanceScores in either slot', async () => {
+    it('honors an aborted signal in similaritySearchWithRelevanceScores in the 5th slot and rejects one in the 4th', async () => {
       const { store } = newStore();
       await store.addDocuments([new Document({ pageContent: 'hello' })], { ids: ['d1'] });
 
@@ -155,11 +155,13 @@ if (!env) {
         .catch((e: unknown) => e);
       expect((aligned as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
 
-      // 4th slot — the historical position, still honored.
+      // 4th slot — the historical position, honored through 0.x; since 1.0
+      // it is the Callbacks slot like on every sibling, and a signal there
+      // fails closed before the billable embedQuery call.
       const legacy = await store
-        .similaritySearchWithRelevanceScores('hello', 1, undefined, controller.signal)
+        .similaritySearchWithRelevanceScores('hello', 1, undefined, controller.signal as never)
         .catch((e: unknown) => e);
-      expect((legacy as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
+      expect((legacy as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
     }, 120_000);
 
     // ── Minor 2: non-string page-content value ──────────────────────────

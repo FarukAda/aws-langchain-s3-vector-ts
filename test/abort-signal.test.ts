@@ -119,7 +119,13 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
     });
 
     mock.resetHistory();
-    await store.similaritySearchWithRelevanceScores('q', 4, undefined, controller.signal);
+    await store.similaritySearchWithRelevanceScores(
+      'q',
+      4,
+      undefined,
+      undefined,
+      controller.signal,
+    );
     expect(sendOptionsOf(mock.commandCalls(QueryVectorsCommand)[0]!)).toEqual({
       abortSignal: controller.signal,
     });
@@ -271,14 +277,16 @@ describe('AmazonS3Vectors AbortSignal — stops before starting more uncancellab
   });
 });
 
-describe('similaritySearch / similaritySearchWithScore — a signal in the callbacks slot fails closed', () => {
-  // The Callbacks slot is the 4th argument on both methods, per
-  // @langchain/core's VectorStore signature, and this store accepts and
+describe('text-based searches — a signal in the callbacks slot fails closed', () => {
+  // The Callbacks slot is the 4th argument on all three text-based methods,
+  // per @langchain/core's VectorStore signature, and this store accepts and
   // ignores it. A signal passed there was silently discarded: the search ran
   // to completion, having already spent a billable embedQuery call, and the
   // caller's cancellation never happened. Failing closed names the right slot
   // instead — this is exactly the mistake that silently defeated an earlier
-  // regression test of our own.
+  // regression test of our own. similaritySearchWithRelevanceScores used to
+  // be the exception (it historically took the signal in the 4th slot, and
+  // 0.x honored it there for back-compat); 1.0 makes it match its siblings.
   it.each([
     [
       'similaritySearch',
@@ -288,6 +296,11 @@ describe('similaritySearch / similaritySearchWithScore — a signal in the callb
       'similaritySearchWithScore',
       (s: AmazonS3Vectors, sig: AbortSignal) =>
         s.similaritySearchWithScore('q', 4, undefined, sig as never),
+    ],
+    [
+      'similaritySearchWithRelevanceScores',
+      (s: AmazonS3Vectors, sig: AbortSignal) =>
+        s.similaritySearchWithRelevanceScores('q', 4, undefined, sig as never),
     ],
   ])('%s rejects an AbortSignal in the 4th slot before embedding', async (_label, call) => {
     const { client, mock } = createMockClient();
@@ -339,15 +352,13 @@ describe('similaritySearch / similaritySearchWithScore — a signal in the callb
   });
 });
 
-describe('similaritySearchWithRelevanceScores — signal in either slot', () => {
+describe('similaritySearchWithRelevanceScores — the signal is the 5th argument, like its siblings', () => {
   // This method historically took the AbortSignal in the 4th slot, where
-  // every other text-based method on this class takes Callbacks. A caller
-  // following the house pattern (query, k, filter, callbacks, signal) had
-  // their signal silently dropped. Both call styles now work.
-  it.each([
-    ['4th slot (historical)', true],
-    ['5th slot (house pattern)', false],
-  ])('honors an already-aborted signal passed in the %s', async (_label, legacySlot) => {
+  // every other text-based method on this class takes Callbacks, and 0.x
+  // honored it in either position. 1.0 aligns it with its siblings: the
+  // 4th slot is Callbacks only (a signal there is rejected, above) and the
+  // 5th slot is the signal.
+  it('honors an already-aborted signal passed in the 5th slot', async () => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
     mock.on(QueryVectorsCommand).resolves({ distanceMetric: 'cosine', vectors: [] });
@@ -355,17 +366,15 @@ describe('similaritySearchWithRelevanceScores — signal in either slot', () => 
     const controller = new AbortController();
     controller.abort();
 
-    const error = await (
-      legacySlot
-        ? store.similaritySearchWithRelevanceScores('q', 4, undefined, controller.signal)
-        : store.similaritySearchWithRelevanceScores('q', 4, undefined, undefined, controller.signal)
-    ).catch((e: unknown) => e);
+    const error = await store
+      .similaritySearchWithRelevanceScores('q', 4, undefined, undefined, controller.signal)
+      .catch((e: unknown) => e);
 
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ABORTED);
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
   });
 
-  it('does not mistake a Callbacks array in the 4th slot for an AbortSignal', async () => {
+  it('accepts a Callbacks array in the 4th slot', async () => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
     mock.on(QueryVectorsCommand).resolves({ distanceMetric: 'cosine', vectors: [] });

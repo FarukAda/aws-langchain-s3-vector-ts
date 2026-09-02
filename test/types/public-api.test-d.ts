@@ -37,10 +37,12 @@ void storeType;
 void searchResults;
 void relevanceResults;
 
-// similaritySearchWithRelevanceScores accepts an AbortSignal in either the
-// historical 4th slot or the 5th slot its text-based siblings use, so
-// realigning the parameter order broke no existing caller.
+// similaritySearchWithRelevanceScores takes the AbortSignal in the 5th slot,
+// like its text-based siblings. The 4th slot is Callbacks only: a signal
+// there fails to compile (and, from JavaScript, is rejected with VALIDATION)
+// instead of being honored as the historical position it was in 0.x.
 const relevanceAbortLegacy: Promise<[Document, number][]> =
+  // @ts-expect-error -- the 4th argument is Callbacks, not AbortSignal
   store.similaritySearchWithRelevanceScores('q', 4, undefined, new AbortController().signal);
 const relevanceAbortAligned: Promise<[Document, number][]> =
   store.similaritySearchWithRelevanceScores(
