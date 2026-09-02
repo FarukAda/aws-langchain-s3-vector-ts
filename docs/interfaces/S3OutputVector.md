@@ -1,4 +1,4 @@
-[**AWS LangChain S3 Vector TypeScript v0.9.0**](../README.md)
+[**AWS LangChain S3 Vector TypeScript**](../README.md)
 
 ***
 
@@ -6,7 +6,7 @@
 
 # Interface: S3OutputVector
 
-Defined in: [types.ts:185](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/types.ts#L185)
+Defined in: [types.ts:185](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L185)
 
 Shape of a single vector as returned by QueryVectors / GetVectors.
 
@@ -21,7 +21,7 @@ shape this store produces.
 
 > `readonly` `optional` **data?**: `object`
 
-Defined in: [types.ts:189](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/types.ts#L189)
+Defined in: [types.ts:189](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L189)
 
 #### float32?
 
@@ -33,7 +33,7 @@ Defined in: [types.ts:189](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` `optional` **distance?**: `number`
 
-Defined in: [types.ts:188](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/types.ts#L188)
+Defined in: [types.ts:188](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L188)
 
 ***
 
@@ -41,7 +41,7 @@ Defined in: [types.ts:188](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` **key**: `string`
 
-Defined in: [types.ts:186](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/types.ts#L186)
+Defined in: [types.ts:186](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L186)
 
 ***
 
@@ -49,4 +49,4 @@ Defined in: [types.ts:186](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [types.ts:187](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/fbffb20a139d0342888796a6ecb28d73aa65ad5a/src/types.ts#L187)
+Defined in: [types.ts:187](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L187)

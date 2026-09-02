@@ -4,7 +4,8 @@
   "entryPointStrategy": "expand",
   "out": "docs",
   "name": "AWS LangChain S3 Vector TypeScript",
-  "includeVersion": true,
+  "includeVersion": false,
+  "gitRevision": "main",
   "readme": "none",
   "exclude": [
     "**/*+(.spec|.test).ts",
