@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Pre-1.0 hardening from an in-depth review of the package as a whole — source, public types, error surface, CI/release pipeline and documentation — against the bar of "safe to depend on in an enterprise production system". No wire-format or storage-format change; everything written by 0.9.0 reads back identically.
+## [1.0.0-rc.1] - 2026-09-02
+
+The 1.0.0 release candidate, published under the `next` dist-tag. Every finding of an in-depth pre-1.0 review of the package as a whole — source, public types, error surface, CI/release pipeline and documentation — against the bar of "safe to depend on in an enterprise production system" is fixed; the package ships an ESM and a CommonJS build; and [`docs/STABILITY.md`](./docs/STABILITY.md) states what every `1.x` release promises to keep. No wire-format or storage-format change: everything written by 0.9.0 reads back identically, and 0.9.0 reads everything this version writes.
 
 ### Breaking
 

@@ -6,7 +6,7 @@ Security fixes are made against the **latest published release of the current ma
 
 | Version                                   | Supported |
 | ----------------------------------------- | --------- |
-| Latest release of the current major (`1.x` once published, `0.x` until then) | ✅ |
+| Latest release of the current major | ✅ |
 | Older releases                            | ❌ |
 
 ## Reporting a Vulnerability
