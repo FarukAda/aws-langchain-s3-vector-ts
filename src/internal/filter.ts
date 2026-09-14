@@ -38,11 +38,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === null || Object.getPrototypeOf(proto) === null;
 }
 
-/**
- * "a"/"an" for the given word, so a message never reads "a Error instance".
- * Letter-based rather than pronunciation-based: correct for the constructor
- * names this actually reaches.
- */
 /** Raise a `VALIDATION` naming the filter path that broke a rule. */
 function failFilter(operation: string, scope: StoreScope, message: string): never {
   throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, { operation, ...scope });

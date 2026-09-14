@@ -74,17 +74,6 @@ type AwsDiagnostics = Pick<
 >;
 
 /**
- * Lift the fields an operator needs first — exception name, HTTP status,
- * request id, retryability — off an AWS SDK error so they sit on the
- * {@link S3VectorsErrorContext} instead of only being reachable by walking
- * `cause`. Every read is shape-checked.
- *
- * Only an AWS-shaped cause contributes anything: one carrying the SDK's
- * `$metadata`, or one whose name follows the service-exception convention
- * (`…Exception`). A plain `TypeError` from caller code, or an `AbortError`,
- * is not an AWS error and must not be presented as one.
- */
-/**
  * The `$metadata` an AWS SDK error carries, when it carries one.
  *
  * @returns The object, or `undefined` for anything else — a `null`, a string,
@@ -118,6 +107,17 @@ function isRetryable(
   );
 }
 
+/**
+ * Lift the fields an operator needs first — exception name, HTTP status,
+ * request id, retryability — off an AWS SDK error so they sit on the
+ * {@link S3VectorsErrorContext} instead of only being reachable by walking
+ * `cause`. Every read is shape-checked.
+ *
+ * Only an AWS-shaped cause contributes anything: one carrying the SDK's
+ * `$metadata`, or one whose name follows the service-exception convention
+ * (`…Exception`). A plain `TypeError` from caller code, or an `AbortError`,
+ * is not an AWS error and must not be presented as one.
+ */
 function awsDiagnostics(cause: unknown): AwsDiagnostics {
   if (typeof cause !== 'object' || cause === null) return {};
   const candidate = cause as {

@@ -162,6 +162,15 @@ identically, and the wire format is untouched.
   `createDocument` round-trips page content and never shares mutable metadata
   between two documents built from one vector.
 
+- **The audits are gates now** (`test/contract/source-contracts.test.ts`).
+  Every exported function must carry a contract naming what it returns and
+  throws; every interface field must carry a doc line; no doc block may sit
+  immediately above another, which is what a contract left behind by a moved
+  function looks like; and the source must stay free of `TODO`, `any`,
+  `@ts-ignore`, `eslint-disable`, `console.*` and `instanceof`. Written after
+  exactly that drift happened twice during this rework — the checks find the
+  third instance, in `_selectRelevanceScoreFn`, on their first run.
+
 ### Documentation
 
 - Every exported function, every private helper and all 139 interface fields

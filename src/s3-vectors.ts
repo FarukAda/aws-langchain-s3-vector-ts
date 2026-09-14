@@ -902,9 +902,11 @@ export class AmazonS3Vectors extends VectorStore {
 
   // ── Protected / internal helpers ──────────────────────────────────────
 
-  /** @internal Select the correct relevance-score function. */
   /**
    * The distance-to-relevance conversion this store uses.
+   *
+   * @internal Called by `@langchain/core`'s
+   * `similaritySearchWithRelevanceScores`, not by application code.
    *
    * @returns The configured `relevanceScoreFn`, else `cosineRelevanceScoreFn`
    * for a cosine index

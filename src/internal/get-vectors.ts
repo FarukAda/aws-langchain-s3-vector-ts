@@ -31,30 +31,6 @@ export interface FetchVectorsOptions extends AwsOperation {
 }
 
 /**
- * Fetch vectors by key, in batches, and return them keyed by id.
- *
- * Accepts:
- * - `keys` — any number. Empty issues no request. Duplicates collapse.
- * - `returnData` — `true` when the caller needs the vectors themselves, as MMR
- *   does; `false` when metadata alone will do.
- * - `signal` — already fired rejects before any request.
- *
- * Returns: a `Map` from id to vector, holding only the keys the service
- * returned. A key that does not exist is simply absent — the service omits it
- * and responds 200 (docs/evidence/get-vectors-absent-keys.md), which is what
- * lets a caller tell "not there" from "the request failed".
- *
- * A `Map` rather than an array because the response is **not** in request
- * order: `['same', 'missing', 'orth']` came back `['orth', 'same']`, reordered
- * rather than merely compacted. Any caller aligning by position would mis-pair
- * every result.
- *
- * Throws: `ABORTED` for `signal`; `AWS_INVALID_RESPONSE` for a nullish
- * response; otherwise the class {@link classifyAwsError} assigns, carrying
- * `context.foundIds` — every id a sibling batch retrieved before the failure,
- * so a caller need not refetch from scratch.
- */
-/**
  * Fetch one batch of keys.
  *
  * @throws {S3VectorsError} `AWS_INVALID_RESPONSE` for a nullish response —
@@ -139,6 +115,30 @@ function withFoundIds(
   );
 }
 
+/**
+ * Fetch vectors by key, in batches, and return them keyed by id.
+ *
+ * Accepts:
+ * - `keys` — any number. Empty issues no request. Duplicates collapse.
+ * - `returnData` — `true` when the caller needs the vectors themselves, as MMR
+ *   does; `false` when metadata alone will do.
+ * - `signal` — already fired rejects before any request.
+ *
+ * Returns: a `Map` from id to vector, holding only the keys the service
+ * returned. A key that does not exist is simply absent — the service omits it
+ * and responds 200 (docs/evidence/get-vectors-absent-keys.md), which is what
+ * lets a caller tell "not there" from "the request failed".
+ *
+ * A `Map` rather than an array because the response is **not** in request
+ * order: `['same', 'missing', 'orth']` came back `['orth', 'same']`, reordered
+ * rather than merely compacted. Any caller aligning by position would mis-pair
+ * every result.
+ *
+ * Throws: `ABORTED` for `signal`; `AWS_INVALID_RESPONSE` for a nullish
+ * response; otherwise the class {@link classifyAwsError} assigns, carrying
+ * `context.foundIds` — every id a sibling batch retrieved before the failure,
+ * so a caller need not refetch from scratch.
+ */
 export async function fetchVectorsByKey(
   opts: FetchVectorsOptions,
 ): Promise<Map<string, S3OutputVector>> {

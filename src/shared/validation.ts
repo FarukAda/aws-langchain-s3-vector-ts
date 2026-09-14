@@ -111,30 +111,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Validate the store configuration before anything is built from it.
- *
- * Accepts: the configuration as given, before any default is applied.
- *
- * Returns: nothing.
- *
- * Throws: `VALIDATION`, naming the option and the rule. The message never
- * echoes credential material.
- *
- * Guarantees: every option here is reachable from an untyped caller, a cast, or a config
- * assembled at runtime from environment variables. Each closed-set option is
- * checked against the SDK's own enum object — not a copy of its members — so
- * the check cannot drift from the service model. Each shape check replaces a
- * failure that would otherwise arrive as an AWS round trip, or, worse, as an
- * uncoded `TypeError` thrown from inside a later search.
- *
- * Supplying `client` alongside `region`, `credentials`, `endpoint`,
- * `maxAttempts` or `retryMode` is rejected rather than silently resolved in the
- * client's favour: a caller who passes their own client *and* `maxAttempts: 5`
- * would otherwise get the client's retry policy with nothing said, which is the
- * same class of surprise as a signal handed to the callbacks slot.
- *
- */
-/**
  * `pageContentMetadataKey`: `null`, or a metadata key AWS will accept.
  *
  * @throws {S3VectorsError} `VALIDATION`. Only `undefined` takes the default,

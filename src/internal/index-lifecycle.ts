@@ -177,12 +177,6 @@ export function nonFilterableKeys(config: IndexLifecycleConfig): string[] {
 }
 
 /**
- * Reject a configuration AWS would refuse, before `CreateIndex` is issued. An
- * index's dimension, metric and non-filterable keys are fixed at creation
- * (https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-indexes.html),
- * so a rejected configuration must never reach the service.
- */
-/**
  * The non-filterable keys a new index may be created with.
  *
  * @throws {S3VectorsError} `VALIDATION` for more than 10 keys, or a key
@@ -226,6 +220,16 @@ function assertTagsCreatable(
   }
 }
 
+/**
+ * Everything AWS requires of an index before it can be created.
+ *
+ * @throws {S3VectorsError} `VALIDATION` for a dimension outside 1–4096, more
+ * than 10 non-filterable keys, or a key or tag outside its documented bounds.
+ * An index's dimension, metric and non-filterable keys are fixed at creation
+ * (https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-indexes.html),
+ * so a rejected configuration must never reach the service: the index it would
+ * leave behind could not be corrected afterwards.
+ */
 function assertCreatable(
   ctx: IndexContext,
   dimension: number,
