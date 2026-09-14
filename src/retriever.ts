@@ -1,0 +1,183 @@
+import type { CallbackManagerForRetrieverRun, Callbacks } from '@langchain/core/callbacks/manager';
+import type { DocumentInterface } from '@langchain/core/documents';
+import type { RunnableConfig } from '@langchain/core/runnables';
+import {
+  VectorStoreRetriever,
+  type VectorStoreRetrieverInput,
+  type VectorStoreRetrieverMMRSearchKwargs,
+} from '@langchain/core/vectorstores';
+
+import { raceAbort, type StoreScope } from './internal/signals.js';
+import type { AmazonS3Vectors } from './s3-vectors.js';
+
+/**
+ * Fields {@link AmazonS3Vectors.asRetriever} accepts: everything
+ * `@langchain/core` documents, plus `signal`.
+ */
+export interface AmazonS3VectorsRetrieverFields<V extends AmazonS3Vectors = AmazonS3Vectors> {
+  /** Documents to retrieve per query. @defaultValue `4` */
+  readonly k?: number;
+  /** Metadata filter applied to every search this retriever runs. */
+  readonly filter?: V['FilterType'];
+  /** `'similarity'` (default) or `'mmr'`. @defaultValue `'similarity'` */
+  readonly searchType?: 'similarity' | 'mmr';
+  /** `fetchK` and `lambda`, honoured only when `searchType` is `'mmr'`. */
+  readonly searchKwargs?: VectorStoreRetrieverMMRSearchKwargs;
+  /**
+   * Cancels the AWS requests this retriever makes — genuinely, because a
+   * retriever field needs no per-invocation state and so can be threaded into
+   * `QueryVectors` and `GetVectors`. Distinct from the signal on
+   * `invoke(query, { signal })`, which core never routes to a retriever's
+   * extension point and which therefore ends the invocation without cancelling
+   * the request already in flight.
+   */
+  readonly signal?: AbortSignal;
+  readonly tags?: string[];
+  readonly metadata?: Record<string, unknown>;
+  readonly verbose?: boolean;
+  readonly callbacks?: Callbacks;
+}
+
+/** What {@link AmazonS3VectorsRetriever}'s constructor takes. */
+export type AmazonS3VectorsRetrieverInput<V extends AmazonS3Vectors = AmazonS3Vectors> =
+  VectorStoreRetrieverInput<V> & { signal?: AbortSignal };
+
+/**
+ * The retriever {@link AmazonS3Vectors.asRetriever} returns.
+ *
+ * @remarks
+ * Two signals, two jobs, each documented for exactly what it does:
+ *
+ * | Source | Reaches | Effect |
+ * |---|---|---|
+ * | `asRetriever({ signal })` — a retriever **field** | `QueryVectors`, `GetVectors` | cancels the AWS request itself |
+ * | `invoke(query, { signal })` — the runnable **config** | nothing downstream | the invocation rejects; the request in flight completes |
+ *
+ * The asymmetry is core's, not this package's:
+ * `BaseRetriever.invoke(input, options)` parses the config and then calls
+ * `this._getRelevantDocuments(input, runManager)` (`@langchain/core@1.2.9`
+ * `dist/retrievers/index.js:81` and `:85`) — the config never reaches the
+ * extension point, so no subclass can read `config.signal` there. What this
+ * class can do, it does: an already-fired config signal rejects before any
+ * embedding or request, and one that fires mid-query rejects the invocation
+ * instead of resolving with results.
+ *
+ * Both may be supplied at once; they are independent.
+ */
+export class AmazonS3VectorsRetriever<
+  V extends AmazonS3Vectors = AmazonS3Vectors,
+> extends VectorStoreRetriever<V> {
+  static override lc_name(): string {
+    return 'AmazonS3VectorsRetriever';
+  }
+
+  /** The field signal: threaded into every AWS request this retriever makes. */
+  readonly signal?: AbortSignal;
+
+  constructor(fields: AmazonS3VectorsRetrieverInput<V>) {
+    super(fields);
+    this.signal = fields.signal;
+  }
+
+  private get _scope(): StoreScope {
+    return {
+      vectorBucketName: this.vectorStore.vectorBucketName,
+      indexName: this.vectorStore.indexName,
+    };
+  }
+
+  /**
+   * Run the retriever, honouring a config signal as far as core allows.
+   *
+   * @param input - The query text
+   * @param options - Core's runnable config. `options.signal` ends **this
+   * invocation**: already fired, nothing is embedded or requested; fired
+   * mid-query, the invocation rejects `ABORTED` while the request in flight
+   * completes. To cancel the request itself, pass `signal` to
+   * {@link AmazonS3Vectors.asRetriever} instead.
+   * @returns The retrieved documents
+   * @throws {S3VectorsError} `ABORTED` when the config signal fires;
+   * otherwise whatever the underlying search raises.
+   */
+  override async invoke(
+    input: string,
+    options?: RunnableConfig,
+  ): Promise<DocumentInterface<Record<string, unknown>>[]> {
+    return await raceAbort(
+      async () => await super.invoke(input, options),
+      options?.signal,
+      'retriever.invoke',
+      this._scope,
+    );
+  }
+
+  /**
+   * Core's extension point, overridden only to thread the field signal.
+   *
+   * @param query - The query text
+   * @param runManager - Core's callback manager for this run, forwarded to the
+   * store's `Callbacks` slot exactly as core's own retriever forwards it
+   * @returns The retrieved documents
+   */
+  override async _getRelevantDocuments(
+    query: string,
+    runManager?: CallbackManagerForRetrieverRun,
+  ): Promise<DocumentInterface<Record<string, unknown>>[]> {
+    const child = runManager?.getChild('vectorstore');
+    if (this.searchType === 'mmr') {
+      return await this.vectorStore.maxMarginalRelevanceSearch(
+        query,
+        { k: this.k, filter: this.filter, ...this.searchKwargs },
+        child,
+        this.signal,
+      );
+    }
+    return await this.vectorStore.similaritySearch(query, this.k, this.filter, child, this.signal);
+  }
+}
+
+/**
+ * Build the retriever from the two shapes core's `asRetriever` accepts.
+ *
+ * @param store - The store the retriever reads from
+ * @param kOrFields - `k` as a number, or the fields object
+ * @param filter - Positional filter, used only with the numeric form
+ * @param callbacks - Positional callbacks, used only with the numeric form
+ * @param tags - Positional tags, used only with the numeric form
+ * @param metadata - Positional metadata, used only with the numeric form
+ * @param verbose - Positional verbose flag, used only with the numeric form
+ * @returns A configured {@link AmazonS3VectorsRetriever}
+ */
+export function createRetriever<V extends AmazonS3Vectors>(
+  store: V,
+  kOrFields?: number | AmazonS3VectorsRetrieverFields<V>,
+  filter?: V['FilterType'],
+  callbacks?: Callbacks,
+  tags?: string[],
+  metadata?: Record<string, unknown>,
+  verbose?: boolean,
+): AmazonS3VectorsRetriever<V> {
+  const fields: AmazonS3VectorsRetrieverFields<V> =
+    typeof kOrFields === 'number' || kOrFields === undefined ? {} : kOrFields;
+  const common = {
+    vectorStore: store,
+    k: typeof kOrFields === 'number' ? kOrFields : fields.k,
+    filter: fields.filter ?? filter,
+    // The store type is appended rather than replacing the caller's tags,
+    // matching core (`@langchain/core@1.2.9` `dist/vectorstores.js`
+    // `asRetriever`), so tracing keeps identifying the backend.
+    tags: [...(fields.tags ?? tags ?? []), store._vectorstoreType()],
+    metadata: fields.metadata ?? metadata,
+    verbose: fields.verbose ?? verbose,
+    callbacks: fields.callbacks ?? callbacks,
+    signal: fields.signal,
+  };
+
+  return fields.searchType === 'mmr'
+    ? new AmazonS3VectorsRetriever<V>({
+        ...common,
+        searchType: 'mmr',
+        searchKwargs: fields.searchKwargs,
+      })
+    : new AmazonS3VectorsRetriever<V>({ ...common, searchType: 'similarity' });
+}

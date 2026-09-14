@@ -198,7 +198,7 @@ if (!env) {
 
     // ── Minor 4: later-batch dimension validation ───────────────────────
 
-    it('gives a later batch the coded INDEX_CONFIG_MISMATCH, not a raw AWS error', async () => {
+    it('lets AWS reject a later batch, and reports what already landed', async () => {
       const { store } = newStore();
       await store.addVectors([[0.1, 0.2, 0.3, 0.4]], [new Document({ pageContent: 'a' })], {
         ids: ['a'],
@@ -215,11 +215,13 @@ if (!env) {
         )
         .catch((e: unknown) => e);
 
-      // Before 0.8.0 this was AWS_REQUEST_FAILED wrapping a raw
-      // ValidationException, for a mistake batch 0 reports precisely.
-      expect((error as { code: S3VectorsErrorCode }).code).toBe(
-        S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
-      );
+      // The write path no longer pre-validates a dimension against cached index
+      // configuration (DESIGN.md D-9); AWS enforces it (F-1). What this package
+      // still owes the caller is an accurate account of what landed before the
+      // failure — batch 0 committed, batch 1 did not.
+      const context = (error as { context: Record<string, unknown> }).context;
+      expect(context['awsErrorName']).toBe('ValidationException');
+      expect(context['writtenIds']).toEqual(['b']);
     }, 120_000);
 
     // ── Task 2: constructor client validation ───────────────────────────
@@ -302,9 +304,9 @@ if (!env) {
       expect(fetched[0]!.metadata['genre']).toBe('a');
 
       await store.delete({ ids: ['doc-1'] });
-      await expect(store.getByIds(['doc-1'])).rejects.toMatchObject({
-        code: S3VectorsErrorCode.NOT_FOUND,
-      });
+      // A deleted id is an undefined slot, not an error: absence is an ordinary
+      // state of the world (DESIGN.md D-6).
+      expect(await store.getByIds(['doc-1'])).toEqual([undefined]);
 
       await store.delete({ deleteAll: true });
     }, 180_000);

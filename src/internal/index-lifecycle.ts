@@ -1,0 +1,302 @@
+import {
+  CreateIndexCommand,
+  DeleteIndexCommand,
+  GetIndexCommand,
+  type EncryptionConfiguration,
+  type S3VectorsClient,
+} from '@aws-sdk/client-s3vectors';
+
+import { isAwsConflictException } from '../shared/errors/aws-conflict.js';
+import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
+import { classifyAwsError } from '../shared/errors/classify.js';
+import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
+import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
+import { wrapAwsError } from '../shared/errors/wrap-error.js';
+import type { DistanceMetric, VectorDataType } from '../types.js';
+import { checkAborted, raceAbort } from './signals.js';
+
+/** The client and the index a lifecycle call acts on. */
+export interface IndexContext {
+  readonly client: S3VectorsClient;
+  readonly vectorBucketName: string;
+  readonly indexName: string;
+}
+
+/**
+ * Whether the configured index exists.
+ *
+ * Accepts:
+ * - `ctx` — the client, bucket and index name.
+ * - `signal` — absent, or an `AbortSignal`. Already fired: rejects before any
+ *   request is issued. Fires in flight: the request is cancelled.
+ *
+ * Returns: `true` when `GetIndex` resolves, `false` when it fails
+ * `NotFoundException`
+ * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_GetIndex.html).
+ *
+ * Throws: `ABORTED` for `signal`; otherwise the class {@link classifyAwsError}
+ * assigns.
+ *
+ * Guarantees: reads no field of the response, so a non-conforming body cannot
+ * change the answer — existence is proven by the 200, not by the body.
+ */
+export async function indexExists(ctx: IndexContext, signal?: AbortSignal): Promise<boolean> {
+  checkAborted('GetIndex', signal, ctx);
+  try {
+    await ctx.client.send(
+      new GetIndexCommand({
+        vectorBucketName: ctx.vectorBucketName,
+        indexName: ctx.indexName,
+      }),
+      { abortSignal: signal },
+    );
+    return true;
+  } catch (error: unknown) {
+    if (isAwsNotFoundException(error)) return false;
+    throw wrapAwsError(error, classifyAwsError(error), {
+      operation: 'GetIndex',
+      vectorBucketName: ctx.vectorBucketName,
+      indexName: ctx.indexName,
+    });
+  }
+}
+
+/** The index attributes a newly created index is given. */
+export interface IndexLifecycleConfig {
+  readonly dataType: VectorDataType;
+  readonly distanceMetric: DistanceMetric;
+  readonly pageContentMetadataKey: string | null;
+  readonly nonFilterableMetadataKeys?: readonly string[] | undefined;
+  readonly encryptionConfiguration?: EncryptionConfiguration | undefined;
+  readonly tags?: Record<string, string> | undefined;
+}
+
+/** Existence tracking for one index, with its memo and flag kept private. */
+export interface IndexLifecycle {
+  /**
+   * Ensure the index exists, creating it at `dimension` if it does not.
+   *
+   * Accepts:
+   * - `dimension` — used only when an index is created; ignored when one is
+   *   already there.
+   * - `signal` — makes this caller's own wait reject early. It never cancels
+   *   the shared `GetIndex`/`CreateIndex` work, because other callers depend
+   *   on it.
+   *
+   * Returns: nothing. Existence is the entire result.
+   *
+   * Throws: `ABORTED` for `signal`; otherwise the class `classifyAwsError`
+   * assigns. A `ConflictException` from `CreateIndex` is not an error — it
+   * means another process created the index first, which is the requested
+   * state
+   * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_CreateIndex.html).
+   *
+   * Guarantees: on resolution the index existed at some point during this
+   * call. Concurrent callers share one request sequence. Existence is
+   * remembered only on resolution, never on failure.
+   */
+  ensureExists(dimension: number, signal?: AbortSignal): Promise<void>;
+
+  /**
+   * Delete the index and everything in it.
+   *
+   * Accepts:
+   * - `signal` — absent, or an `AbortSignal`. Already fired: rejects before the
+   *   in-flight creation is awaited and before any request.
+   *
+   * Returns: nothing.
+   *
+   * Throws: `ABORTED` for `signal`; otherwise the class `classifyAwsError`
+   * assigns, except a response reporting the index absent, which resolves —
+   * the requested state already holds. AWS returns a 404 `NotFoundException`
+   * for an index that is already gone (docs/evidence/delete-absent.md), so
+   * resolving is this package's decision, not the service's.
+   *
+   * Guarantees: an index creation already in flight completes before the
+   * deletion is issued, so no in-flight creation can outlive this call. A
+   * write that starts after this call begins may re-create the index; last
+   * operation wins.
+   */
+  deleteIndex(signal?: AbortSignal): Promise<void>;
+
+  /**
+   * Forget that the index exists, so the next {@link ensureExists} re-checks.
+   *
+   * Called when a data-plane request reports the index missing — an index
+   * deleted out of band, by an ops script or another process. Without it every
+   * later write would skip the check and fail the same way for the life of the
+   * process.
+   */
+  markAbsent(): void;
+}
+
+/** AWS limits, every one documented; see docs/DESIGN.md §9. */
+const MIN_DIMENSION = 1;
+const MAX_DIMENSION = 4096;
+const MAX_NON_FILTERABLE_KEYS = 10;
+const NON_FILTERABLE_KEY_MIN = 1;
+const NON_FILTERABLE_KEY_MAX = 63;
+const TAG_KEY_MIN = 1;
+const TAG_KEY_MAX = 128;
+const TAG_VALUE_MIN = 0;
+const TAG_VALUE_MAX = 256;
+
+/**
+ * The non-filterable keys a new index is given: the configured list plus
+ * `pageContentMetadataKey`, which must not be filterable — filterable metadata
+ * is capped far lower than total metadata (limits page). Duplicates collapse,
+ * so a caller who already listed the key gets no second copy.
+ */
+export function nonFilterableKeys(config: IndexLifecycleConfig): string[] {
+  const configured = config.nonFilterableMetadataKeys ?? [];
+  return config.pageContentMetadataKey === null
+    ? [...configured]
+    : [...new Set([...configured, config.pageContentMetadataKey])];
+}
+
+/**
+ * Reject a configuration AWS would refuse, before `CreateIndex` is issued. An
+ * index's dimension, metric and non-filterable keys are fixed at creation
+ * (https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-indexes.html),
+ * so a rejected configuration must never reach the service.
+ */
+function assertCreatable(
+  ctx: IndexContext,
+  dimension: number,
+  keys: readonly string[],
+  tags: Record<string, string> | undefined,
+): void {
+  const fail = (message: string): never => {
+    throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, {
+      operation: 'createIndex',
+      vectorBucketName: ctx.vectorBucketName,
+      indexName: ctx.indexName,
+    });
+  };
+
+  if (!Number.isInteger(dimension) || dimension < MIN_DIMENSION || dimension > MAX_DIMENSION) {
+    fail(
+      `dimension must be an integer between ${MIN_DIMENSION} and ${MAX_DIMENSION} (received ${String(dimension)}).`,
+    );
+  }
+  if (keys.length > MAX_NON_FILTERABLE_KEYS) {
+    fail(
+      `An index may have at most ${MAX_NON_FILTERABLE_KEYS} non-filterable metadata keys; this configuration needs ${keys.length}.`,
+    );
+  }
+  for (const key of keys) {
+    if (key.length < NON_FILTERABLE_KEY_MIN || key.length > NON_FILTERABLE_KEY_MAX) {
+      fail(
+        `Non-filterable metadata key ${JSON.stringify(key)} must be ${NON_FILTERABLE_KEY_MIN}-${NON_FILTERABLE_KEY_MAX} characters.`,
+      );
+    }
+  }
+  for (const [key, value] of Object.entries(tags ?? {})) {
+    if (key.length < TAG_KEY_MIN || key.length > TAG_KEY_MAX) {
+      fail(`Tag key ${JSON.stringify(key)} must be ${TAG_KEY_MIN}-${TAG_KEY_MAX} characters.`);
+    }
+    if (value.length < TAG_VALUE_MIN || value.length > TAG_VALUE_MAX) {
+      fail(
+        `Tag value for ${JSON.stringify(key)} must be ${TAG_VALUE_MIN}-${TAG_VALUE_MAX} characters.`,
+      );
+    }
+  }
+}
+
+export function createIndexLifecycle(
+  ctx: IndexContext,
+  config: IndexLifecycleConfig,
+): IndexLifecycle {
+  let knownToExist = false;
+  let memo: Promise<void> | null = null;
+
+  /**
+   * Deliberately takes no signal: its only caller is the shared memo, so no
+   * single caller may cancel it out from under the others.
+   */
+  const create = async (dimension: number): Promise<void> => {
+    const keys = nonFilterableKeys(config);
+    assertCreatable(ctx, dimension, keys, config.tags);
+    try {
+      await ctx.client.send(
+        new CreateIndexCommand({
+          vectorBucketName: ctx.vectorBucketName,
+          indexName: ctx.indexName,
+          dataType: config.dataType,
+          dimension,
+          distanceMetric: config.distanceMetric,
+          ...(keys.length > 0
+            ? { metadataConfiguration: { nonFilterableMetadataKeys: keys } }
+            : {}),
+          ...(config.encryptionConfiguration !== undefined
+            ? { encryptionConfiguration: config.encryptionConfiguration }
+            : {}),
+          ...(config.tags !== undefined ? { tags: config.tags } : {}),
+        }),
+      );
+    } catch (error: unknown) {
+      if (isAwsConflictException(error)) return;
+      throw wrapAwsError(error, classifyAwsError(error), {
+        operation: 'CreateIndex',
+        vectorBucketName: ctx.vectorBucketName,
+        indexName: ctx.indexName,
+      });
+    }
+  };
+
+  return {
+    async ensureExists(dimension: number, signal?: AbortSignal): Promise<void> {
+      checkAborted('ensureIndexExists', signal, ctx);
+      if (knownToExist) return;
+
+      memo ??= (async () => {
+        try {
+          if (!(await indexExists(ctx))) await create(dimension);
+          knownToExist = true;
+        } finally {
+          memo = null;
+        }
+      })();
+
+      // The memo is shared, so the wait is raced rather than the work
+      // cancelled: one caller's abort must not cancel a creation the others
+      // are waiting on (DESIGN.md §7.2).
+      const shared = memo;
+      await raceAbort(() => shared, signal, 'ensureIndexExists', ctx);
+    },
+
+    markAbsent(): void {
+      knownToExist = false;
+    },
+
+    async deleteIndex(signal?: AbortSignal): Promise<void> {
+      checkAborted('DeleteIndex', signal, ctx);
+
+      // Serialise behind any creation already running. Without this, a
+      // creation that started before this delete settles after it and
+      // re-creates the index — the defect the epoch counter was originally
+      // added to prevent (DESIGN.md D-30). Its outcome is irrelevant here:
+      // a failed creation still leaves nothing to wait for.
+      if (memo) await memo.catch(() => undefined);
+
+      try {
+        await ctx.client.send(
+          new DeleteIndexCommand({
+            vectorBucketName: ctx.vectorBucketName,
+            indexName: ctx.indexName,
+          }),
+          { abortSignal: signal },
+        );
+      } catch (error: unknown) {
+        if (!isAwsNotFoundException(error)) {
+          throw wrapAwsError(error, classifyAwsError(error), {
+            operation: 'DeleteIndex',
+            vectorBucketName: ctx.vectorBucketName,
+            indexName: ctx.indexName,
+          });
+        }
+      }
+      knownToExist = false;
+    },
+  };
+}

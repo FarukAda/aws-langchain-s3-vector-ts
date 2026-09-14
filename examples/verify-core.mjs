@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import { Document } from '@langchain/core/documents';
 
-import { AmazonS3Vectors, S3VectorsErrorCode } from '../dist/esm/index.js';
+import { AmazonS3Vectors } from '../dist/esm/index.js';
 import { createEmbeddings } from './_embeddings.mjs';
-import { check, expectErrorCode, requireEnv, section, summary } from './_harness.mjs';
+import { check, requireEnv, section, summary } from './_harness.mjs';
 
 const { bucketName, region } = requireEnv();
 const indexName = `verify-core-${randomUUID().slice(0, 8)}`;
@@ -35,10 +35,11 @@ try {
   check('metadata round-trips', docs[1].metadata.kind === 'animal');
   check('pageContent round-trips', docs[1].pageContent === 'the quick brown fox');
 
-  section('addTexts wraps texts into documents');
-  const textIds = await store.addTexts(['warm friendly hello'], [{ kind: 'greeting' }], {
-    ids: ['core-3'],
-  });
+  section('addDocuments takes plain documents built from text');
+  const textIds = await store.addDocuments(
+    [new Document({ pageContent: 'warm friendly hello', metadata: { kind: 'greeting' } })],
+    { ids: ['core-3'] },
+  );
   check('returns the provided id', textIds[0] === 'core-3');
 
   section('addVectors stores a precomputed vector');
@@ -50,11 +51,19 @@ try {
 
   section('delete by id removes a single vector');
   await store.delete({ ids: ['core-3'] });
-  await expectErrorCode(
-    'deleted id is no longer retrievable',
-    () => store.getByIds(['core-3']),
-    S3VectorsErrorCode.NOT_FOUND,
-  );
+  const afterDelete = await store.getByIds(['core-3']);
+  check('deleted id yields undefined in its slot', afterDelete[0] === undefined);
+
+  section('listDocuments enumerates what is in the index');
+  const listed = [];
+  for await (const doc of store.listDocuments()) listed.push(doc.id);
+  check('every written id is enumerated', ['core-1', 'core-2', 'core-4'].every((id) => listed.includes(id)));
+
+  section('listVectors yields embeddings that can be written to another index');
+  const records = [];
+  for await (const record of store.listVectors({ pageSize: 100 })) records.push(record);
+  check('records carry an embedding', records.length > 0 && Array.isArray(records[0].vector));
+  check('records carry the document', records[0].document.pageContent.length > 0);
 
   section('fromDocuments factory creates and populates a store');
   fromDocsStore = await AmazonS3Vectors.fromDocuments(
@@ -94,7 +103,10 @@ try {
     maxAttempts: 5,
     retryMode: 'adaptive',
   });
-  await queryEmbStore.addTexts(['searchable content here'], [{ k: 'qe' }], { ids: ['qe-1'] });
+  await queryEmbStore.addDocuments(
+    [new Document({ pageContent: 'searchable content here', metadata: { k: 'qe' } })],
+    { ids: ['qe-1'] },
+  );
   const qeResults = await queryEmbStore.similaritySearchWithScore('searchable', 1);
   check('query via a separate queryEmbeddings model returns results', qeResults.length === 1);
 } finally {

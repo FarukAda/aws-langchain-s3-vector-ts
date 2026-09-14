@@ -71,7 +71,7 @@ if (!env) {
         expect(results).toEqual([['a'], ['b']]);
 
         const docs = await store.getByIds(['a', 'b']);
-        expect(docs.map((d) => d.id).sort()).toEqual(['a', 'b']);
+        expect(docs.map((d) => d?.id).sort()).toEqual(['a', 'b']);
       } finally {
         await store.delete({ deleteAll: true }).catch(() => undefined);
       }
@@ -103,7 +103,7 @@ if (!env) {
         expect(results).toEqual([['a'], ['b']]);
 
         const docs = await storeA.getByIds(['a', 'b']);
-        expect(docs.map((d) => d.id).sort()).toEqual(['a', 'b']);
+        expect(docs.map((d) => d?.id).sort()).toEqual(['a', 'b']);
       } finally {
         await storeA.delete({ deleteAll: true }).catch(() => undefined);
       }
@@ -227,7 +227,7 @@ if (!env) {
           store.addDocuments([new Document({ pageContent: 'x', metadata: {} })], {
             ids: ['id-1'],
           }),
-        ).rejects.toThrow('10-key');
+        ).rejects.toThrow('at most 10 non-filterable metadata keys');
 
         const exists = await rawClient
           .send(new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }))

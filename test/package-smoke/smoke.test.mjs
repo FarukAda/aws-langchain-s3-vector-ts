@@ -27,7 +27,7 @@ const TYPECHECK_DEPS = ['typescript@5', '@types/node'];
 
 /** Shared by both module systems: the surface is there, and an offline code path behaves. */
 const ASSERTIONS = `
-  for (const fn of [AmazonS3Vectors, S3VectorsError, isS3VectorsError, cosineRelevanceScoreFn, euclideanRelevanceScoreFn]) {
+  for (const fn of [AmazonS3Vectors, S3VectorsError, isS3VectorsError, cosineRelevanceScoreFn]) {
     assert.equal(typeof fn, 'function');
   }
   assert.equal(S3VectorsErrorCode.VALIDATION, 'VALIDATION');
@@ -42,7 +42,7 @@ const RUN_ESM = `
 import assert from 'node:assert/strict';
 import {
   AmazonS3Vectors, S3VectorsError, isS3VectorsError, S3VectorsErrorCode,
-  cosineRelevanceScoreFn, euclideanRelevanceScoreFn,
+  cosineRelevanceScoreFn,
 } from '${PACKAGE}';
 ${ASSERTIONS}
 console.log('SMOKE_ESM_OK');
@@ -53,7 +53,7 @@ const assert = require('node:assert/strict');
 const { sep } = require('node:path');
 const {
   AmazonS3Vectors, S3VectorsError, isS3VectorsError, S3VectorsErrorCode,
-  cosineRelevanceScoreFn, euclideanRelevanceScoreFn,
+  cosineRelevanceScoreFn,
 } = require('${PACKAGE}');
 const { version } = require('${PACKAGE}/package.json');
 assert.equal(typeof version, 'string');

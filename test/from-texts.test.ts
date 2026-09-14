@@ -31,6 +31,44 @@ describe('AmazonS3Vectors.fromTexts', () => {
   });
 });
 
+describe('AmazonS3Vectors.fromTexts metadatas', () => {
+  async function storedMetadata(
+    metadatas: Record<string, unknown>[] | Record<string, unknown>,
+  ): Promise<Record<string, unknown>[]> {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    await AmazonS3Vectors.fromTexts(['a', 'b'], metadatas, createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+    });
+    const put = mock.commandCalls(PutVectorsCommand)[0]!.args[0].input as {
+      vectors: { metadata: Record<string, unknown> }[];
+    };
+    return put.vectors.map((v) => v.metadata);
+  }
+
+  it('pairs an array of matching length one to one', async () => {
+    const stored = await storedMetadata([{ genre: 'a' }, { genre: 'b' }]);
+    expect(stored[0]).toMatchObject({ genre: 'a' });
+    expect(stored[1]).toMatchObject({ genre: 'b' });
+  });
+
+  it('broadcasts a single object to every text', async () => {
+    const stored = await storedMetadata({ genre: 'shared' });
+    expect(stored[0]).toMatchObject({ genre: 'shared' });
+    expect(stored[1]).toMatchObject({ genre: 'shared' });
+  });
+
+  it('treats an omitted metadatas as an empty object per document', async () => {
+    // Reachable from an untyped caller; it used to broadcast `undefined` into
+    // `new Document({ metadata: undefined })`.
+    const stored = await storedMetadata(undefined as unknown as Record<string, unknown>);
+    // Only the page-content key, which the store writes itself.
+    expect(Object.keys(stored[0]!)).toEqual(['_page_content']);
+    expect(Object.keys(stored[1]!)).toEqual(['_page_content']);
+  });
+});
+
 describe('AmazonS3Vectors.fromTexts/fromDocuments array validation', () => {
   it('fromTexts rejects a non-array texts argument with a coded VALIDATION error', async () => {
     const { client } = createMockClient();

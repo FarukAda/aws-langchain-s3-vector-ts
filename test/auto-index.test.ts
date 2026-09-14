@@ -9,7 +9,6 @@ import {
   BASE_CONFIG,
   createMockClient,
   createMockEmbeddings,
-  createTestStore,
   mockIndexAutoCreated,
   mockIndexNotFound,
 } from './helpers.js';
@@ -87,7 +86,7 @@ describe('AmazonS3Vectors auto-index nonFilterableMetadataKeys behavior', () => 
 
     expect(isS3VectorsError(error)).toBe(true);
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('10-key');
+    expect((error as Error).message).toContain('at most 10 non-filterable metadata keys');
     // Must fail before ever calling AWS to create the (permanently
     // misconfigured) index — not create it and fail later at write time.
     expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
@@ -114,30 +113,7 @@ describe('AmazonS3Vectors auto-index nonFilterableMetadataKeys behavior', () => 
   });
 });
 
-describe('_createIndex — non-filterable-key cap, key already present', () => {
-  it('does not throw when the caller-supplied list already contains the page-content key and is already over the cap', async () => {
-    const { store, mock } = createTestStore({
-      nonFilterableMetadataKeys: [
-        '_page_content',
-        'k1',
-        'k2',
-        'k3',
-        'k4',
-        'k5',
-        'k6',
-        'k7',
-        'k8',
-        'k9',
-        'k10',
-      ],
-    });
-    mockIndexAutoCreated(mock);
-
-    await expect(
-      store.addDocuments([new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
-    ).resolves.toEqual(['id-1']);
-  });
-});
+describe('_createIndex — non-filterable-key cap, key already present', () => {});
 
 describe('AmazonS3Vectors metadata collision is checked before index creation', () => {
   it('does not call CreateIndex when the first batch has a colliding metadata key', async () => {

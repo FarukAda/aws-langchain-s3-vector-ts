@@ -66,12 +66,10 @@ try {
     S3VectorsErrorCode.EMBEDDINGS_MISSING,
   );
 
-  section('getByIds throws a typed NOT_FOUND for a missing id');
-  await expectErrorCode(
-    'missing id rejected with NOT_FOUND',
-    () => rawStore.getByIds(['does-not-exist']),
-    S3VectorsErrorCode.NOT_FOUND,
-  );
+  section('getByIds reports a missing id as undefined in its slot');
+  const missing = await rawStore.getByIds(['raw-1', 'does-not-exist']);
+  check('present id still resolved', missing[0].id === 'raw-1');
+  check('absent id is undefined, keeping the result aligned', missing[1] === undefined);
 
   section('duplicate ids in getByIds return isolated metadata copies');
   await dupStore.addDocuments([new Document({ pageContent: 'dup', metadata: { tag: 'orig' } })], {
@@ -91,9 +89,12 @@ try {
   const byFilterable = await nonFilterableStore.similaritySearch('config', 3, { topic: 'cfg' });
   check('filter on a filterable key works', byFilterable.some((d) => d.id === 'nf-1'));
   await expectErrorCode(
-    'filtering on a non-filterable key is rejected (typed AWS error)',
+    // AWS_REJECTED, not the generic AWS_REQUEST_FAILED: a ValidationException
+    // is the service refusing the request, which is a caller-fixable class of
+    // its own and carries `context.fieldList`.
+    'filtering on a non-filterable key is AWS_REJECTED',
     () => nonFilterableStore.similaritySearch('config', 3, { blob: 'large-context' }),
-    S3VectorsErrorCode.AWS_REQUEST_FAILED,
+    S3VectorsErrorCode.AWS_REJECTED,
   );
 
   section(`batch boundaries: ${BATCH_DOC_COUNT} vectors cross the 200 put / 100 get / 500 delete defaults`);
@@ -113,11 +114,8 @@ try {
     fetched[0].id === 'b-0' && fetched[BATCH_DOC_COUNT - 1].id === `b-${BATCH_DOC_COUNT - 1}`,
   );
   await batchStore.delete({ ids: batchIds });
-  await expectErrorCode(
-    'delete across the 500 boundary removed every vector',
-    () => batchStore.getByIds(['b-0']),
-    S3VectorsErrorCode.NOT_FOUND,
-  );
+  const afterBatchDelete = await batchStore.getByIds(['b-0']);
+  check('delete across the 500 boundary removed every vector', afterBatchDelete[0] === undefined);
 } finally {
   await noContentStore.delete({ deleteAll: true }).catch(() => {});
   await rawStore.delete({ deleteAll: true }).catch(() => {});

@@ -153,8 +153,9 @@ if (!env) {
       const store = new AmazonS3Vectors(embeddings, {
         vectorBucketName: safeEnv.bucketName,
         indexName,
-        region: safeEnv.region,
         distanceMetric: 'cosine',
+        // No `region` alongside `client`: the client above already carries
+        // one, and supplying both is rejected (DESIGN.md D-34).
         client,
       });
 

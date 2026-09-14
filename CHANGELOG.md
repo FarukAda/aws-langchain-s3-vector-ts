@@ -7,6 +7,150 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A contract-first rework of the whole package. Every function was specified
+before it was changed: the domain of each one enumerated as a table of
+distinguishable input states with a decided answer for every cell, each answer
+citing an AWS API reference, the `@aws-sdk/client-s3vectors` service model,
+`@langchain/core`'s own source, or a recorded live probe — and one test per
+cell, written from the contract rather than from the implementation. Nine
+behaviours AWS does not document were settled against the live service and
+recorded under [`docs/evidence/`](./docs/evidence/), each now guarded by a live
+test so a change on AWS's side fails a run rather than going unnoticed. Three of
+those reversed a decision that had been made on reasoning alone.
+
+No change to what is stored: everything written before this reads back
+identically, and the wire format is untouched.
+
+### Breaking
+
+- **`getByIds` returns `(Document | undefined)[]`.** A missing id is now an
+  `undefined` slot in the id's position rather than a thrown `NOT_FOUND`.
+  `GetVectors` returns neither an entry nor an error for a key that is not
+  stored ([`docs/evidence/get-vectors-absent-keys.md`](./docs/evidence/get-vectors-absent-keys.md)),
+  so absence is an ordinary answer; keeping the slot means the result can never
+  be silently misaligned against the id list. A batch that genuinely fails still
+  throws, with `context.foundIds` listing what was already retrieved.
+- **`addTexts` and `similaritySearchByVector` are removed.** Neither is part of
+  `@langchain/core`'s `VectorStore`. `addTexts` duplicated the text-to-`Document`
+  mapping `fromTexts` performs; `similaritySearchByVector` was
+  `similaritySearchVectorWithScore` with the scores discarded. Use
+  `addDocuments` (or `fromTexts`) and `similaritySearchVectorWithScore`.
+- **`similaritySearchWithRelevanceScores` on a euclidean index with no
+  `relevanceScoreFn` now raises `VALIDATION`.** The previous heuristic divided a
+  squared distance by a linear scale and returned a number in a narrow band near
+  1 — comparable against nothing. Euclidean distance is unbounded above, so no
+  fixed conversion exists without knowing the embedding's scale. Supply
+  `relevanceScoreFn`, or read raw distances with `similaritySearchWithScore`.
+  `euclideanRelevanceScoreFn` is no longer exported.
+- **Supplying `client` together with `region`, `credentials`, `endpoint`,
+  `maxAttempts` or `retryMode` is rejected.** Those five configure the client
+  this store would otherwise build, and a supplied client carries its own — so
+  they were silently ignored, leaving a caller who passed `maxAttempts: 5` with
+  the client's retry policy and no indication. Pass one or the other.
+- **`S3VectorsErrorCode.NOT_IMPLEMENTED` is removed** (MMR is implemented), and
+  **`context.indexCacheInvalidated` is removed** (there is no index cache to
+  invalidate). A `ValidationException` from AWS is now `AWS_REJECTED` rather
+  than `AWS_REQUEST_FAILED`; see *Error classes* below.
+
+### Added
+
+- **Maximal Marginal Relevance, for real.** `maxMarginalRelevanceSearch(query,
+  { k, fetchK, lambda }, callbacks?, signal?)` takes `fetchK` candidates from
+  `QueryVectors`, fetches their embeddings with `GetVectors`, and selects with
+  `@langchain/core`'s own `maximalMarginalRelevance` — so the ranking is core's,
+  not a reimplementation. `asRetriever({ searchType: 'mmr' })` dispatches to it,
+  honouring `searchKwargs`. A candidate deleted between the two calls is skipped
+  rather than failing the search.
+- **Enumeration: `listDocuments(options?)` and `listVectors(options?)`**, both
+  async generators over `ListVectors`. An index's dimension, distance metric and
+  non-filterable keys are fixed at creation, so changing any of them requires
+  copying every vector to a new index — `listVectors` yields
+  `{ id, vector, document }`, which is exactly what `addVectors` takes back.
+  `listDocuments` is the cheaper audit form. Memory is bounded by one page
+  however large the index, breaking out of the loop issues no further request,
+  and `pageSize` (1–1,000) is advisory because AWS caps a page at 1 MB. Both
+  need `s3vectors:ListVectors` **and** `s3vectors:GetVectors`.
+- **`AmazonS3VectorsRetriever`**, returned by `asRetriever()`: core's
+  `VectorStoreRetriever` plus a `signal` field that genuinely cancels the AWS
+  request. Core's `BaseRetriever.invoke` never passes its config to
+  `_getRelevantDocuments`, so a config signal cannot reach the request; what it
+  can do it now does — an already-fired config signal rejects before any
+  embedding or AWS call, and one that fires mid-query rejects the invocation
+  instead of resolving with results. Previously an aborted retriever invocation
+  resolved with results, having paid for a billable `embedQuery` and a
+  `QueryVectors`.
+- **Error classes callers can branch on.** `AWS_REJECTED` (400
+  `ValidationException`, with `context.fieldList`), `THROTTLED` (429),
+  `SERVICE_UNAVAILABLE` (500/503/408), `ACCESS_DENIED` (403), `QUOTA_EXCEEDED`
+  (402), `CONFLICT` (409) and `KMS_ERROR` join the existing codes. Classification
+  is a lookup on the exception's `name`, which is a literal type on every
+  exception the service declares — never a substring match on a message.
+- **Configuration is validated at construction**, before any AWS call:
+  `distanceMetric`, `dataType` and `encryptionConfiguration.sseType` against the
+  SDK's own enum objects, and `pageContentMetadataKey`, `nonFilterableMetadataKeys`,
+  `relevanceScoreFn`, `tags` and the bucket/index names by shape and documented
+  bound. A non-function `relevanceScoreFn` used to surface as an uncoded
+  `TypeError` from inside a search.
+- **Metadata limits are enforced locally.** AWS counts the UTF-8 byte length of
+  the JSON serialisation plus a fixed 5-byte overhead — established by binary
+  search against the live service
+  ([`docs/evidence/metadata-limits.md`](./docs/evidence/metadata-limits.md)) —
+  so the 2,048-byte filterable and 40,960-byte total caps, the 50-key limit and
+  the documented value types are now checked before the round trip, naming the
+  key at fault. Nested objects and arrays of objects are rejected, which the
+  service does too ([`docs/evidence/metadata-value-types.md`](./docs/evidence/metadata-value-types.md)).
+- **`context.attemptedIds`** on a failed write: the full resolved id list, so a
+  retry with `{ ids: attemptedIds }` overwrites in place instead of minting
+  fresh UUIDs for documents that already committed.
+- **An evidence-guard live suite** (`test/integration/evidence-guards.test.ts`)
+  with one test per undocumented behaviour this package relies on, and a
+  rework suite covering enumeration, MMR, the retriever's two signals and the
+  new `getByIds` shape against the real service.
+
+### Changed
+
+- **The index-configuration cache is gone.** A store now remembers one fact —
+  that the index exists — and only when `createIndexIfNotExist` is on. Nothing
+  else needs caching: AWS enforces the dimension on every write, and the
+  distance metric is checked against the `QueryVectors` response on every read.
+  `createIndexIfNotExist: false` therefore issues no `GetIndex` at all, and such
+  a deployment needs no control-plane permission.
+- **A delete now waits for an index creation already in flight** before issuing
+  `DeleteIndex`, so a creation racing a delete can no longer land afterwards and
+  resurrect the index.
+- **Filter validation names what is wrong.** AWS answers every malformed filter
+  with the string `"Invalid filter"` and nothing else
+  ([`docs/evidence/filter-validation.md`](./docs/evidence/filter-validation.md)),
+  so the operator vocabulary is checked locally: an unknown `$`-prefixed key
+  (`$eg` for `$eq`) is rejected by name, as are the empty filter object and an
+  empty `$in` array — all three confirmed to be rejections AWS makes too.
+- **Search pagination is bounded only by the 1,000-page ceiling.** The
+  "ten consecutive empty pages" guard is removed: a filtered search over a large
+  index can legitimately produce long empty runs, and the ceiling already bounds
+  the worst case.
+- **Documents are always deep-copied on the way out**, not only when a duplicate
+  id was requested, so two documents built from one response never share mutable
+  metadata.
+- **`chunk(items, size)` rejects a size below 1** instead of looping forever.
+- **`raceAbort` is one helper** used by both the shared index creation and the
+  retriever: the caller's wait ends, the shared work continues for whoever else
+  is waiting on it, and the listener is removed on both settle paths.
+- **The source is split by responsibility** — `actions/` (one operation each),
+  `internal/` (request-shaped helpers) and `shared/` (pure helpers) — with a
+  contract in the JSDoc of every exported function stating what it accepts,
+  returns, throws and guarantees.
+
+### Documentation
+
+- README, `src/guide.md` and `docs/STABILITY.md` are rewritten against the new
+  behaviour: the error-code table, the `getByIds` contract, MMR, enumeration,
+  the two retriever signals, the IAM policy (now including
+  `s3vectors:ListVectors`) and what construction validates. Every reference to
+  the Python `langchain-aws` package is gone: this package is specified against
+  AWS's documentation and `@langchain/core`, not against another implementation.
+- `docs/evidence/` records each live probe with its raw request and response,
+  and the README says which claims rest on it.
+
 ## [1.0.0-rc.1] - 2026-09-02
 
 The 1.0.0 release candidate, published under the `next` dist-tag. Every finding of an in-depth pre-1.0 review of the package as a whole — source, public types, error surface, CI/release pipeline and documentation — against the bar of "safe to depend on in an enterprise production system" is fixed; the package ships an ESM and a CommonJS build; and [`docs/STABILITY.md`](./docs/STABILITY.md) states what every `1.x` release promises to keep. No wire-format or storage-format change: everything written by 0.9.0 reads back identically, and 0.9.0 reads everything this version writes.

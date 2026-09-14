@@ -14,6 +14,19 @@ export interface S3VectorsErrorContext {
    * can find and clean up or reconcile vectors that already landed.
    */
   readonly writtenIds?: string[];
+  /**
+   * Every id the failed write resolved, whether or not it landed. Retrying with
+   * `{ ids: attemptedIds }` overwrites in place instead of minting fresh UUIDs
+   * for the documents that already committed (DESIGN.md D-12).
+   */
+  readonly attemptedIds?: string[];
+  /**
+   * The specific validation failures AWS reported, each naming the field that
+   * failed and why. A `ValidationException` carries these
+   * (`@aws-sdk/client-s3vectors@3.1118.0` `dist-types/models/models_0.d.ts:94`)
+   * and they are the actionable half of an otherwise opaque rejection.
+   */
+  readonly fieldList?: { path?: string; message?: string }[];
   /** Ids confirmed durably deleted before a partial `delete({ ids })` failure. */
   readonly deletedIds?: string[];
   /**
@@ -31,6 +44,13 @@ export interface S3VectorsErrorContext {
    * {@link pagesScanned}, on the same two cases.
    */
   readonly resultsCollected?: number;
+  /**
+   * Vectors already yielded by an enumeration (`listDocuments`/`listVectors`)
+   * before it failed. Those records have been consumed by the caller already,
+   * so a listing is not atomic; this says how much of the index was covered,
+   * alongside {@link pagesScanned}.
+   */
+  readonly yielded?: number;
   /**
    * The AWS exception name (`"AccessDeniedException"`, `"ThrottlingException"`,
    * `"ValidationException"`, …) when the failure came from an AWS SDK call.
@@ -58,16 +78,6 @@ export interface S3VectorsErrorContext {
    * `retryable: true` error means those attempts were exhausted.
    */
   readonly retryable?: boolean;
-  /**
-   * `true` when a `PutVectors` failure (`NotFoundException` or
-   * `ValidationException`) made the store discard its cached index
-   * dimension/distance metric. The next write on this instance re-checks
-   * the index with `GetIndex` — and, with `createIndexIfNotExist`,
-   * re-creates a missing one — instead of trusting a cache that may
-   * describe an index deleted or re-created outside this process. A
-   * caller that retries writes can treat this as "retrying is worth it".
-   */
-  readonly indexCacheInvalidated?: true;
   /**
    * Ids confirmed found (and already fetched) before a partial `getByIds`
    * failure — either a `GetVectors` batch rejecting while sibling batches

@@ -16,11 +16,13 @@ describe('metadata round-trip property', () => {
           fc.string(),
         ),
         (pageContent, metadata) => {
-          const put = buildPutMetadata(
-            new Document({ pageContent, metadata }),
-            KEY,
-            'addDocuments',
-          );
+          const put = buildPutMetadata(new Document({ pageContent, metadata }), {
+            pageContentMetadataKey: KEY,
+            nonFilterableKeys: [KEY],
+            operation: 'addDocuments',
+            vectorBucketName: 'b',
+            indexName: 'i',
+          });
           const doc = createDocument({ key: 'k', metadata: put }, KEY);
           expect(doc.pageContent).toBe(pageContent);
           expect(doc.metadata).toEqual(metadata);

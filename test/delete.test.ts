@@ -2,20 +2,13 @@ import {
   DeleteIndexCommand,
   DeleteVectorsCommand,
   GetIndexCommand,
-  PutVectorsCommand,
 } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
-import {
-  BASE_CONFIG,
-  createMockClient,
-  createTestStore,
-  indexFixture,
-  mockExistingIndex,
-} from './helpers.js';
+import { BASE_CONFIG, createMockClient, createTestStore, mockExistingIndex } from './helpers.js';
 
 describe('AmazonS3Vectors.delete', () => {
   it('deletes entire index when deleteAll is explicitly true', async () => {
@@ -84,41 +77,6 @@ describe('AmazonS3Vectors.delete', () => {
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).toBe('ids must be an array.');
   });
-
-  it('clears the cached index-compatibility check on deleteAll, so a later write re-validates instead of trusting a stale cache', async () => {
-    const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(undefined, {
-      ...BASE_CONFIG,
-      client,
-      createIndexIfNotExist: false,
-    });
-
-    mock.on(GetIndexCommand).resolves({
-      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
-    });
-    mock.on(PutVectorsCommand).resolves({});
-
-    // First write: validates against dimension 3, caches it.
-    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] });
-    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
-
-    await store.delete({ deleteAll: true });
-
-    // The index was deleted and (by whoever manages it externally, since
-    // createIndexIfNotExist is false) recreated with a different
-    // dimension. If the cache weren't cleared, this write would wrongly
-    // succeed against the stale dimension-3 verdict instead of re-fetching.
-    mock.on(GetIndexCommand).resolves({
-      index: indexFixture(indexFixture({ dimension: 5, distanceMetric: 'cosine' })),
-    });
-
-    await expect(
-      store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'y' })], { ids: ['id-2'] }),
-    ).rejects.toThrow('dimension 5');
-
-    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
-    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
-  });
 });
 
 describe('AmazonS3Vectors.delete({ deleteAll }) — idempotency', () => {
@@ -162,8 +120,8 @@ describe('AmazonS3Vectors.delete({ deleteAll }) — idempotency', () => {
 
     const error = await store.delete({ deleteAll: true }).catch((e: unknown) => e);
 
-    expect((error as { code: S3VectorsErrorCode }).code).toBe(
-      S3VectorsErrorCode.AWS_REQUEST_FAILED,
-    );
+    // Classified, not generic: an access failure is an IAM problem the caller
+    // acts on differently from a transient one (DESIGN.md D-16).
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
   });
 });

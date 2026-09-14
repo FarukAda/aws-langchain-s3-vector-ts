@@ -74,7 +74,7 @@ Unlike a naive approach that embeds all documents at once (which can exhaust mem
 await store.addDocuments(largeDocs, { batchSize: 200 });
 ```
 
-This matches the Python `langchain-aws` implementation and is critical for production workloads.
+Peak memory therefore tracks the batch size, not the size of the input, which is what makes a large ingest survivable.
 
 ## Similarity Search
 
@@ -86,9 +86,9 @@ The library supports five search methods:
 | `similaritySearchWithScore(query, k, filter?, callbacks?, signal?)` | Text string | `[Document, distance][]` |
 | `similaritySearchWithRelevanceScores(query, k, filter?, callbacks?, signal?)` | Text string | `[Document, score][]` |
 | `similaritySearchVectorWithScore(vector, k, filter?, signal?)` | Raw vector | `[Document, distance][]` |
-| `similaritySearchByVector(vector, k, filter?, signal?)` | Raw vector | `Document[]` |
+| `maxMarginalRelevanceSearch(query, { k, fetchK, lambda }, callbacks?, signal?)` | Text string | `Document[]` |
 
-The text-based methods reserve a `Callbacks` slot (accepted and ignored) so they line up with LangChain’s own signatures; the vector-based ones take the `AbortSignal` one position earlier, since they have no callbacks slot. `k` and the filter are validated, and the signal is checked, *before* the query is embedded — an invalid argument or an already-aborted signal never costs a billable `embedQuery` call.
+The text-based methods reserve a `Callbacks` slot (accepted and ignored) so they line up with LangChain’s own signatures; the vector-based one takes the `AbortSignal` one position earlier, since it has no callbacks slot. `k` and the filter are validated, and the signal is checked, *before* the query is embedded — an invalid argument or an already-aborted signal never costs a billable `embedQuery` call.
 
 Passing an `AbortSignal` in that `Callbacks` slot raises a coded `VALIDATION` error on all three text-based searches rather than being silently ignored: the search would otherwise run to completion, uncancelled, after already spending a billable `embedQuery` call. Pass it as the fifth argument instead.
 
@@ -169,24 +169,30 @@ Every failure this library surfaces — caller mistake, not-found, malformed AWS
 
 | Code | Raised when |
 |---|---|
-| `VALIDATION` | Caller input was invalid — mismatched counts, a non-array argument, a bad batch size, an empty filter, a reserved metadata key, or a `client` that is not an `S3VectorsClient`. |
-| `NOT_FOUND` | A requested vector id was not found by `getByIds`. |
+| `VALIDATION` | Caller input was invalid — a mismatched count, a non-array argument, a bad batch size or page size, a malformed filter, a reserved metadata key, or a configuration option outside its documented set. Raised before any AWS call. |
+| `AWS_REJECTED` | `ValidationException` (400): AWS refused the request. `context.fieldList` carries its field-level detail. |
+| `THROTTLED` | `TooManyRequestsException` (429). Retry after a backoff. |
+| `SERVICE_UNAVAILABLE` | `InternalServerException` (500), `ServiceUnavailableException` (503) or `RequestTimeoutException` (408). A 503 from `PutVectors` also means the batch exceeded resource capacity — split it rather than retry it. |
+| `ACCESS_DENIED` | `AccessDeniedException` (403). An IAM problem, not a retryable one. |
+| `QUOTA_EXCEEDED` | `ServiceQuotaExceededException` (402). Needs a quota increase. |
+| `CONFLICT` | `ConflictException` (409) from `CreateIndex`: the index already exists. |
+| `KMS_ERROR` | One of the four KMS exceptions (400). Key state — an operator's problem. |
+| `NOT_FOUND` | `NotFoundException` (404): the bucket or index is not there. A missing *vector id* is not this — `getByIds` returns `undefined` in that id's slot. |
 | `EMBEDDINGS_MISSING` | An operation needed an embedding model but none was configured. |
-| `AWS_REQUEST_FAILED` | An underlying AWS S3 Vectors request failed. |
-| `INDEX_CONFIG_MISMATCH` | The index’s actual dimension or distance metric disagrees with this store’s configuration. |
+| `AWS_REQUEST_FAILED` | An AWS request failed and no narrower class applies. |
+| `INDEX_CONFIG_MISMATCH` | The index's actual distance metric disagrees with this store's configuration. |
 | `ABORTED` | The supplied `AbortSignal` fired before or during the operation. |
 | `AWS_INVALID_RESPONSE` | An AWS response was missing, carried an unusable value for, or wasn't an object at all where this library requires one. Reachable only from a mocked, stubbed or otherwise non-conforming client. |
-| `QUERY_PAGE_LIMIT_EXCEEDED` | A paginated search stopped without reaching `k` while more pages were still available — either 10 consecutive pages returned no results at all, or the 1,000-page runaway ceiling was reached. |
-| `NOT_IMPLEMENTED` | `maxMarginalRelevanceSearch`, which this store intentionally does not implement. |
+| `QUERY_PAGE_LIMIT_EXCEEDED` | A paginated search hit the 1,000-page runaway ceiling with pages still outstanding and fewer than `k` results collected. |
 | `UNEXPECTED_ERROR` | A failure that never touched AWS — a raw throw from a caller-supplied embeddings model, or input malformed enough to bypass validation. |
 
-`NotFoundException` is still caught and treated as an expected outcome in the two places where absence is the normal case: auto-index detection during a write, and `delete({ deleteAll: true })` against an index that is already gone.
+`NotFoundException` is still caught and treated as an expected outcome in the places where absence is the normal case: index detection during a write, and `delete({ deleteAll: true })` against an index that is already gone.
 
-The library fails closed rather than guessing. A query result missing a usable numeric `distance`, a response whose `distanceMetric` cannot be recognised, a response that is not an object at all, and a paginated search that stops making progress before reaching `k` all raise a coded error instead of returning a plausible-looking but wrong result.
+The library fails closed rather than guessing. A query result missing a usable numeric `distance`, a response whose `distanceMetric` cannot be recognised, a response that is not an object at all, a vector returned without data when data was requested, and a paginated search that hits the page ceiling short of `k` all raise a coded error instead of returning a plausible-looking but wrong result.
 
-Pagination is bounded by progress rather than by a flat page count. AWS documents its `QueryVectors` page size as *up to* 100 results, not exactly 100, so a search needing many pages is normal and is allowed to continue as long as pages keep delivering results; what stops it is an unbroken run of empty pages (a response that will never converge) or a far-off runaway ceiling. AWS pagination tokens are only valid for a few minutes, so a failure partway through a long paginated search reports which page it was on and suggests re-issuing the original query.
+Pagination ends on the token, never on page size. AWS documents a `QueryVectors` page as *up to* 100 results and a `ListVectors` page as capped at 1 MB of processed data, so a short page is normal and is not the end of the results — only an absent `nextToken` is. A runaway ceiling of 1,000 pages bounds the worst case. AWS pagination tokens are valid for only a few minutes, so a failure partway through a long paginated search reports which page it was on and suggests re-issuing the original query rather than resuming it.
 
-On a partial multi-batch failure, the thrown error carries what already succeeded: `context.writtenIds` for writes, `context.deletedIds` for deletes, and `context.foundIds` for `getByIds`. This matters most for auto-generated ids, which nothing else records.
+On a partial multi-batch failure, the thrown error carries what already succeeded: `context.writtenIds` for writes, `context.attemptedIds` for the full resolved id list (retry with `{ ids: attemptedIds }` to overwrite in place instead of minting fresh UUIDs), `context.deletedIds` for deletes, and `context.foundIds` for `getByIds`. This matters most for auto-generated ids, which nothing else records.
 
 The AWS SDK v3 has built-in retry behaviour (exponential backoff with jitter) for throttling and transient 5xx failures. Configure it with `maxAttempts`/`retryMode`, or on a `S3VectorsClient` you pass in yourself.
 
@@ -199,13 +205,41 @@ The `delete()` method supports two modes:
 
 Both modes are idempotent, so a blind retry after an ambiguous network failure is safe: deleting ids that are already gone succeeds, and `deleteAll` against an index that no longer exists resolves cleanly rather than erroring.
 
+## Enumeration
+
+An index's dimension, distance metric and non-filterable keys are fixed at
+creation, so changing any of them means copying every vector to a new index.
+Two generators make that possible, and make an audit possible with it:
+
+```typescript
+// What is in this index?
+for await (const doc of store.listDocuments()) console.log(doc.id);
+
+// Copy it, embeddings and all.
+for await (const { id, vector, document } of store.listVectors()) {
+  await target.addVectors([vector], [document], { ids: [id] });
+}
+```
+
+Both are async generators — memory stays bounded by one page however large the
+index, and breaking out of the loop issues no further request. Both take
+`{ pageSize, signal }`, where `pageSize` is 1–1,000 and advisory: AWS ends a page
+at 1 MB of processed data regardless. Neither takes a filter, because
+`ListVectors` accepts none. Both request metadata, so both need
+`s3vectors:GetVectors` in addition to `s3vectors:ListVectors`.
+
 ## LangChain Integration
 
 The store works with all LangChain patterns that accept a `VectorStore`:
 
 ```typescript
-// As a retriever
-const retriever = store.asRetriever({ k: 5 });
+// As a retriever. A signal here cancels the AWS request itself; one passed to
+// invoke(query, { signal }) ends the invocation only, because core never routes
+// a runnable config to a retriever's extension point.
+const retriever = store.asRetriever({ k: 5, signal });
+
+// Or with diversity, through core's own MMR dispatch:
+const diverse = store.asRetriever({ k: 4, searchType: "mmr", searchKwargs: { fetchK: 20 } });
 
 // In a RAG chain
 const chain = RetrievalQAChain.fromLLM(llm, retriever);

@@ -1,0 +1,144 @@
+import type { StoreScope } from '../../internal/signals.js';
+import { S3VectorsErrorCode } from './error-code.js';
+import {
+  isS3VectorsError,
+  S3VectorsError,
+  type S3VectorsErrorContext,
+} from './s3-vectors-error.js';
+import { wrapAwsError } from './wrap-error.js';
+
+/**
+ * Normalise `error` into an `S3VectorsError`, unchanged if it already is one.
+ *
+ * Accepts: any thrown value, the operation to name, and the scope to record.
+ *
+ * Returns: the value itself when it is already one of this library's errors —
+ * so the layer nearest the failure keeps ownership of the message and the
+ * class — and otherwise a new `UNEXPECTED_ERROR` carrying it as the cause.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: total. Every input yields an `S3VectorsError`, which is what lets
+ * every decorator below assume one.
+ *
+ * `UNEXPECTED_ERROR` rather than `AWS_REQUEST_FAILED`: every AWS call in this
+ * package already wraps its own failures, so a value reaching the wrapping
+ * branch here came from caller-supplied code (an `embedDocuments` that threw) or
+ * from input that bypassed validation. Neither is "an AWS request failed".
+ */
+function normalizeToS3VectorsError(
+  error: unknown,
+  operation: string,
+  scope: StoreScope,
+): S3VectorsError {
+  return isS3VectorsError(error)
+    ? error
+    : wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, { operation, ...scope });
+}
+
+/**
+ * Rebuild `base` with a new message and context, keeping its stack.
+ *
+ * Accepts: an existing error, the message and context to replace.
+ *
+ * Returns: a new error — `message` and `context` are readonly once set, so
+ * every decorator has to construct one — carrying `base`'s frames under its own
+ * header line.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: the stack still points at the code that actually failed. A fresh
+ * `Error` captures a fresh stack, which made the decorator the apparent origin:
+ * an abort raised in `checkAborted` reported `at attachPartialIds` as its top
+ * frame, hiding the one thing a stack exists to show.
+ *
+ * Falls back to the rebuilt error's own stack if `base` has none, or if its
+ * stack is not in the `\n    at ` frame format this splices on — no
+ * engine-specific format is assumed to be present, only recognised.
+ */
+function rebuildWithContext(
+  base: S3VectorsError,
+  message: string,
+  context: S3VectorsErrorContext,
+): S3VectorsError {
+  const rebuilt = new S3VectorsError(message, base.code, context, base.cause);
+  const framesStart = base.stack?.indexOf('\n    at ') ?? -1;
+  if (base.stack !== undefined && framesStart !== -1) {
+    rebuilt.stack = `${rebuilt.name}: ${message}${base.stack.slice(framesStart)}`;
+  }
+  return rebuilt;
+}
+
+/**
+ * Attach the ids a partial batch operation already committed.
+ *
+ * Accepts: the thrown value, the operation, which list it is (`writtenIds` or
+ * `deletedIds`), the ids confirmed before the failure, and optionally every id
+ * the call resolved.
+ *
+ * Returns: the normalised error with `context[key]` set, and — when any id was
+ * committed — a message saying how many, so a log line alone says whether the
+ * operation was partial.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: progress is never silently lost. This matters most for
+ * auto-generated write ids, which have no other way to be discovered again;
+ * `attemptedIds` lets a retry overwrite in place rather than mint fresh UUIDs
+ * for the documents that already landed.
+ */
+export function attachPartialIds(
+  error: unknown,
+  operation: string,
+  scope: StoreScope,
+  key: 'writtenIds' | 'deletedIds',
+  ids: string[],
+  attemptedIds?: readonly string[],
+): S3VectorsError {
+  const base = normalizeToS3VectorsError(error, operation, scope);
+  const phrase =
+    key === 'writtenIds' ? 'were already durably written' : 'were already durably deleted';
+  const message =
+    ids.length > 0
+      ? `${base.message} ${ids.length} vector(s) ${phrase} before this failure — see error.context.${key}.`
+      : base.message;
+  return rebuildWithContext(base, message, {
+    ...base.context,
+    [key]: ids,
+    ...(attemptedIds === undefined ? {} : { attemptedIds: [...attemptedIds] }),
+  });
+}
+
+/**
+ * Attach the store a static factory had already constructed when it failed.
+ *
+ * Accepts: the thrown value, the operation, the scope, and the instance.
+ *
+ * Returns: the normalised error with `context.instance` set — so a caller can
+ * act on `context.writtenIds` against the exact store the ids were written to,
+ * instead of rebuilding an equivalent one from the same config by hand.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: the property is **non-enumerable**. It is a live handle for
+ * programmatic recovery, not diagnostic data; enumerable, it rode along into
+ * every `JSON.stringify(error.context)`, `util.inspect(error)` and structured
+ * logger dump, pulling the SDK client into log output. Direct access
+ * (`error.context.instance`) is unaffected.
+ */
+export function attachInstance<T extends object>(
+  error: unknown,
+  operation: string,
+  scope: StoreScope,
+  instance: T,
+): S3VectorsError {
+  const base = normalizeToS3VectorsError(error, operation, scope);
+  const context: S3VectorsErrorContext = { ...base.context };
+  Object.defineProperty(context, 'instance', {
+    value: instance,
+    enumerable: false,
+    configurable: true,
+    writable: false,
+  });
+  return rebuildWithContext(base, base.message, context);
+}

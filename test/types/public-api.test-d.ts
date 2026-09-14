@@ -1,10 +1,11 @@
 import type { Document, DocumentInterface } from '@langchain/core/documents';
 
-import { AmazonS3Vectors } from '../../src/index.js';
+import { AmazonS3Vectors, AmazonS3VectorsRetriever } from '../../src/index.js';
 import type {
   AmazonS3VectorsConfig,
   DistanceMetric,
   S3VectorsErrorContext,
+  S3VectorsRecord,
 } from '../../src/index.js';
 
 const metric: DistanceMetric = 'cosine';
@@ -99,9 +100,31 @@ const ctx: S3VectorsErrorContext = {
   httpStatusCode: 429,
   requestId: 'r',
   retryable: true,
-  indexCacheInvalidated: true,
+  attemptedIds: ['a', 'b'],
+  yielded: 2,
 };
-// @ts-expect-error -- indexCacheInvalidated is only ever `true`, never `false`
-const badCtx: S3VectorsErrorContext = { operation: 'x', indexCacheInvalidated: false };
+// @ts-expect-error -- `operation` is the one field always present
+const badCtx: S3VectorsErrorContext = { awsErrorName: 'ThrottlingException' };
 void ctx;
 void badCtx;
+
+// The enumeration generators, the retriever's signal field, and the
+// (Document | undefined)[] shape of getByIds are all part of the surface.
+const enumerated: AsyncGenerator<Document> = store.listDocuments({ pageSize: 10 });
+const records: AsyncGenerator<S3VectorsRecord> = store.listVectors();
+const byIds: Promise<(Document | undefined)[]> = store.getByIds(['a']);
+const retriever: AmazonS3VectorsRetriever = store.asRetriever({
+  k: 2,
+  signal: new AbortController().signal,
+});
+const mmr: Promise<Document[]> = store.maxMarginalRelevanceSearch(
+  'q',
+  { k: 2, fetchK: 4, lambda: 0.5 },
+  undefined,
+  new AbortController().signal,
+);
+void enumerated;
+void records;
+void byIds;
+void retriever;
+void mmr;

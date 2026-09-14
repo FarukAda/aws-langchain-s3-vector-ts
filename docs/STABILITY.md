@@ -4,7 +4,7 @@ This package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## 1. The public API
 
-The public API is everything exported from the package entry point (`src/index.ts`, published as `dist/esm/index.js` and `dist/cjs/index.js` with matching declarations): the `AmazonS3Vectors` class; the error model (`S3VectorsError`, `S3VectorsErrorCode`, `isS3VectorsError`, `S3VectorsErrorContext`); the relevance helpers (`cosineRelevanceScoreFn`, `euclideanRelevanceScoreFn`); and the types `AmazonS3VectorsConfig`, `DistanceMetric`, `VectorDataType`, `S3VectorsDeleteParams` and `S3OutputVector`. Tests pin the export set (`test/index-exports.test.ts`), the method signatures (`test/types/public-api.test-d.ts`) and the package manifest (`test/package-exports.test.ts`).
+The public API is everything exported from the package entry point (`src/index.ts`, published as `dist/esm/index.js` and `dist/cjs/index.js` with matching declarations): the `AmazonS3Vectors` class; the error model (`S3VectorsError`, `S3VectorsErrorCode`, `isS3VectorsError`, `S3VectorsErrorContext`); the `AmazonS3VectorsRetriever` class; the relevance helper `cosineRelevanceScoreFn`; and the types `AmazonS3VectorsConfig`, `AmazonS3VectorsRetrieverFields`, `AmazonS3VectorsRetrieverInput`, `DistanceMetric`, `VectorDataType`, `S3VectorsDeleteParams`, `S3VectorsListParams`, `S3VectorsRecord` and `S3OutputVector`. Tests pin the export set (`test/index-exports.test.ts`), the method signatures (`test/types/public-api.test-d.ts`) and the package manifest (`test/package-exports.test.ts`).
 
 - A **minor** release may add exports, add optional options and parameters, add optional fields to returned objects and to `S3VectorsErrorContext`, and widen accepted inputs.
 - A **patch** release changes behaviour only to fix a defect against the documented behaviour.
@@ -19,14 +19,14 @@ Every `1.x` release reads every vector a `1.0` release wrote, and writes vectors
 | Field of a stored vector | Content |
 | --- | --- |
 | `key` | The document id: `Document.id` or the matching `ids` entry the caller passed, otherwise a generated 32-character hexadecimal UUID. Ids must be unique, non-empty strings within a call. |
-| `data.float32` | The embedding, produced by the configured `embeddings` model (`addDocuments`, `addTexts`, the static factories) or supplied by the caller (`addVectors`). |
+| `data.float32` | The embedding, produced by the configured `embeddings` model (`addDocuments`, the static factories) or supplied by the caller (`addVectors`). |
 | `metadata` | The document's own metadata, plus the page content stored as a string under the reserved key named by `pageContentMetadataKey` (default `_page_content`; `null` disables the round-trip, and no page content is stored). A document whose metadata already uses the reserved key is rejected with `VALIDATION` rather than overwritten. |
 
 On read (`similaritySearch*`, `getByIds`), the reserved key is lifted back out into `Document.pageContent` and removed from `metadata`. A non-string value under that key, which this library never writes, is left in `metadata` untouched and `pageContent` is empty.
 
-Index configuration is fixed at creation and is not part of a stored vector. `dimension` (inferred from the first vector written), `distanceMetric`, `dataType`, `nonFilterableMetadataKeys`, `encryptionConfiguration` and `tags` are sent with `CreateIndex` when the store creates an index, and `dimension` and `distanceMetric` are validated against an existing index on the first write of every instance. A minor release may add optional index-creation fields; it will not change what an existing option sends.
+Index configuration is fixed at creation and is not part of a stored vector. `dimension` (inferred from the first vector written), `distanceMetric`, `dataType`, `nonFilterableMetadataKeys`, `encryptionConfiguration` and `tags` are sent with `CreateIndex` when the store creates an index. Nothing about an existing index is cached: AWS enforces the dimension on every write, and the distance metric is checked against the `QueryVectors` response on every read. A minor release may add optional index-creation fields; it will not change what an existing option sends.
 
-`delete({ deleteAll: true })` deletes the *index* (`DeleteIndex`), matching the Python `langchain-aws` reference. That is documented behaviour and stable for `1.x`.
+`delete({ deleteAll: true })` deletes the *index* (`DeleteIndex`), not the vectors inside it: S3 Vectors has no truncate API. Everything attached to the index goes with it — its encryption configuration, tags and non-filterable-metadata configuration. That is documented behaviour and stable for `1.x`.
 
 ## 3. Errors
 
@@ -54,9 +54,11 @@ Anything scheduled for removal is marked `@deprecated` in its JSDoc and listed i
 
 The behaviours below are choices, not defects. Each is documented in the README where it applies and is stable for `1.x`.
 
-- `getByIds` throws `NOT_FOUND` for a missing id, as the Python reference does, where LangChain core's contract merely permits returning fewer documents. `context.foundIds` lists what was found before the failure.
-- Maximal Marginal Relevance is not implemented; `asRetriever({ searchType: 'mmr' })` throws `NOT_IMPLEMENTED`.
-- No `ListVectors`, bucket lifecycle, retry layer or client-side metadata-size enforcement (README, *Non-goals*).
+- `getByIds` returns `(Document | undefined)[]` — one slot per requested id, `undefined` where the id is not stored. A `GetVectors` batch that genuinely fails still throws, and `context.foundIds` lists what was already retrieved.
+- `similaritySearchWithRelevanceScores` on a euclidean index with no `relevanceScoreFn` raises `VALIDATION` rather than returning a score. Euclidean distance is unbounded, so no fixed conversion exists.
+- `asRetriever` returns an `AmazonS3VectorsRetriever` (core's `VectorStoreRetriever` plus a `signal` field), and `maxMarginalRelevanceSearch` takes a fourth `signal` parameter that core does not declare. Both are additive.
+- Supplying `client` together with `region`, `credentials`, `endpoint`, `maxAttempts` or `retryMode` is rejected rather than silently resolved in the client's favour.
+- No segmented parallel enumeration, bucket lifecycle, retry layer, or `delete({ filter })` (README, *Non-goals*).
 
 ## 7. Not covered
 

@@ -38,10 +38,10 @@ describe('AmazonS3Vectors — a rebuilt error keeps the original throw site', ()
       .catch((e: unknown) => e);
 
     const stack = String((error as Error).stack);
-    // The abort is raised by _checkAborted; _attachPartialIds only decorates
+    // The abort is raised by `checkAborted`; `attachPartialIds` only decorates
     // it. The decorator must not become the apparent origin.
-    expect(stack).toContain('_checkAborted');
-    expect(stack.split('\n')[1]).not.toContain('_attachPartialIds');
+    expect(stack).toContain('checkAborted');
+    expect(stack.split('\n')[1]).not.toContain('attachPartialIds');
     // The decorated message is still the one reported.
     expect(stack).toContain('already durably written');
   });

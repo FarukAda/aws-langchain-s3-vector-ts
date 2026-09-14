@@ -1,7 +1,7 @@
 import { QueryVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
-import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from '../src/relevance-scores.js';
+import { cosineRelevanceScoreFn } from '../src/relevance-scores.js';
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
@@ -96,26 +96,6 @@ describe('AmazonS3Vectors.similaritySearchWithScore', () => {
   });
 });
 
-describe('AmazonS3Vectors.similaritySearchByVector', () => {
-  it('returns documents without scores', async () => {
-    const { store, mock } = createTestStore();
-
-    mock.on(QueryVectorsCommand).resolves({
-      vectors: [{ key: 'id-1', metadata: { _page_content: 'doc' } }],
-      distanceMetric: 'cosine',
-    });
-
-    const results = await store.similaritySearchByVector([1, 2, 3], 1);
-
-    expect(results).toHaveLength(1);
-    expect(results[0]!.pageContent).toBe('doc');
-
-    const queryCalls = mock.commandCalls(QueryVectorsCommand);
-    expect(queryCalls).toHaveLength(1);
-    expect(queryCalls[0]!.args[0].input.returnDistance).toBe(false);
-  });
-});
-
 describe('AmazonS3Vectors page_content handling', () => {
   it('extracts page_content from metadata key', async () => {
     const { store, mock } = createTestStore();
@@ -202,13 +182,13 @@ describe('AmazonS3Vectors.similaritySearchWithScore with queryEmbeddings', () =>
   });
 });
 
-describe('AmazonS3Vectors.similaritySearchByVector fallbacks', () => {
+describe('AmazonS3Vectors.similaritySearch fallbacks', () => {
   it('defaults topK to 4 and handles a missing vectors field', async () => {
     const { store, mock } = createTestStore();
 
     mock.on(QueryVectorsCommand).resolves({ distanceMetric: 'cosine' });
 
-    const results = await store.similaritySearchByVector([1]);
+    const results = await store.similaritySearch('q');
     expect(results).toEqual([]);
     expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.topK).toBe(4);
   });
@@ -289,15 +269,14 @@ describe('AmazonS3Vectors._selectRelevanceScoreFn', () => {
     expect(fn(0.3)).toBe(cosineRelevanceScoreFn(0.3));
   });
 
-  it('returns euclidean fn for euclidean metric', () => {
+  it('refuses to invent a conversion for euclidean, which has no principled one', () => {
     const { client } = createMockClient();
     const store = new AmazonS3Vectors(undefined, {
       ...BASE_CONFIG,
       client,
       distanceMetric: 'euclidean',
     });
-    const fn = store._selectRelevanceScoreFn();
-    expect(fn(10)).toBe(euclideanRelevanceScoreFn(10));
+    expect(() => store._selectRelevanceScoreFn()).toThrow('relevanceScoreFn');
   });
 
   it('returns custom fn when provided', () => {
@@ -377,7 +356,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
       distanceMetric: 'cosine',
     });
 
-    const results = await store.similaritySearchByVector([1, 2, 3], 4);
+    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 4);
 
     expect(results).toHaveLength(1);
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(1);
@@ -401,27 +380,26 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(2);
   });
 
-  it('stops on an unbroken run of result-less pages, not on a raw page count', async () => {
+  it('keeps paging through a long run of result-less pages, since only an empty token ends a search', async () => {
     const { store, mock } = createTestStore();
 
-    // A response that keeps returning nextToken without ever making
-    // progress must still terminate — bounded, not stopped-on-empty-page —
-    // and must say so rather than returning a silently short result set.
-    // What ends it is the lack of progress, so it ends after the streak
-    // limit rather than after some far larger page ceiling.
-    mock
-      .on(QueryVectorsCommand)
-      .resolves({ vectors: [], nextToken: 'still-more', distanceMetric: 'cosine' });
+    // Twenty empty-but-continuing pages, well past the streak guard that used
+    // to stop here. An empty page carrying a nextToken is a conforming
+    // response, and a heavily filtered query is a plausible way to get one.
+    let call = 0;
+    mock.on(QueryVectorsCommand).callsFake(() => {
+      call += 1;
+      return call <= 20
+        ? { distanceMetric: 'cosine', vectors: [], nextToken: `t${call}` }
+        : {
+            distanceMetric: 'cosine',
+            vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
+          };
+    });
 
-    const error = await store
-      .similaritySearchVectorWithScore([1, 2, 3], 500)
-      .catch((e: unknown) => e);
-
-    expect((error as { code: S3VectorsErrorCode }).code).toBe(
-      S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED,
-    );
-    expect((error as Error).message).toContain('consecutive pages returned no results');
-    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(10);
+    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 1);
+    expect(results).toHaveLength(1);
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(21);
   });
 
   it('keeps paging a sparse-but-progressing search until k is satisfied', async () => {
@@ -521,7 +499,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     await expect(store.similaritySearchVectorWithScore([1, 2, 3], 0)).rejects.toThrow(
       'k must be a positive integer',
     );
-    await expect(store.similaritySearchByVector([1, 2, 3], -1)).rejects.toThrow(
+    await expect(store.similaritySearchVectorWithScore([1, 2, 3], -1)).rejects.toThrow(
       'k must be a positive integer',
     );
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
@@ -735,19 +713,6 @@ describe('AmazonS3Vectors query-vector validation', () => {
 
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).toBe('query vector must be an array.');
-    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
-  });
-
-  it('rejects a non-array embedding in similaritySearchByVector', async () => {
-    const { store, mock } = createTestStore();
-    mock.on(QueryVectorsCommand).resolves({ distanceMetric: 'cosine', vectors: [] });
-
-    const error = await store
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
-      .similaritySearchByVector('nope' as any, 1)
-      .catch((e: unknown) => e);
-
-    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
   });
 });

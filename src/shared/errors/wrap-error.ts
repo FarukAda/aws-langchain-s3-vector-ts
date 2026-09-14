@@ -47,7 +47,7 @@ const RETRYABLE_AWS_ERROR_NAMES = new Set([
 
 type AwsDiagnostics = Pick<
   S3VectorsErrorContext,
-  'awsErrorName' | 'httpStatusCode' | 'requestId' | 'retryable'
+  'awsErrorName' | 'httpStatusCode' | 'requestId' | 'retryable' | 'fieldList'
 >;
 
 /**
@@ -67,6 +67,7 @@ function awsDiagnostics(cause: unknown): AwsDiagnostics {
     name?: unknown;
     $metadata?: unknown;
     $retryable?: unknown;
+    fieldList?: unknown;
   };
   const name = typeof candidate.name === 'string' ? candidate.name : undefined;
   const metadata =
@@ -80,10 +81,17 @@ function awsDiagnostics(cause: unknown): AwsDiagnostics {
     httpStatusCode?: number;
     requestId?: string;
     retryable: boolean;
+    fieldList?: { path?: string; message?: string }[];
   } = { retryable: false };
   if (name !== undefined) out.awsErrorName = name;
   if (typeof metadata?.httpStatusCode === 'number') out.httpStatusCode = metadata.httpStatusCode;
   if (typeof metadata?.requestId === 'string') out.requestId = metadata.requestId;
+  // Shape-checked like every other read here: a non-array is a malformed
+  // response, not a field list, and passing it through would hand the caller a
+  // shape the type says it cannot be.
+  if (Array.isArray(candidate.fieldList)) {
+    out.fieldList = candidate.fieldList as { path?: string; message?: string }[];
+  }
   out.retryable =
     candidate.$retryable !== undefined ||
     (name !== undefined && RETRYABLE_AWS_ERROR_NAMES.has(name)) ||

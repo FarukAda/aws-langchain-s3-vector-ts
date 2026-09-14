@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import { Document } from '@langchain/core/documents';
 
-import { AmazonS3Vectors } from '../dist/esm/index.js';
+import { AmazonS3Vectors, S3VectorsErrorCode } from '../dist/esm/index.js';
 import { createEmbeddings } from './_embeddings.mjs';
-import { check, requireEnv, section, summary } from './_harness.mjs';
+import { check, expectErrorCode, requireEnv, section, summary } from './_harness.mjs';
 
 const { bucketName, region } = requireEnv();
 const embeddings = createEmbeddings(region);
@@ -46,10 +46,25 @@ try {
   check('tuple shape', Array.isArray(scored[0]) && typeof scored[0][1] === 'number');
   check('food doc ranked first', scored[0][0].metadata.topic === 'food');
 
-  section('similaritySearchByVector accepts a raw query vector');
+  section('similaritySearchVectorWithScore accepts a raw query vector');
   const qVec = await embeddings.embedQuery('household animals');
-  const byVec = await cosine.similaritySearchByVector(qVec, 1);
-  check('pets doc returned', byVec[0].metadata.topic === 'pets');
+  const byVec = await cosine.similaritySearchVectorWithScore(qVec, 1);
+  check('pets doc returned', byVec[0][0].metadata.topic === 'pets');
+  check('distance returned alongside', typeof byVec[0][1] === 'number');
+
+  section('maxMarginalRelevanceSearch trades relevance against diversity');
+  const mmr = await cosine.maxMarginalRelevanceSearch('anything', { k: 2, fetchK: 3, lambda: 0.5 });
+  check('returns k documents', mmr.length === 2);
+  check('no document repeats', mmr[0].id !== mmr[1].id);
+
+  section('asRetriever threads its signal into the AWS request');
+  const aborted = new AbortController();
+  aborted.abort();
+  await expectErrorCode(
+    'an already-fired retriever signal rejects ABORTED',
+    () => cosine.asRetriever({ k: 1, signal: aborted.signal }).invoke('anything'),
+    S3VectorsErrorCode.ABORTED,
+  );
 
   section('metadata filter narrows the candidate set');
   const filtered = await cosine.similaritySearch('anything', 3, { topic: 'space' });
@@ -92,7 +107,23 @@ try {
 
   section('relevance-score function follows the distance metric');
   check('cosine selects cosine scorer', cosine._selectRelevanceScoreFn()(0) === 1);
-  check('euclidean selects euclidean scorer', euclidean._selectRelevanceScoreFn()(0) === 1);
+  // A euclidean index has no built-in conversion: an unbounded distance
+  // cannot be mapped to a comparable score without the embedding's scale,
+  // so this fails closed instead of returning a compressed number (D-3).
+  await expectErrorCode(
+    'euclidean without relevanceScoreFn fails closed',
+    async () => euclidean.similaritySearchWithRelevanceScores('anything', 1),
+    S3VectorsErrorCode.VALIDATION,
+  );
+  const scaled = new AmazonS3Vectors(embeddings, {
+    vectorBucketName: bucketName,
+    indexName: euclidean.indexName,
+    region,
+    distanceMetric: 'euclidean',
+    relevanceScoreFn: (distance) => 1 / (1 + distance),
+  });
+  const euclideanScores = await scaled.similaritySearchWithRelevanceScores('space', 1);
+  check('a supplied relevanceScoreFn is used', euclideanScores[0][1] > 0);
 } finally {
   await cosine.delete({ deleteAll: true }).catch(() => {});
   await euclidean.delete({ deleteAll: true }).catch(() => {});

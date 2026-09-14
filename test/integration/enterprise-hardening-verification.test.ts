@@ -58,14 +58,17 @@ if (!env) {
           })
           .catch((e: unknown) => e);
 
+        // DESIGN.md F-1: AWS enforces the dimension, which is why this package
+        // no longer pre-validates it. Verified live rather than assumed.
         expect(isS3VectorsError(error)).toBe(true);
-        expect((error as { code: S3VectorsErrorCode }).code).toBe(
-          S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+        expect((error as { context: Record<string, unknown> }).context['awsErrorName']).toBe(
+          'ValidationException',
         );
 
         const docs = await store4.getByIds(['id-1']);
         expect(docs).toHaveLength(1);
-        await expect(store4.getByIds(['id-2'])).rejects.toThrow('not found');
+        // Absence is an ordinary outcome now: an undefined slot, not an error (D-6).
+        expect(await store4.getByIds(['id-2'])).toEqual([undefined]);
       } finally {
         await store4.delete({ deleteAll: true }).catch(() => undefined);
       }
@@ -92,10 +95,20 @@ if (!env) {
           distanceMetric: 'euclidean',
         });
 
-        const error = await euclideanStore
-          .addVectors([[5, 6, 7, 8]], [new Document({ pageContent: 'y' })], { ids: ['id-2'] })
-          .catch((e: unknown) => e);
+        // DESIGN.md F-5: the metric governs query-time computation only, so a
+        // mismatched store writes valid vectors...
+        await expect(
+          euclideanStore.addVectors([[5, 6, 7, 8]], [new Document({ pageContent: 'y' })], {
+            ids: ['id-2'],
+          }),
+        ).resolves.toEqual(['id-2']);
 
+        // ...and the mismatch surfaces on the read path instead, against the
+        // distanceMetric QueryVectors returns (§4.1). That is the only metric
+        // check this package still performs.
+        const error = await euclideanStore
+          .similaritySearchVectorWithScore([1, 2, 3, 4], 1)
+          .catch((e: unknown) => e);
         expect(isS3VectorsError(error)).toBe(true);
         expect((error as { code: S3VectorsErrorCode }).code).toBe(
           S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
@@ -160,15 +173,17 @@ if (!env) {
           })
           .catch((e: unknown) => e);
 
+        // With createIndexIfNotExist false this package issues no GetIndex at
+        // all (§4.2), so the dimension is AWS's to reject (DESIGN.md F-1).
         expect(isS3VectorsError(error)).toBe(true);
-        expect((error as { code: S3VectorsErrorCode }).code).toBe(
-          S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+        expect((error as { context: Record<string, unknown> }).context['awsErrorName']).toBe(
+          'ValidationException',
         );
 
         // Confirms it was rejected locally, before any write reached AWS.
         const docs = await creator.getByIds(['id-1']);
         expect(docs).toHaveLength(1);
-        await expect(creator.getByIds(['id-2'])).rejects.toThrow('not found');
+        expect(await creator.getByIds(['id-2'])).toEqual([undefined]);
       } finally {
         await creator.delete({ deleteAll: true }).catch(() => undefined);
       }

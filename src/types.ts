@@ -3,6 +3,7 @@ import type {
   S3VectorsClient,
   S3VectorsClientConfig,
 } from '@aws-sdk/client-s3vectors';
+import type { Document } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 
 // ─── Configuration ───────────────────────────────────────────────────────────
@@ -209,4 +210,41 @@ export interface S3VectorsDeleteParams {
    * call currently in flight and stops any further batches from starting.
    */
   readonly signal?: AbortSignal;
+}
+
+/**
+ * Options accepted by {@link AmazonS3Vectors.listDocuments} and
+ * {@link AmazonS3Vectors.listVectors}.
+ *
+ * There is no `filter`: `ListVectors` accepts none, and emulating one by
+ * enumerating and discarding would bill for every vector in the index while
+ * looking like a server-side filter.
+ */
+export interface S3VectorsListParams {
+  /**
+   * Vectors requested per `ListVectors` call: an integer 1-1000. Advisory —
+   * AWS stops a page at 1 MB of processed data regardless, so a short page is
+   * normal and only an absent `nextToken` ends the listing.
+   * @defaultValue the service default of 500
+   */
+  readonly pageSize?: number;
+  /**
+   * Abort an in-progress listing. Checked before each page and threaded into
+   * the request, so it both cancels the page in flight and stops the next one
+   * from being requested.
+   */
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * One record yielded by {@link AmazonS3Vectors.listVectors}: everything needed
+ * to write the same vector into a different index.
+ */
+export interface S3VectorsRecord {
+  /** The vector key, the same value {@link AmazonS3Vectors.getByIds} takes. */
+  readonly id: string;
+  /** The stored embedding, ready to hand back to `addVectors`. */
+  readonly vector: number[];
+  /** The document, mapped exactly as the search paths and `getByIds` map it. */
+  readonly document: Document;
 }

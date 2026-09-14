@@ -93,7 +93,6 @@ describe('AmazonS3Vectors constructor — client validation', () => {
           ...BASE_CONFIG,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any -- exercising the bad-client guard
           client: {} as any,
-          region: 'us-east-1',
         });
         return null;
       } catch (e: unknown) {
@@ -118,7 +117,6 @@ describe('AmazonS3Vectors constructor — client validation', () => {
           ...BASE_CONFIG,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any -- exercising the bad-client guard
           client: fakeClient as any,
-          region: 'us-east-1',
         }),
     ).toThrow('is not an S3VectorsClient');
   });
@@ -132,7 +130,6 @@ describe('AmazonS3Vectors constructor — client validation', () => {
           ...BASE_CONFIG,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any -- exercising the bad-client guard
           client: wrongService as any,
-          region: 'us-east-1',
         }),
     ).toThrow('is not an S3VectorsClient');
   });

@@ -33,7 +33,9 @@ describe('AmazonS3Vectors — a nullish AWS response is a coded error, not a Typ
     const { store, mock } = createTestStore();
     mock.on(QueryVectorsCommand).resolves(null as never);
 
-    const error = await store.similaritySearchByVector([1, 2, 3], 4).catch((e: unknown) => e);
+    const error = await store
+      .similaritySearchVectorWithScore([1, 2, 3], 4)
+      .catch((e: unknown) => e);
 
     expect((error as { code: S3VectorsErrorCode }).code).toBe(
       S3VectorsErrorCode.AWS_INVALID_RESPONSE,
@@ -81,9 +83,9 @@ describe('AmazonS3Vectors — a mid-pagination QueryVectors failure explains its
       .similaritySearchVectorWithScore([1, 2, 3], 50)
       .catch((e: unknown) => e);
 
-    expect((error as { code: S3VectorsErrorCode }).code).toBe(
-      S3VectorsErrorCode.AWS_REQUEST_FAILED,
-    );
+    // The fixture is a ValidationException, so it now carries that class (D-16);
+    // the pagination context is what this test is really about.
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.AWS_REJECTED);
     expect((error as Error).message).toContain('page 2 of a paginated');
     expect((error as Error).message).toContain('re-issue the original query');
     expect(
