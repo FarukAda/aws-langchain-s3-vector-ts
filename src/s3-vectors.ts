@@ -166,6 +166,18 @@ export class AmazonS3Vectors extends VectorStore {
    * @param config.encryptionConfiguration - Server-side encryption for an auto-created index (ignored for an existing index)
    * @param config.tags - Tags for an auto-created index (ignored for an existing index)
    * @param config.maxConcurrentBatchCalls - Cap on concurrent batch AWS calls (default: `10`)
+   * @returns A store bound to one index. Constructing it issues **no AWS
+   * request**: the index is checked, and created, on the first write that
+   * needs it.
+   * @throws {S3VectorsError} `VALIDATION` for any option outside its
+   * documented set or shape — a bucket or index name that breaks AWS's naming
+   * rules, a `distanceMetric`, `dataType` or `sseType` outside the SDK's own
+   * enum, a `pageContentMetadataKey` that is neither `null` nor 1–63
+   * characters, a non-array `nonFilterableMetadataKeys`, a non-function
+   * `relevanceScoreFn`, malformed `tags`, a non-positive
+   * `maxConcurrentBatchCalls`, a `client` that is not an `S3VectorsClient`, or
+   * a `client` supplied alongside `region`, `credentials`, `endpoint`,
+   * `maxAttempts` or `retryMode`, which it would silently override.
    */
   constructor(embeddings: EmbeddingsInterface | undefined, config: AmazonS3VectorsConfig) {
     // Before `super()`, which copies config onto `lc_kwargs`, and before any
@@ -280,6 +292,12 @@ export class AmazonS3Vectors extends VectorStore {
 
   // ── Getters ───────────────────────────────────────────────────────────
 
+  /**
+   * The store type `@langchain/core` records on traces and retriever tags.
+   *
+   * @returns `'amazonS3Vectors'`, stable for `1.x`
+   * @throws Nothing.
+   */
   _vectorstoreType(): string {
     return 'amazonS3Vectors';
   }
@@ -456,6 +474,12 @@ export class AmazonS3Vectors extends VectorStore {
    * `VALIDATION` error rather than silently running the search uncancelled —
    * the signal belongs in the fifth argument.
    * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
+   * @returns `[document, distance]` pairs, nearest first, at most `k` of them.
+   * Fewer than `k` is normal for a filtered search over a sparse index.
+   * @throws {S3VectorsError} `EMBEDDINGS_MISSING` when no query-side model is
+   * configured; `VALIDATION` for `k`, the filter, or a signal in the
+   * callbacks slot — all before the billable `embedQuery`; otherwise whatever
+   * {@link similaritySearchVectorWithScore} raises.
    */
   async similaritySearchWithScore(
     query: string,
@@ -497,6 +521,10 @@ export class AmazonS3Vectors extends VectorStore {
    * `VALIDATION` error rather than silently running the search uncancelled —
    * the signal belongs in the fifth argument.
    * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
+   * @returns The documents, nearest first, at most `k` of them.
+   * @throws {S3VectorsError} Whatever {@link similaritySearchWithScore}
+   * raises; this adds no failure of its own beyond rejecting a signal in the
+   * callbacks slot.
    */
   async similaritySearch(
     query: string,
@@ -533,6 +561,12 @@ export class AmazonS3Vectors extends VectorStore {
    * 0.x this method honored a signal in this position, where earlier
    * versions expected it; 1.0 aligned it with the rest of the class.)
    * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
+   * @returns `[document, score]` pairs, most relevant first, at most `k` of
+   * them. Higher is better, which is the opposite direction from the raw
+   * distance {@link similaritySearchWithScore} returns.
+   * @throws {S3VectorsError} `VALIDATION` on a euclidean index with no
+   * `relevanceScoreFn` — there is no correct conversion to fall back to;
+   * otherwise whatever {@link similaritySearchWithScore} raises.
    */
   async similaritySearchWithRelevanceScores(
     query: string,
@@ -564,6 +598,8 @@ export class AmazonS3Vectors extends VectorStore {
    *   other route to the underlying requests. Absent behaves exactly as core's
    *   three-parameter call.
    *
+   * @returns At most `k` documents, most relevant first, each distinct. Fewer
+   * than `k` when the index holds fewer candidates than asked for.
    * @throws {S3VectorsError} `VALIDATION` for `k`, `fetchK` or `lambda`, before
    * the billable `embedQuery`; otherwise whatever the search and fetch raise.
    */
@@ -620,6 +656,9 @@ export class AmazonS3Vectors extends VectorStore {
    * @param params.signal - Abort an in-progress delete. Cancels the
    * `DeleteVectors`/`DeleteIndex` call currently in flight and stops any
    * further batches from starting.
+   * @returns Nothing. A delete reports what it removed only when it fails
+   * partway, via `context.deletedIds`; a complete one removed everything
+   * asked for, including ids that were not there to begin with.
    * @throws Error if both `ids` and `deleteAll` are omitted — a safety guard against an
    * accidentally-`undefined` `ids` array silently wiping the whole index — or if both `ids`
    * and `deleteAll` are passed together. On a partial-delete failure (a
@@ -788,6 +827,9 @@ export class AmazonS3Vectors extends VectorStore {
    * @param metadata - Run metadata, for the numeric form
    * @param verbose - Verbose logging, for the numeric form
    * @returns A retriever bound to this store
+   * @throws Nothing. Building a retriever issues no request and validates
+   * nothing: its `k` and `filter` are checked when it runs a search, by the
+   * same guards a direct call goes through.
    */
   override asRetriever(
     kOrFields?: number | AmazonS3VectorsRetrieverFields<this>,
@@ -801,8 +843,19 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
-   * Static factory: create an {@link AmazonS3Vectors} instance, embed
-   * the given texts, and add them to the store.
+   * Create a store, embed the given texts and add them to it.
+   *
+   * @param texts - The texts to store, one document each
+   * @param metadatas - One object per text, a single object broadcast to every
+   * text, or omitted entirely — which gives each document `{}`
+   * @param embeddings - The model used to embed them
+   * @param config - The store configuration, plus the `ids`, `batchSize` and
+   * `signal` the write takes
+   * @returns The constructed store, after the write
+   * @throws {S3VectorsError} `VALIDATION` when `texts` is not an array or the
+   * metadata array's length disagrees with it; otherwise whatever
+   * {@link fromDocuments} raises, including the constructed instance on
+   * `context.instance`.
    */
   static async fromTexts(
     texts: string[],
@@ -836,9 +889,13 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
-   * Static factory: create an {@link AmazonS3Vectors} instance and add
-   * the given documents to the store.
+   * Create a store and add the given documents to it.
    *
+   * @param docs - The documents to store
+   * @param embeddings - The model used to embed them
+   * @param config - The store configuration, plus the `ids`, `batchSize` and
+   * `signal` the write takes
+   * @returns The constructed store, after the write
    * @throws If the write fails — including partway through a multi-batch
    * write — the thrown {@link S3VectorsError}'s `context.instance` carries
    * the constructed (and possibly partially-written) store, so the caller
@@ -866,6 +923,15 @@ export class AmazonS3Vectors extends VectorStore {
   // ── Protected / internal helpers ──────────────────────────────────────
 
   /** @internal Select the correct relevance-score function. */
+  /**
+   * The distance-to-relevance conversion this store uses.
+   *
+   * @returns The configured `relevanceScoreFn`, else `cosineRelevanceScoreFn`
+   * for a cosine index
+   * @throws {S3VectorsError} `VALIDATION` for a euclidean index with no
+   * `relevanceScoreFn`: euclidean distance is unbounded above, so there is no
+   * correct fixed conversion to fall back to.
+   */
   _selectRelevanceScoreFn(): (distance: number) => number {
     return selectRelevanceScoreFn(this.distanceMetric, this._scope, this._relevanceScoreFn);
   }

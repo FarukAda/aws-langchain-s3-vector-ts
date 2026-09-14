@@ -5,7 +5,17 @@ import type { StoreScope } from './signals.js';
 /** "Top-K results per QueryVectors request: Up to 10,000" (limits page). */
 const MAX_TOP_K = 10_000;
 
-/** Build a `VALIDATION` error for a caller-input failure. */
+/**
+ * Build a `VALIDATION` error for a caller-input failure.
+ *
+ * Accepts: the operation to name, the scope to record, and the message.
+ *
+ * Returns: the error, unthrown — several callers need to throw it from inside
+ * a closure or a `map`, where a helper that threw for them would lose the
+ * narrowing that makes the code after the call unreachable to TypeScript.
+ *
+ * Throws: nothing.
+ */
 export function validationError(
   operation: string,
   scope: StoreScope,
@@ -17,12 +27,16 @@ export function validationError(
 /**
  * Reject a non-array before any array method is called on it.
  *
- * The type system already requires an array here for a typed caller, but an
- * untyped JavaScript caller — or a cast past the type system — can still reach
- * this with `null`, and without the check that surfaces as a raw, uncoded
- * `TypeError` instead of this package's own coded error.
+ * Accepts: anything, under the name the caller used for it.
  *
- * @throws {S3VectorsError} `VALIDATION`, naming the parameter
+ * Returns: nothing; an array passes.
+ *
+ * Throws: `VALIDATION`, naming the parameter.
+ *
+ * Guarantees: the type system already requires an array here for a typed
+ * caller, but an untyped JavaScript caller — or a cast past the types — can
+ * still reach this with `null`, and without the check that surfaces as a raw,
+ * uncoded `TypeError` rather than one of this package's errors.
  */
 export function assertIsArray(
   operation: string,
@@ -38,13 +52,17 @@ export function assertIsArray(
 /**
  * Reject a non-array `ids` option before it is ever used as one.
  *
- * Shared by the write methods rather than inlined in each: a string of the
- * right length (`'abc'` alongside three vectors) otherwise passes the count
- * check, is then sliced and indexed exactly like an array, and silently writes
- * each *character* as a vector key — wrong ids committed to AWS with no error
- * at all.
+ * Accepts: `undefined` (no ids supplied; accepted) or an array.
  *
- * @throws {S3VectorsError} `VALIDATION`
+ * Returns: nothing.
+ *
+ * Throws: `VALIDATION`.
+ *
+ * Guarantees: shared by the write paths rather than inlined in each, because
+ * the failure it prevents is silent. A string of the right length (`'abc'`
+ * alongside three vectors) passes the count check, is then sliced and indexed
+ * exactly like an array, and writes each *character* as a vector key — wrong
+ * ids committed to AWS with no error at all.
  */
 export function assertIdsOption(
   operation: string,
@@ -74,18 +92,22 @@ function isAbortSignalLike(value: unknown): boolean {
 /**
  * Reject an `AbortSignal` handed to the `Callbacks` parameter slot.
  *
- * `@langchain/core`'s `VectorStore` reserves the fourth argument of the
- * text-based searches for `Callbacks`, which this store accepts and ignores;
- * the `AbortSignal` belongs in the fifth. A signal passed fourth was silently
- * discarded — the search ran to completion, having spent a billable
- * `embedQuery` call, and the caller's cancellation simply never happened.
+ * Accepts: whatever arrived in that slot — `undefined`, a `CallbackManager`, a
+ * handler array, a `CallbackHandlerMethods` object, an `EventTarget`, an
+ * `AbortController`, or a signal.
  *
- * Silently dropping a cancellation is the one outcome this package treats as
- * unacceptable elsewhere (it refuses to guess at a missing distance, and
- * refuses to return a short result set), so this fails closed and names the
- * right slot instead.
+ * Returns: nothing. Everything but a signal is accepted, including every shape
+ * core actually puts there.
  *
- * @throws {S3VectorsError} `VALIDATION`, naming the fifth slot
+ * Throws: `VALIDATION`, naming the fifth slot, for an `AbortSignal`.
+ *
+ * Guarantees: `@langchain/core` reserves the fourth argument of the text-based
+ * searches for `Callbacks`, which this store accepts and ignores; the signal
+ * belongs in the fifth. A signal passed fourth used to be silently discarded —
+ * the search ran to completion, having spent a billable `embedQuery`, and the
+ * caller's cancellation simply never happened. Silently dropping a
+ * cancellation is the one outcome this package treats as unacceptable
+ * elsewhere, so this fails closed and names the right slot instead.
  */
 export function rejectSignalInCallbacksSlot(
   operation: string,
@@ -106,10 +128,15 @@ export function rejectSignalInCallbacksSlot(
 /**
  * Reject a batch size that cannot work, before it costs anything.
  *
- * Below 1 it would drive an infinite loop; above AWS's per-call limit it would
- * cost a round trip to learn the same thing from the service.
+ * Accepts: an integer of 1 up to this operation's AWS per-call limit — 500 for
+ * `PutVectors` and `DeleteVectors`, 100 for `GetVectors` (limits page).
  *
- * @throws {S3VectorsError} `VALIDATION`
+ * Returns: nothing.
+ *
+ * Throws: `VALIDATION`, naming the limit.
+ *
+ * Guarantees: below 1 the chunking loop would never terminate; above the limit
+ * the call would cost a round trip to learn the same thing from the service.
  */
 export function assertBatchSize(
   operation: string,
@@ -132,10 +159,14 @@ export function assertBatchSize(
 /**
  * Reject a `k` that cannot work, before it costs anything.
  *
- * Below 1 it would drive pointless pagination; above AWS's documented `topK`
- * ceiling it would cost a round trip to learn the same thing from the service.
+ * Accepts: an integer of 1 to 10,000, AWS's documented `topK` ceiling.
  *
- * @throws {S3VectorsError} `VALIDATION`
+ * Returns: nothing.
+ *
+ * Throws: `VALIDATION`, naming the ceiling.
+ *
+ * Guarantees: checked before the query is embedded, so an impossible `k` never
+ * costs a billable `embedQuery` call.
  */
 export function assertK(operation: string, scope: StoreScope, k: number): void {
   if (!Number.isInteger(k) || k <= 0) {

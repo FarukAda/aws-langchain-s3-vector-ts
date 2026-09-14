@@ -116,8 +116,21 @@ export interface S3VectorsErrorContext {
 const S3_VECTORS_ERROR_BRAND = Symbol.for('@farukada/aws-langchain-s3-vector-ts:S3VectorsError');
 
 /**
- * The single error type surfaced by this library. Wraps validation failures,
- * not-found conditions, and underlying AWS errors behind one consistent shape.
+ * The single error type this library surfaces.
+ *
+ * Accepts: a message, a {@link S3VectorsErrorCode}, a context naming the
+ * operation and the index, and optionally the underlying `cause`.
+ *
+ * Returns: an `Error` subclass whose `name` is always `'S3VectorsError'`, with
+ * `code`, `context` and `cause` readonly once set — which is why every
+ * decorator rebuilds rather than mutates.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: instances carry a `Symbol.for` brand, so {@link isS3VectorsError}
+ * recognises them across realms and across the ESM and CommonJS copies of this
+ * module. `cause` is always an `Error` when present: a caller can read
+ * `error.cause.message` without checking what was actually thrown.
  */
 export class S3VectorsError extends Error {
   readonly [S3_VECTORS_ERROR_BRAND] = true;
@@ -137,7 +150,21 @@ export class S3VectorsError extends Error {
   }
 }
 
-/** Type guard for {@link S3VectorsError} that avoids `instanceof`. */
+/**
+ * Whether `value` is one of this library's errors.
+ *
+ * Accepts: anything, including a non-object.
+ *
+ * Returns: `true` when the value carries this package's registered-symbol
+ * brand. Deliberately not `instanceof`: that is false across realms (a `vm`
+ * context, a worker) and false between the ESM and CommonJS copies of this
+ * module, which a process mixing `import` and `require` will load both of.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: this is the supported way to recognise these errors, and the
+ * brand string is stable for `1.x` (`docs/STABILITY.md` §3).
+ */
 export function isS3VectorsError(value: unknown): value is S3VectorsError {
   return (
     typeof value === 'object' &&

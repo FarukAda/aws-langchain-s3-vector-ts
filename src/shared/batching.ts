@@ -29,8 +29,20 @@ export function chunk<T>(items: readonly T[], size: number): T[][] {
 }
 
 /**
- * Pair each batch with its starting offset into the flat array it was
- * chunked from, given the offset of the first one.
+ * Pair each batch with its starting offset into the array it was chunked from.
+ *
+ * Accepts: the batches in order, and the offset of the first one — which is
+ * not always 0, because both write paths handle the first batch separately.
+ *
+ * Returns: one `{ batch, offset }` per batch, offsets running by actual batch
+ * length rather than by a nominal batch size, so a short final batch cannot
+ * shift the ones after it. An empty list yields an empty list.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: the offset is what lets a concurrent group slice the right ids
+ * for its batch, which is what keeps a partial-failure report in document
+ * order regardless of completion order.
  */
 export function offsetBatches<T>(
   batches: readonly T[][],

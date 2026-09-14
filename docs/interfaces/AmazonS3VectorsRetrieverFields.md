@@ -6,7 +6,7 @@
 
 # Interface: AmazonS3VectorsRetrieverFields\<V\>
 
-Defined in: retriever.ts:17
+Defined in: [retriever.ts:17](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L17)
 
 Fields [AmazonS3Vectors.asRetriever](../classes/AmazonS3Vectors.md#asretriever) accepts: everything
 `@langchain/core` documents, plus `signal`.
@@ -23,7 +23,7 @@ Fields [AmazonS3Vectors.asRetriever](../classes/AmazonS3Vectors.md#asretriever) 
 
 > `readonly` `optional` **callbacks?**: `Callbacks`
 
-Defined in: retriever.ts:38
+Defined in: [retriever.ts:38](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L38)
 
 ***
 
@@ -31,7 +31,7 @@ Defined in: retriever.ts:38
 
 > `readonly` `optional` **filter?**: `V`\[`"FilterType"`\]
 
-Defined in: retriever.ts:21
+Defined in: [retriever.ts:21](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L21)
 
 Metadata filter applied to every search this retriever runs.
 
@@ -41,7 +41,7 @@ Metadata filter applied to every search this retriever runs.
 
 > `readonly` `optional` **k?**: `number`
 
-Defined in: retriever.ts:19
+Defined in: [retriever.ts:19](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L19)
 
 Documents to retrieve per query.
 
@@ -55,7 +55,7 @@ Documents to retrieve per query.
 
 > `readonly` `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: retriever.ts:36
+Defined in: [retriever.ts:36](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L36)
 
 ***
 
@@ -63,7 +63,7 @@ Defined in: retriever.ts:36
 
 > `readonly` `optional` **searchKwargs?**: `VectorStoreRetrieverMMRSearchKwargs`
 
-Defined in: retriever.ts:25
+Defined in: [retriever.ts:25](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L25)
 
 `fetchK` and `lambda`, honoured only when `searchType` is `'mmr'`.
 
@@ -73,7 +73,7 @@ Defined in: retriever.ts:25
 
 > `readonly` `optional` **searchType?**: `"similarity"` \| `"mmr"`
 
-Defined in: retriever.ts:23
+Defined in: [retriever.ts:23](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L23)
 
 `'similarity'` (default) or `'mmr'`.
 
@@ -87,7 +87,7 @@ Defined in: retriever.ts:23
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: retriever.ts:34
+Defined in: [retriever.ts:34](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L34)
 
 Cancels the AWS requests this retriever makes — genuinely, because a
 retriever field needs no per-invocation state and so can be threaded into
@@ -102,7 +102,7 @@ the request already in flight.
 
 > `readonly` `optional` **tags?**: `string`[]
 
-Defined in: retriever.ts:35
+Defined in: [retriever.ts:35](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L35)
 
 ***
 
@@ -110,4 +110,4 @@ Defined in: retriever.ts:35
 
 > `readonly` `optional` **verbose?**: `boolean`
 
-Defined in: retriever.ts:37
+Defined in: [retriever.ts:37](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L37)

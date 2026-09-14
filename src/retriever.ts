@@ -74,6 +74,14 @@ export class AmazonS3VectorsRetriever<
   /** The field signal: threaded into every AWS request this retriever makes. */
   readonly signal?: AbortSignal;
 
+  /**
+   * @param fields - Everything core's `VectorStoreRetriever` takes, plus
+   * `signal` — the field signal, threaded into every AWS request this
+   * retriever makes
+   * @returns The retriever. Constructing one issues no request.
+   * @throws Nothing. `k`, `filter` and `searchKwargs` are validated when a
+   * search runs, by the same guards a direct call goes through.
+   */
   constructor(fields: AmazonS3VectorsRetrieverInput<V>) {
     super(fields);
     this.signal = fields.signal;
@@ -117,7 +125,10 @@ export class AmazonS3VectorsRetriever<
    * @param query - The query text
    * @param runManager - Core's callback manager for this run, forwarded to the
    * store's `Callbacks` slot exactly as core's own retriever forwards it
-   * @returns The retrieved documents
+   * @returns The retrieved documents, at most `k` of them
+   * @throws {S3VectorsError} Whatever the dispatched search raises —
+   * `ABORTED` for a fired field signal, `VALIDATION` for a bad `k`, `filter`
+   * or `searchKwargs`, or the class an AWS failure maps to.
    */
   override async _getRelevantDocuments(
     query: string,
@@ -147,6 +158,7 @@ export class AmazonS3VectorsRetriever<
  * @param metadata - Positional metadata, used only with the numeric form
  * @param verbose - Positional verbose flag, used only with the numeric form
  * @returns A configured {@link AmazonS3VectorsRetriever}
+ * @throws Nothing. Every argument it reads is validated when a search runs.
  */
 export function createRetriever<V extends AmazonS3Vectors>(
   store: V,

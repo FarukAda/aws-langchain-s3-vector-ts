@@ -24,7 +24,24 @@ function safeStringify(value: unknown): string {
   }
 }
 
-/** Normalize an unknown thrown value into an `Error`. */
+/**
+ * Normalise an unknown thrown value into an `Error`.
+ *
+ * Accepts: anything. JavaScript permits throwing any value, and a signal's
+ * `reason` is whatever `abort()` was given.
+ *
+ * Returns: the value itself when it is already Error-shaped — tested by
+ * structure (`name` and `message` are strings) rather than `instanceof`, so a
+ * cross-realm error passes; otherwise a new `Error` whose message is the value
+ * as a string, JSON-serialised when it is not one, tolerating BigInt and
+ * circular references.
+ *
+ * Throws: nothing. This runs inside error handling, where a second failure
+ * would replace the real one.
+ *
+ * Guarantees: total, and non-lossy for Error-like input — the original is
+ * returned, not copied, so its stack survives.
+ */
 export function toError(value: unknown): Error {
   if (isError(value)) return value;
   return new Error(typeof value === 'string' ? value : safeStringify(value));
@@ -110,13 +127,23 @@ function describeDiagnostics(diagnostics: AwsDiagnostics): string {
 }
 
 /**
- * Wrap an unknown AWS failure into a coded {@link S3VectorsError}. An error that
- * is already an {@link S3VectorsError} is returned unchanged so the layer nearest
- * the failure keeps ownership of the message and code.
+ * Wrap an unknown AWS failure into a coded {@link S3VectorsError}.
  *
- * The AWS exception name, HTTP status and request id (when the cause carries
- * them) are surfaced both in the message and on the context, so a log line
- * or an AWS Support case can be opened from the error alone.
+ * Accepts: any thrown value, the code to assign it (chosen by
+ * `classifyAwsError`), and the context to record.
+ *
+ * Returns: the value unchanged when it is already an {@link S3VectorsError},
+ * so the layer nearest the failure keeps ownership of its message and class;
+ * otherwise a new error carrying the original as `cause`, with the AWS
+ * exception name, HTTP status, request id and retryability lifted onto both
+ * the message and the context — so a log line alone is enough to open an AWS
+ * Support case.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: total. Every input yields an `S3VectorsError`, which is what
+ * makes "no raw AWS SDK error and no bare TypeError reaches the caller" true
+ * rather than aspirational.
  */
 export function wrapAwsError(
   cause: unknown,

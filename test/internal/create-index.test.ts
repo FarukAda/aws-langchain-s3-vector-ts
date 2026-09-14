@@ -3,6 +3,7 @@ import { describe, it, expect } from '@jest/globals';
 
 import {
   createIndexLifecycle,
+  nonFilterableKeys,
   type IndexLifecycleConfig,
 } from '../../src/internal/index-lifecycle.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
@@ -163,6 +164,33 @@ describe('createIndexLifecycle — index creation rules', () => {
       const { mock, lifecycle } = lifecycleWith();
       await lifecycle.ensureExists(3);
       expect(inputOf(mock)['encryptionConfiguration']).toBeUndefined();
+    });
+  });
+
+  describe('nonFilterableKeys', () => {
+    it('does not mutate the array the caller configured the store with', () => {
+      const configured = ['bulk'];
+      const keys = nonFilterableKeys({
+        dataType: 'float32',
+        distanceMetric: 'cosine',
+        pageContentMetadataKey: '_page_content',
+        nonFilterableMetadataKeys: configured,
+      });
+      expect(keys).toEqual(['bulk', '_page_content']);
+      // The store holds this array for its lifetime and hands it to every
+      // later index creation; appending in place would grow it each time.
+      expect(configured).toEqual(['bulk']);
+    });
+
+    it('adds nothing when page content is not stored at all', () => {
+      expect(
+        nonFilterableKeys({
+          dataType: 'float32',
+          distanceMetric: 'cosine',
+          pageContentMetadataKey: null,
+          nonFilterableMetadataKeys: ['bulk'],
+        }),
+      ).toEqual(['bulk']);
     });
   });
 });

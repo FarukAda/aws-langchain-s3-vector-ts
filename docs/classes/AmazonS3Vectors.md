@@ -59,7 +59,7 @@ const results = await store.similaritySearch("space adventure", 4);
 
 > **new AmazonS3Vectors**(`embeddings`, `config`): `AmazonS3Vectors`
 
-Defined in: [s3-vectors.ts:170](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L170)
+Defined in: [s3-vectors.ts:182](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L182)
 
 Create a new Amazon S3 Vectors store
 
@@ -80,6 +80,22 @@ Configuration options for the store
 #### Returns
 
 `AmazonS3Vectors`
+
+A store bound to one index. Constructing it issues **no AWS
+request**: the index is checked, and created, on the first write that
+needs it.
+
+#### Throws
+
+`VALIDATION` for any option outside its
+documented set or shape — a bucket or index name that breaks AWS's naming
+rules, a `distanceMetric`, `dataType` or `sseType` outside the SDK's own
+enum, a `pageContentMetadataKey` that is neither `null` nor 1–63
+characters, a non-array `nonFilterableMetadataKeys`, a non-function
+`relevanceScoreFn`, malformed `tags`, a non-positive
+`maxConcurrentBatchCalls`, a `client` that is not an `S3VectorsClient`, or
+a `client` supplied alongside `region`, `credentials`, `endpoint`,
+`maxAttempts` or `retryMode`, which it would silently override.
 
 #### Overrides
 
@@ -208,32 +224,42 @@ Defined in: [s3-vectors.ts:114](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **\_selectRelevanceScoreFn**(): (`distance`) => `number`
 
-Defined in: [s3-vectors.ts:869](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L869)
+Defined in: [s3-vectors.ts:935](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L935)
 
-**`Internal`**
-
-Select the correct relevance-score function.
+The distance-to-relevance conversion this store uses.
 
 #### Returns
 
+The configured `relevanceScoreFn`, else `cosineRelevanceScoreFn`
+for a cosine index
+
 (`distance`) => `number`
+
+#### Throws
+
+`VALIDATION` for a euclidean index with no
+`relevanceScoreFn`: euclidean distance is unbounded above, so there is no
+correct fixed conversion to fall back to.
 
 ***
 
 ### \_vectorstoreType()
 
-> `abstract` **\_vectorstoreType**(): `string`
+> **\_vectorstoreType**(): `string`
 
-Defined in: [s3-vectors.ts:283](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L283)
+Defined in: [s3-vectors.ts:301](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L301)
 
-Returns a string representing the type of vector store, which subclasses
-must implement to identify their specific vector storage type.
+The store type `@langchain/core` records on traces and retriever tags.
 
 #### Returns
 
 `string`
 
-A string indicating the vector store type.
+`'amazonS3Vectors'`, stable for `1.x`
+
+#### Throws
+
+Nothing.
 
 #### Overrides
 
@@ -245,7 +271,7 @@ A string indicating the vector store type.
 
 > **addDocuments**(`documents`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [s3-vectors.ts:388](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L388)
+Defined in: [s3-vectors.ts:406](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L406)
 
 Embed documents and store them in the vector index.
 
@@ -339,7 +365,7 @@ call already in flight has settled, so `writtenIds` is complete.
 
 > **addVectors**(`vectors`, `documents`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [s3-vectors.ts:321](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L321)
+Defined in: [s3-vectors.ts:339](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L339)
 
 Add pre-computed vectors alongside their documents to the store.
 
@@ -420,7 +446,7 @@ impossible to find or reconcile again.
 
 > **asRetriever**(`kOrFields?`, `filter?`, `callbacks?`, `tags?`, `metadata?`, `verbose?`): [`AmazonS3VectorsRetriever`](AmazonS3VectorsRetriever.md)\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:792](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L792)
+Defined in: [s3-vectors.ts:834](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L834)
 
 Build a retriever over this store.
 
@@ -485,6 +511,12 @@ core's `BaseRetriever.invoke` never hands the config to
 `dist/retrievers/index.js:81`, `:85`), so no subclass can route it to the
 request. Both may be given at once.
 
+#### Throws
+
+Nothing. Building a retriever issues no request and validates
+nothing: its `k` and `filter` are checked when it runs a search, by the
+same guards a direct call goes through.
+
 #### Overrides
 
 `VectorStore.asRetriever`
@@ -495,7 +527,7 @@ request. Both may be given at once.
 
 > **delete**(`params?`): `Promise`\<`void`\>
 
-Defined in: [s3-vectors.ts:632](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L632)
+Defined in: [s3-vectors.ts:671](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L671)
 
 Delete vectors by ID, or delete the entire index.
 
@@ -510,6 +542,10 @@ Deletion parameters
 #### Returns
 
 `Promise`\<`void`\>
+
+Nothing. A delete reports what it removed only when it fails
+partway, via `context.deletedIds`; a complete one removed everything
+asked for, including ids that were not there to begin with.
 
 #### Throws
 
@@ -532,10 +568,9 @@ tells you exactly what already happened.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:848](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L848)
+Defined in: [s3-vectors.ts:905](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L905)
 
-Static factory: create an AmazonS3Vectors instance and add
-the given documents to the store.
+Create a store and add the given documents to it.
 
 #### Parameters
 
@@ -543,17 +578,26 @@ the given documents to the store.
 
 `DocumentInterface`\<`Record`\<`string`, `any`\>\>[]
 
+The documents to store
+
 ##### embeddings
 
 `EmbeddingsInterface`
+
+The model used to embed them
 
 ##### config
 
 [`AmazonS3VectorsConfig`](../interfaces/AmazonS3VectorsConfig.md) & `object`
 
+The store configuration, plus the `ids`, `batchSize` and
+`signal` the write takes
+
 #### Returns
 
 `Promise`\<`AmazonS3Vectors`\>
+
+The constructed store, after the write
 
 #### Throws
 
@@ -573,10 +617,9 @@ instance from the same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:807](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L807)
+Defined in: [s3-vectors.ts:860](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L860)
 
-Static factory: create an AmazonS3Vectors instance, embed
-the given texts, and add them to the store.
+Create a store, embed the given texts and add them to it.
 
 #### Parameters
 
@@ -584,21 +627,40 @@ the given texts, and add them to the store.
 
 `string`[]
 
+The texts to store, one document each
+
 ##### metadatas
 
 `Record`\<`string`, `unknown`\> \| `Record`\<`string`, `unknown`\>[]
+
+One object per text, a single object broadcast to every
+text, or omitted entirely — which gives each document `{}`
 
 ##### embeddings
 
 `EmbeddingsInterface`
 
+The model used to embed them
+
 ##### config
 
 [`AmazonS3VectorsConfig`](../interfaces/AmazonS3VectorsConfig.md) & `object`
 
+The store configuration, plus the `ids`, `batchSize` and
+`signal` the write takes
+
 #### Returns
 
 `Promise`\<`AmazonS3Vectors`\>
+
+The constructed store, after the write
+
+#### Throws
+
+`VALIDATION` when `texts` is not an array or the
+metadata array's length disagrees with it; otherwise whatever
+[fromDocuments](#fromdocuments) raises, including the constructed instance on
+`context.instance`.
 
 #### Overrides
 
@@ -610,7 +672,7 @@ the given texts, and add them to the store.
 
 > **getByIds**(`ids`, `options?`): `Promise`\<(`Document`\<`Record`\<`string`, `any`\>\> \| `undefined`)[]\>
 
-Defined in: [s3-vectors.ts:675](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L675)
+Defined in: [s3-vectors.ts:714](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L714)
 
 Retrieve documents by their vector IDs.
 
@@ -675,7 +737,7 @@ caller doesn't have to re-fetch everything from scratch.
 
 > **listDocuments**(`options?`): `AsyncGenerator`\<`Document`\<`Record`\<`string`, `any`\>\>\>
 
-Defined in: [s3-vectors.ts:719](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L719)
+Defined in: [s3-vectors.ts:758](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L758)
 
 Every document in the index, one at a time.
 
@@ -720,7 +782,7 @@ atomic and does not pretend to be.
 
 > **listVectors**(`options?`): `AsyncGenerator`\<[`S3VectorsRecord`](../interfaces/S3VectorsRecord.md)\>
 
-Defined in: [s3-vectors.ts:754](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L754)
+Defined in: [s3-vectors.ts:793](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L793)
 
 Every vector in the index with its embedding, one at a time.
 
@@ -766,7 +828,7 @@ index that looks complete and is not.
 
 > **maxMarginalRelevanceSearch**(`query`, `options`, `callbacks?`, `signal?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:570](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L570)
+Defined in: [s3-vectors.ts:606](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L606)
 
 Maximal Marginal Relevance search: relevance traded against diversity.
 
@@ -806,6 +868,9 @@ Accepts:
 
 `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
+At most `k` documents, most relevant first, each distinct. Fewer
+than `k` when the index holds fewer candidates than asked for.
+
 #### Throws
 
 `VALIDATION` for `k`, `fetchK` or `lambda`, before
@@ -821,7 +886,7 @@ the billable `embedQuery`; otherwise whatever the search and fetch raise.
 
 > **similaritySearch**(`query`, `k?`, `filter?`, `_callbacks?`, `signal?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:501](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L501)
+Defined in: [s3-vectors.ts:529](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L529)
 
 Run a text-based similarity search and return documents (no scores).
 
@@ -858,12 +923,20 @@ Abort an in-progress search (see [similaritySearchVectorWithScore](#similarityse
 
 `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
+The documents, nearest first, at most `k` of them.
+
 #### Remarks
 
 Overrides `VectorStore`'s default implementation, which embeds the
 query with the indexing embedding model. This override routes through
 [similaritySearchWithScore](#similaritysearchwithscore), so a configured `queryEmbeddings`
 model is used for the query, matching `asRetriever()`'s behavior.
+
+#### Throws
+
+Whatever [similaritySearchWithScore](#similaritysearchwithscore)
+raises; this adds no failure of its own beyond rejecting a signal in the
+callbacks slot.
 
 #### Overrides
 
@@ -875,7 +948,7 @@ model is used for the query, matching `asRetriever()`'s behavior.
 
 > **similaritySearchVectorWithScore**(`query`, `k`, `filter?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:423](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L423)
+Defined in: [s3-vectors.ts:441](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L441)
 
 Core similarity search returning `[Document, distance]` tuples.
 
@@ -935,7 +1008,7 @@ result. Fails closed instead of defaulting to the best possible score.
 
 > **similaritySearchWithRelevanceScores**(`query`, `k?`, `filter?`, `callbacks?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:537](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L537)
+Defined in: [s3-vectors.ts:571](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L571)
 
 Run a text-based similarity search and return documents with
 *relevance scores* (higher is better), converted from S3 Vectors'
@@ -983,13 +1056,23 @@ Abort an in-progress search (see [similaritySearchVectorWithScore](#similarityse
 
 `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
+`[document, score]` pairs, most relevant first, at most `k` of
+them. Higher is better, which is the opposite direction from the raw
+distance [similaritySearchWithScore](#similaritysearchwithscore) returns.
+
+#### Throws
+
+`VALIDATION` on a euclidean index with no
+`relevanceScoreFn` — there is no correct conversion to fall back to;
+otherwise whatever [similaritySearchWithScore](#similaritysearchwithscore) raises.
+
 ***
 
 ### similaritySearchWithScore()
 
 > **similaritySearchWithScore**(`query`, `k?`, `filter?`, `_callbacks?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:460](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L460)
+Defined in: [s3-vectors.ts:484](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L484)
 
 Run a text-based similarity search and return documents with scores.
 
@@ -1029,10 +1112,20 @@ Abort an in-progress search (see [similaritySearchVectorWithScore](#similarityse
 
 `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
+`[document, distance]` pairs, nearest first, at most `k` of them.
+Fewer than `k` is normal for a filtered search over a sparse index.
+
 #### Remarks
 
 Validates `k` before embedding — an invalid `k` shouldn't cost a
 billable `embedQuery` call before failing.
+
+#### Throws
+
+`EMBEDDINGS_MISSING` when no query-side model is
+configured; `VALIDATION` for `k`, the filter, or a signal in the
+callbacks slot — all before the billable `embedQuery`; otherwise whatever
+[similaritySearchVectorWithScore](#similaritysearchvectorwithscore) raises.
 
 #### Overrides
 

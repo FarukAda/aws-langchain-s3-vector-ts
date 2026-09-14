@@ -9,10 +9,18 @@
  */
 
 /**
- * Convert a **cosine distance** (range [0, 2]) to a relevance score [−1, 1].
+ * Convert a cosine distance to a LangChain relevance score.
  *
- * For normalised embeddings the distance is in [0, 2] so the score lands in
- * [−1, 1], but in practice most embedding models produce scores in [0, 1].
+ * Accepts: a distance as S3 Vectors returns it for a cosine index. That value
+ * is exactly `1 − cosine_similarity`, measured against the live service
+ * (`docs/evidence/cosine-distance.md`), so its range is [0, 2].
+ *
+ * Returns: `1 − distance`, the exact inverse — so the range is [−1, 1], and
+ * [0, 1] for the normalised embeddings most models produce. A caller
+ * thresholding at 0 is asking for "no worse than orthogonal".
+ *
+ * Throws: nothing. A non-numeric distance cannot reach here: the search path
+ * rejects a result without a finite numeric distance before scoring it.
  */
 export function cosineRelevanceScoreFn(distance: number): number {
   return 1.0 - distance;

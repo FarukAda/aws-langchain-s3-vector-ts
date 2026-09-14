@@ -57,6 +57,36 @@ function describe(value: unknown): string {
     : 'a non-plain object';
 }
 
+/**
+ * Validate a metadata filter against the documented operator vocabulary.
+ *
+ * Accepts:
+ * - `undefined` or `null` — no filter; accepted, and the search runs
+ *   unfiltered. `null` is read as "not provided" because a config assembled at
+ *   runtime defaults an absent field to it.
+ * - a plain object of conditions, nested to any depth through `$and`/`$or`.
+ *   Plain is tested by prototype shape, so an object from another realm (a
+ *   `vm` context, a worker `postMessage`, `structuredClone`) passes while a
+ *   class instance, `Map` or `Date` does not.
+ *
+ * Returns: nothing. Acceptance is the entire result.
+ *
+ * Throws: `VALIDATION`, naming the path and the rule, for an array, a
+ * non-plain object, `{}`, an unknown `$`-prefixed key, an `$and`/`$or` whose
+ * value is not a non-empty array, or an `$in`/`$nin` whose value is not a
+ * non-empty array of primitives.
+ *
+ * Guarantees: nothing is refused here that AWS would have accepted. Every rule
+ * is either documented (userguide `s3-vectors-metadata-filtering.html`) or
+ * confirmed live — `{}`, a mistyped operator, an unknown `$`-prefixed key and
+ * an empty `$in` are all rejected by the service too
+ * (`docs/evidence/filter-validation.md`).
+ *
+ * And the local check is worth more here than almost anywhere else in this
+ * package, because AWS's entire diagnosis is the string `"Invalid filter"`,
+ * identical for all four of those cases. This one names the key, the path and
+ * the rule.
+ */
 export function validateFilter(filter: unknown, operation: string, scope: StoreScope): void {
   if (filter === undefined || filter === null) return;
 

@@ -8,7 +8,7 @@
 
 > **AmazonS3VectorsRetrieverInput**\<`V`\> = `VectorStoreRetrieverInput`\<`V`\> & `object`
 
-Defined in: retriever.ts:42
+Defined in: [retriever.ts:42](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L42)
 
 What [AmazonS3VectorsRetriever](../classes/AmazonS3VectorsRetriever.md)'s constructor takes.
 

@@ -18,13 +18,23 @@ function fail(message: string): never {
 }
 
 /**
- * Validate bucket and index names before any AWS call.
+ * Validate the bucket and index names before any AWS call.
  *
- * @remarks
- * Mirrors AWS's own documented naming rules for both
+ * Accepts: two strings. A non-string is the first thing checked, because
+ * everything below reads `.length` and an untyped caller assembling a config
+ * from environment variables can hand us `undefined`.
+ *
+ * Returns: nothing.
+ *
+ * Throws: `VALIDATION`, naming which of the two failed and the rule it broke.
+ *
+ * Guarantees: the rules are AWS's own
  * (https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-buckets-naming.html)
- * so a malformed name fails fast and locally instead of surfacing as an
- * opaque AWS `ValidationException` on the first real API call.
+ * — 3–63 characters, lowercase letters, digits and hyphens, beginning and
+ * ending alphanumeric. An index name may additionally contain dots; a bucket
+ * name may not. The API reference's ARN pattern permits a dot in the bucket
+ * segment, but the user guide's naming rules forbid it, and the stricter of
+ * two AWS sources is the safe one to enforce locally.
  */
 export function assertValidIndexConfig(vectorBucketName: string, indexName: string): void {
   // Checked before any `.length`: an untyped caller reading either name out of
@@ -105,8 +115,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 /**
  * Validate the store configuration before anything is built from it.
  *
- * @remarks
- * Every option here is reachable from an untyped caller, a cast, or a config
+ * Accepts: the configuration as given, before any default is applied.
+ *
+ * Returns: nothing.
+ *
+ * Throws: `VALIDATION`, naming the option and the rule. The message never
+ * echoes credential material.
+ *
+ * Guarantees: every option here is reachable from an untyped caller, a cast, or a config
  * assembled at runtime from environment variables. Each closed-set option is
  * checked against the SDK's own enum object — not a copy of its members — so
  * the check cannot drift from the service model. Each shape check replaces a
@@ -119,9 +135,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * would otherwise get the client's retry policy with nothing said, which is the
  * same class of surprise as a signal handed to the callbacks slot.
  *
- * @param config - The configuration as given, before any default is applied
- * @throws {S3VectorsError} `VALIDATION`, naming the option and the rule. The
- * message never echoes credential material.
  */
 export function assertValidConfig(config: AmazonS3VectorsConfig): void {
   assertEnumMember(config.distanceMetric, Object.values(DistanceMetric), 'distanceMetric');

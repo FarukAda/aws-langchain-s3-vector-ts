@@ -142,10 +142,19 @@ const TAG_VALUE_MIN = 0;
 const TAG_VALUE_MAX = 256;
 
 /**
- * The non-filterable keys a new index is given: the configured list plus
- * `pageContentMetadataKey`, which must not be filterable — filterable metadata
- * is capped far lower than total metadata (limits page). Duplicates collapse,
- * so a caller who already listed the key gets no second copy.
+ * The non-filterable keys a created index is given.
+ *
+ * Accepts: the store's `nonFilterableMetadataKeys` and its
+ * `pageContentMetadataKey` (`null` when page content is not stored at all).
+ *
+ * Returns: the configured list plus the page-content key, which must not be
+ * filterable — filterable metadata is capped at 2 KB against 40 KB total
+ * (limits page), and page content is prose nobody filters by. Duplicates
+ * collapse, so a caller who already listed the key gets no second copy, and
+ * the caller's array is not mutated.
+ *
+ * Throws: nothing. The 10-key ceiling is enforced at creation, where the
+ * error can name the index being created.
  */
 export function nonFilterableKeys(config: IndexLifecycleConfig): string[] {
   const configured = config.nonFilterableMetadataKeys ?? [];
@@ -203,6 +212,35 @@ function assertCreatable(
   }
 }
 
+/**
+ * Build the existence tracker for one index.
+ *
+ * Accepts: the client and the index it acts on, plus the configuration a
+ * created index is built from (`dataType`, `distanceMetric`,
+ * `pageContentMetadataKey`, `nonFilterableMetadataKeys`,
+ * `encryptionConfiguration`, `tags`). The configuration is read only when an
+ * index is created; an existing one is never reconfigured, because S3 Vectors
+ * has no `UpdateIndex`.
+ *
+ * Returns: an {@link IndexLifecycle}. Each method carries its own contract.
+ *
+ * Throws: nothing. Constructing the tracker issues no request.
+ *
+ * Guarantees, all of them properties of the closed-over state rather than of
+ * any single method:
+ * - The "this index exists" flag and the in-flight creation promise are
+ *   private. No caller can set the flag, which is what makes it safe to skip
+ *   `GetIndex` on every write after the first.
+ * - Existence is remembered only on resolution, never on failure, so a failed
+ *   creation is retried rather than assumed.
+ * - Concurrent callers share one creation attempt (the memo), so twenty
+ *   parallel writes issue one `GetIndex` and at most one `CreateIndex`.
+ * - `deleteIndex` awaits an in-flight creation before deleting, so a creation
+ *   that started first can never land afterwards and resurrect the index.
+ * - Nothing about an existing index is cached beyond its existence: AWS
+ *   enforces the dimension on every write and the metric is checked on every
+ *   read, so there is no stale descriptor to go wrong (DESIGN.md D-9).
+ */
 export function createIndexLifecycle(
   ctx: IndexContext,
   config: IndexLifecycleConfig,

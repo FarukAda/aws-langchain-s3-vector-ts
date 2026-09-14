@@ -37,6 +37,21 @@ describe('S3VectorsError', () => {
     expect(isS3VectorsError(null)).toBe(false);
     expect(isS3VectorsError('S3VectorsError')).toBe(false);
   });
+
+  it('recognises an error from a second copy of this module', () => {
+    // A process that mixes `import` and `require` loads the ESM and the
+    // CommonJS build, each with its own class — `instanceof` is false across
+    // them. The brand is a registered symbol, so it is the same symbol in
+    // both, which is what this stands in for.
+    const fromTheOtherCopy = Object.assign(new Error('x'), {
+      [Symbol.for('@farukada/aws-langchain-s3-vector-ts:S3VectorsError')]: true,
+    });
+    expect(isS3VectorsError(fromTheOtherCopy)).toBe(true);
+  });
+
+  it('is not fooled by an error that merely claims the name', () => {
+    expect(isS3VectorsError(Object.assign(new Error('x'), { name: 'S3VectorsError' }))).toBe(false);
+  });
 });
 
 describe('S3VectorsErrorContext.instance — serialization safety', () => {

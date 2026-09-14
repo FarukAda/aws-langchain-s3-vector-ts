@@ -6,7 +6,7 @@
 
 # Class: AmazonS3VectorsRetriever\<V\>
 
-Defined in: retriever.ts:67
+Defined in: [retriever.ts:67](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L67)
 
 The retriever [AmazonS3Vectors.asRetriever](AmazonS3Vectors.md#asretriever) returns.
 
@@ -46,7 +46,7 @@ Both may be supplied at once; they are independent.
 
 > **new AmazonS3VectorsRetriever**\<`V`\>(`fields`): `AmazonS3VectorsRetriever`\<`V`\>
 
-Defined in: retriever.ts:77
+Defined in: [retriever.ts:85](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L85)
 
 #### Parameters
 
@@ -54,9 +54,20 @@ Defined in: retriever.ts:77
 
 [`AmazonS3VectorsRetrieverInput`](../type-aliases/AmazonS3VectorsRetrieverInput.md)\<`V`\>
 
+Everything core's `VectorStoreRetriever` takes, plus
+`signal` — the field signal, threaded into every AWS request this
+retriever makes
+
 #### Returns
 
 `AmazonS3VectorsRetriever`\<`V`\>
+
+The retriever. Constructing one issues no request.
+
+#### Throws
+
+Nothing. `k`, `filter` and `searchKwargs` are validated when a
+search runs, by the same guards a direct call goes through.
 
 #### Overrides
 
@@ -68,7 +79,7 @@ Defined in: retriever.ts:77
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: retriever.ts:75
+Defined in: [retriever.ts:75](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L75)
 
 The field signal: threaded into every AWS request this retriever makes.
 
@@ -78,7 +89,7 @@ The field signal: threaded into every AWS request this retriever makes.
 
 > **\_getRelevantDocuments**(`query`, `runManager?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: retriever.ts:122
+Defined in: [retriever.ts:133](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L133)
 
 Core's extension point, overridden only to thread the field signal.
 
@@ -101,7 +112,13 @@ store's `Callbacks` slot exactly as core's own retriever forwards it
 
 `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-The retrieved documents
+The retrieved documents, at most `k` of them
+
+#### Throws
+
+Whatever the dispatched search raises —
+`ABORTED` for a fired field signal, `VALIDATION` for a bad `k`, `filter`
+or `searchKwargs`, or the class an AWS failure maps to.
 
 #### Overrides
 
@@ -113,7 +130,7 @@ The retrieved documents
 
 > **invoke**(`input`, `options?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: retriever.ts:102
+Defined in: [retriever.ts:110](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L110)
 
 Run the retriever, honouring a config signal as far as core allows.
 
@@ -156,7 +173,7 @@ otherwise whatever the underlying search raises.
 
 > `static` **lc\_name**(): `string`
 
-Defined in: retriever.ts:70
+Defined in: [retriever.ts:70](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L70)
 
 #### Returns
 
