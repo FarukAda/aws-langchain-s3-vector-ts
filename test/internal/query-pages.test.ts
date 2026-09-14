@@ -158,19 +158,27 @@ describe('queryPages', () => {
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
   });
 
-  it('decorates a mid-pagination failure cleanly even when the error carries no stack', async () => {
-    const { mock, run } = setup();
-    const stackless = new S3VectorsError('boom', S3VectorsErrorCode.AWS_REQUEST_FAILED, {
-      operation: 'similaritySearch',
-    });
-    stackless.stack = undefined;
-    mock.on(QueryVectorsCommand).resolvesOnce(page(1, 't1')).rejects(stackless);
+  it.each([
+    ['no stack at all', undefined],
+    ['a stack in an unrecognised format', 'S3VectorsError: boom (no frames)'],
+  ])(
+    'decorates a mid-pagination failure cleanly when the error carries %s',
+    async (_label, stack) => {
+      const { mock, run } = setup();
+      const odd = new S3VectorsError('boom', S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+        operation: 'similaritySearch',
+      });
+      odd.stack = stack;
+      mock.on(QueryVectorsCommand).resolvesOnce(page(1, 't1')).rejects(odd);
 
-    const error = await run().catch((e: unknown) => e);
-    expect((error as Error).message).toContain('page 2 of a paginated');
-    const stack = (error as Error).stack;
-    if (stack !== undefined) expect(stack).toContain('S3VectorsError');
-  });
+      const error = await run().catch((e: unknown) => e);
+      expect((error as Error).message).toContain('page 2 of a paginated');
+      // Falling back means keeping the rebuilt error's *own* frames — not
+      // splicing whatever the original held onto a header and calling it a
+      // stack.
+      expect((error as Error).stack).toContain('\n    at ');
+    },
+  );
 
   it('rejects a nullish response from a non-conforming client', async () => {
     const { mock, run } = setup();

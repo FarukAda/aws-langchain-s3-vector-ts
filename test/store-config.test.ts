@@ -210,6 +210,18 @@ describe('bucket and index names', () => {
   it('rejects a non-string index name', () => {
     expect(codeOf(build({ indexName: null }))).toBe(S3VectorsErrorCode.VALIDATION);
   });
+
+  it.each([
+    [null, 'null'],
+    [42, 'a number'],
+    [['b'], 'an array'],
+    [{}, 'an object'],
+  ])('says what it got instead of a name, without printing it: %p', (value, described) => {
+    const error = build({ vectorBucketName: value });
+    expect((error as Error).message).toBe(
+      `vectorBucketName must be a string (received ${described}).`,
+    );
+  });
 });
 
 describe('what construction does not do', () => {

@@ -4,7 +4,9 @@ import { toError } from '../shared/errors/wrap-error.js';
 
 /** The bucket and index an error should name. */
 export interface StoreScope {
+  /** The vector bucket the operation acts on. */
   readonly vectorBucketName: string;
+  /** The index inside it. */
   readonly indexName: string;
 }
 

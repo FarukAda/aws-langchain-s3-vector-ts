@@ -32,9 +32,13 @@ export interface AmazonS3VectorsRetrieverFields<V extends AmazonS3Vectors = Amaz
    * the request already in flight.
    */
   readonly signal?: AbortSignal;
+  /** Run tags. This store's type is appended to whatever is given, as core does. */
   readonly tags?: string[];
+  /** Run metadata, passed through to core's callback machinery unchanged. */
   readonly metadata?: Record<string, unknown>;
+  /** Core's verbose flag, passed through unchanged. */
   readonly verbose?: boolean;
+  /** Core's callbacks, passed through unchanged. Unlike the search methods, a signal here is not rejected — this is a field, not the callbacks *slot*. */
   readonly callbacks?: Callbacks;
 }
 
@@ -87,6 +91,7 @@ export class AmazonS3VectorsRetriever<
     this.signal = fields.signal;
   }
 
+  /** The bucket and index this retriever's errors name. */
   private get _scope(): StoreScope {
     return {
       vectorBucketName: this.vectorStore.vectorBucketName,

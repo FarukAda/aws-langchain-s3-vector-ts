@@ -34,6 +34,53 @@ export interface QueryPagesOptions extends StoreScope {
 }
 
 /**
+ * Check the index's own distance metric against the one this store assumes.
+ *
+ * Accepts: the `distanceMetric` the response carried, and the configured one.
+ *
+ * Returns: nothing.
+ *
+ * Throws: `AWS_INVALID_RESPONSE` when the response carries nothing
+ * recognisable — a positive shape check, not `=== undefined`, so an explicit
+ * `null` is reported as unrecognisable rather than as a mismatch against the
+ * metric "null"; `INDEX_CONFIG_MISMATCH` when the index disagrees with the
+ * store.
+ *
+ * Guarantees: checked on the first page of every search rather than cached, so
+ * an index re-created out of band with a different metric is caught on the
+ * next read instead of silently scoring against the wrong one. `distanceMetric`
+ * is a required response member (`QueryVectorsOutput` in
+ * `@aws-sdk/client-s3vectors@3.1118.0` `dist-types/models/models_0.d.ts`), so a
+ * response without it is malformed.
+ */
+function assertMetricMatches(
+  actual: unknown,
+  configured: DistanceMetric,
+  operation: string,
+  scope: StoreScope,
+): void {
+  if (actual !== 'cosine' && actual !== 'euclidean') {
+    throw new S3VectorsError(
+      `QueryVectors response for index "${scope.indexName}" did not include a recognisable ` +
+        `distanceMetric (got ${JSON.stringify(actual)}) — cannot verify it matches this ` +
+        `store's configured "${configured}". Relevance scores would be computed against ` +
+        'an unverified metric.',
+      S3VectorsErrorCode.AWS_INVALID_RESPONSE,
+      { operation, ...scope },
+    );
+  }
+  if (actual !== configured) {
+    throw new S3VectorsError(
+      `Index "${scope.indexName}" uses distance metric "${actual}", but this store is ` +
+        `configured for "${configured}". Relevance scores would be computed against the ` +
+        'wrong metric.',
+      S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+      { operation, ...scope },
+    );
+  }
+}
+
+/**
  * Run `QueryVectors`, following `nextToken` until `k` vectors are collected or
  * the result set is exhausted.
  *
@@ -114,26 +161,7 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
     }
 
     if (pageCount === 0) {
-      // A positive shape check, not `=== undefined`: an explicit null would
-      // otherwise be reported as a mismatch against the metric "null".
-      const actual = response.distanceMetric;
-      if (actual !== 'cosine' && actual !== 'euclidean') {
-        fail(
-          `QueryVectors response for index "${opts.indexName}" did not include a recognisable ` +
-            `distanceMetric (got ${JSON.stringify(actual)}) — cannot verify it matches this ` +
-            `store's configured "${distanceMetric}". Relevance scores would be computed against ` +
-            'an unverified metric.',
-          S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-        );
-      }
-      if (actual !== distanceMetric) {
-        fail(
-          `Index "${opts.indexName}" uses distance metric "${actual}", but this store is ` +
-            `configured for "${distanceMetric}". Relevance scores would be computed against the ` +
-            'wrong metric.',
-          S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
-        );
-      }
+      assertMetricMatches(response.distanceMetric, distanceMetric, operation, scope);
     }
 
     results.push(...((response.vectors ?? []) as S3OutputVector[]));

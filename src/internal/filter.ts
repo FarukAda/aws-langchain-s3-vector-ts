@@ -1,3 +1,4 @@
+import { describeValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import type { StoreScope } from './signals.js';
@@ -42,21 +43,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * Letter-based rather than pronunciation-based: correct for the constructor
  * names this actually reaches.
  */
-function articleFor(word: string): 'a' | 'an' {
-  return /^[aeiou]/i.test(word) ? 'an' : 'a';
-}
-
-/** Describe a rejected value for the message, without leaking its contents. */
-function describe(value: unknown): string {
-  if (value === null) return 'null';
-  const type = typeof value;
-  if (type !== 'object') return `${articleFor(type)} ${type}`;
-  const name = (value as { constructor?: { name?: string } }).constructor?.name;
-  return name !== undefined && name !== 'Object'
-    ? `${articleFor(name)} ${name} instance`
-    : 'a non-plain object';
-}
-
 /**
  * Validate a metadata filter against the documented operator vocabulary.
  *
@@ -105,7 +91,7 @@ export function validateFilter(filter: unknown, operation: string, scope: StoreS
     if (!isPlainObject(value)) {
       fail(
         `filter${path} must be a plain object of metadata conditions (e.g. { genre: "scifi" }) — ` +
-          `received ${describe(value)}, which AWS's filter syntax does not accept.`,
+          `received ${describeValue(value, 'a non-plain object')}, which AWS's filter syntax does not accept.`,
       );
     }
     const keys = Object.keys(value);

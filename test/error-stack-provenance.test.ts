@@ -120,8 +120,9 @@ describe('AmazonS3Vectors — a rebuilt error keeps the original throw site', ()
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).toContain('boom');
     const rebuiltStack = (error as Error).stack;
-    if (rebuiltStack !== undefined) {
-      expect(rebuiltStack).toContain('S3VectorsError');
-    }
+    expect(rebuiltStack).toContain('S3VectorsError');
+    // Whichever stack it ends up with, it carries real frames — a decorated
+    // error whose stack is a header and a fragment points nowhere.
+    expect(rebuiltStack).toContain('\n    at ');
   });
 });

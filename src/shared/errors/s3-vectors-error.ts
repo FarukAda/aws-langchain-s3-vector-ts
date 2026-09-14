@@ -5,7 +5,9 @@ import { S3VectorsErrorCode } from './error-code.js';
 export interface S3VectorsErrorContext {
   /** The logical operation that failed (e.g. `"PutVectors"`, `"getByIds"`). */
   readonly operation: string;
+  /** The bucket the failed operation named. Absent only on a failure raised before one was known. */
   readonly vectorBucketName?: string;
+  /** The index the failed operation named. Absent only on a failure raised before one was known. */
   readonly indexName?: string;
   /**
    * Ids confirmed durably written to AWS before a partial `addVectors`/

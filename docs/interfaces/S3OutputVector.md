@@ -21,7 +21,11 @@ shape this store produces.
 
 > `readonly` `optional` **data?**: `object`
 
-Defined in: [types.ts:190](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L190)
+Defined in: [types.ts:205](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L205)
+
+The embedding, present only when the request asked for data. Absent from
+every search result: `QueryVectors` does not return vector data at all,
+which is why MMR needs a second call.
 
 #### float32?
 
@@ -33,7 +37,10 @@ Defined in: [types.ts:190](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` `optional` **distance?**: `number`
 
-Defined in: [types.ts:189](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L189)
+Defined in: [types.ts:199](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L199)
+
+The distance from the query vector, present only on a `QueryVectors`
+result that asked for it. Lower is more similar, for both metrics.
 
 ***
 
@@ -41,7 +48,9 @@ Defined in: [types.ts:189](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` **key**: `string`
 
-Defined in: [types.ts:187](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L187)
+Defined in: [types.ts:188](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L188)
+
+The vector key — the id this package wrote it under.
 
 ***
 
@@ -49,4 +58,8 @@ Defined in: [types.ts:187](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [types.ts:188](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L188)
+Defined in: [types.ts:194](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L194)
+
+The stored metadata, present when the request asked for it. Page content
+is in here, under the store's `pageContentMetadataKey`, until
+`createDocument` lifts it out.

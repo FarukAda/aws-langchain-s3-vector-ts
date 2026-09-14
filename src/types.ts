@@ -184,9 +184,24 @@ export interface AmazonS3VectorsConfig {
  * shape this store produces.
  */
 export interface S3OutputVector {
+  /** The vector key — the id this package wrote it under. */
   readonly key: string;
+  /**
+   * The stored metadata, present when the request asked for it. Page content
+   * is in here, under the store's `pageContentMetadataKey`, until
+   * `createDocument` lifts it out.
+   */
   readonly metadata?: Record<string, unknown>;
+  /**
+   * The distance from the query vector, present only on a `QueryVectors`
+   * result that asked for it. Lower is more similar, for both metrics.
+   */
   readonly distance?: number;
+  /**
+   * The embedding, present only when the request asked for data. Absent from
+   * every search result: `QueryVectors` does not return vector data at all,
+   * which is why MMR needs a second call.
+   */
   readonly data?: { float32?: number[] };
 }
 

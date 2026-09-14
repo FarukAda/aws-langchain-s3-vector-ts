@@ -167,6 +167,50 @@ describe('wrapAwsError', () => {
     }
   });
 
+  it.each([
+    ['null', null],
+    ['a string', 'nope'],
+    ['a number', 42],
+  ])('survives an AWS-shaped error whose $metadata is %s', (_label, metadata) => {
+    // A caller-supplied client with its own request handler can produce this.
+    // Reading through it unguarded would throw a TypeError from inside error
+    // handling, replacing the real failure with a worse one.
+    const cause = Object.assign(new Error('boom'), {
+      name: 'ValidationException',
+      $metadata: metadata,
+    });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REJECTED, { operation: 'op' });
+    expect(err.code).toBe(S3VectorsErrorCode.AWS_REJECTED);
+    expect(err.context.awsErrorName).toBe('ValidationException');
+    expect(err.context.httpStatusCode).toBeUndefined();
+    expect(err.context.requestId).toBeUndefined();
+  });
+
+  it('does not dress a non-AWS error up as one because it carries a junk $metadata', () => {
+    // `name` does not end in 'Exception' and `$metadata` is not the SDK's
+    // shape, so there is nothing here that came from AWS. Reporting
+    // `awsErrorName: 'TypeError'` and a retryability verdict would invite a
+    // caller to retry a bug in their own code.
+    const cause = Object.assign(new Error('x'), { name: 'TypeError', $metadata: 'nope' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.UNEXPECTED_ERROR, { operation: 'op' });
+    expect(err.context.awsErrorName).toBeUndefined();
+    expect(err.context.retryable).toBeUndefined();
+  });
+
+  it('reads the diagnostics when $metadata is the shape the SDK documents', () => {
+    const cause = Object.assign(new Error('boom'), {
+      name: 'ThrottlingException',
+      $metadata: { httpStatusCode: 429, requestId: 'r-9' },
+    });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.THROTTLED, { operation: 'op' });
+    expect(err.context).toMatchObject({
+      awsErrorName: 'ThrottlingException',
+      httpStatusCode: 429,
+      requestId: 'r-9',
+      retryable: true,
+    });
+  });
+
   it('returns an already-S3VectorsError unchanged', () => {
     const original = new S3VectorsError('v', S3VectorsErrorCode.VALIDATION, { operation: 'x' });
     expect(wrapAwsError(original, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'y' })).toBe(

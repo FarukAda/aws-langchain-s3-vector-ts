@@ -152,6 +152,24 @@ describe('createDocument — structuredClone safety', () => {
   });
 });
 
+describe('createDocument — a null page-content key reads no metadata at all', () => {
+  it('leaves a metadata key literally named "null" where it is', () => {
+    // `null` disables the round-trip entirely. It must not degrade into a
+    // lookup for the *string* "null", which is what property access would
+    // coerce it to — a document carrying that field would otherwise have it
+    // silently moved into pageContent and deleted from metadata.
+    const doc = createDocument({ key: 'k', metadata: { null: 'not page content' } }, null);
+    expect(doc.pageContent).toBe('');
+    expect(doc.metadata).toEqual({ null: 'not page content' });
+  });
+
+  it('returns empty page content and the metadata untouched for an ordinary document', () => {
+    const doc = createDocument({ key: 'k', metadata: { _page_content: 'stored', tag: 'a' } }, null);
+    expect(doc.pageContent).toBe('');
+    expect(doc.metadata).toEqual({ _page_content: 'stored', tag: 'a' });
+  });
+});
+
 describe('createDocument — a non-string value under the reserved key', () => {
   // Reachable when something other than this library writes to the same
   // index (this library's own reserved-key guard prevents it on the write

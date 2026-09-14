@@ -6,7 +6,7 @@
 
 # Class: AmazonS3VectorsRetriever\<V\>
 
-Defined in: [retriever.ts:67](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L67)
+Defined in: [retriever.ts:71](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L71)
 
 The retriever [AmazonS3Vectors.asRetriever](AmazonS3Vectors.md#asretriever) returns.
 
@@ -46,7 +46,7 @@ Both may be supplied at once; they are independent.
 
 > **new AmazonS3VectorsRetriever**\<`V`\>(`fields`): `AmazonS3VectorsRetriever`\<`V`\>
 
-Defined in: [retriever.ts:85](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L85)
+Defined in: [retriever.ts:89](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L89)
 
 #### Parameters
 
@@ -79,7 +79,7 @@ search runs, by the same guards a direct call goes through.
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [retriever.ts:75](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L75)
+Defined in: [retriever.ts:79](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L79)
 
 The field signal: threaded into every AWS request this retriever makes.
 
@@ -89,7 +89,7 @@ The field signal: threaded into every AWS request this retriever makes.
 
 > **\_getRelevantDocuments**(`query`, `runManager?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: [retriever.ts:133](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L133)
+Defined in: [retriever.ts:138](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L138)
 
 Core's extension point, overridden only to thread the field signal.
 
@@ -130,7 +130,7 @@ or `searchKwargs`, or the class an AWS failure maps to.
 
 > **invoke**(`input`, `options?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: [retriever.ts:110](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L110)
+Defined in: [retriever.ts:115](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L115)
 
 Run the retriever, honouring a config signal as far as core allows.
 
@@ -173,7 +173,7 @@ otherwise whatever the underlying search raises.
 
 > `static` **lc\_name**(): `string`
 
-Defined in: [retriever.ts:70](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L70)
+Defined in: [retriever.ts:74](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L74)
 
 #### Returns
 

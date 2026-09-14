@@ -7,6 +7,7 @@ import type { StoreScope } from './signals.js';
 const MIN_DIMENSION = 1;
 const MAX_DIMENSION = 4096;
 
+/** Raise a `VALIDATION` naming the operation and index. */
 function fail(message: string, operation: string, scope: StoreScope): never {
   throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, { operation, ...scope });
 }

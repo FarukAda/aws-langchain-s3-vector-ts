@@ -102,6 +102,9 @@ describe('attachPartialIds', () => {
     base.stack = 'no frames here';
     const decorated = attachPartialIds(base, 'addVectors', SCOPE, 'writtenIds', ['a']);
     expect(decorated.stack).not.toContain('no frames here');
+    // Falling back means the rebuilt error's own frames, not a header with a
+    // fragment of the original spliced onto it.
+    expect(decorated.stack).toContain('\n    at ');
   });
 });
 

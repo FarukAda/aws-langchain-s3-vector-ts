@@ -23,7 +23,9 @@ Fields [AmazonS3Vectors.asRetriever](../classes/AmazonS3Vectors.md#asretriever) 
 
 > `readonly` `optional` **callbacks?**: `Callbacks`
 
-Defined in: [retriever.ts:38](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L38)
+Defined in: [retriever.ts:42](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L42)
+
+Core's callbacks, passed through unchanged. Unlike the search methods, a signal here is not rejected — this is a field, not the callbacks *slot*.
 
 ***
 
@@ -55,7 +57,9 @@ Documents to retrieve per query.
 
 > `readonly` `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [retriever.ts:36](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L36)
+Defined in: [retriever.ts:38](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L38)
+
+Run metadata, passed through to core's callback machinery unchanged.
 
 ***
 
@@ -102,7 +106,9 @@ the request already in flight.
 
 > `readonly` `optional` **tags?**: `string`[]
 
-Defined in: [retriever.ts:35](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L35)
+Defined in: [retriever.ts:36](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L36)
+
+Run tags. This store's type is appended to whatever is given, as core does.
 
 ***
 
@@ -110,4 +116,6 @@ Defined in: [retriever.ts:35](https://github.com/FarukAda/aws-langchain-s3-vecto
 
 > `readonly` `optional` **verbose?**: `boolean`
 
-Defined in: [retriever.ts:37](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L37)
+Defined in: [retriever.ts:40](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L40)
+
+Core's verbose flag, passed through unchanged.
