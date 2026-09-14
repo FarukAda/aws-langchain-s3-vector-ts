@@ -224,9 +224,14 @@ Defined in: [s3-vectors.ts:114](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **\_selectRelevanceScoreFn**(): (`distance`) => `number`
 
-Defined in: [s3-vectors.ts:915](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L915)
+Defined in: [s3-vectors.ts:917](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L917)
+
+**`Internal`**
 
 The distance-to-relevance conversion this store uses.
+
+ Called by `@langchain/core`'s
+`similaritySearchWithRelevanceScores`, not by application code.
 
 #### Returns
 
