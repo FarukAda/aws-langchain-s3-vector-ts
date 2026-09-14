@@ -1,7 +1,7 @@
 import { ListVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
-import { createTestStore } from './helpers.js';
+import { createTestStore, sendOptionsOf } from './helpers.js';
 
 /**
  * Enumeration (DESIGN.md §6.7, D-25). Two methods rather than one with a flag
@@ -58,6 +58,48 @@ describe('listDocuments', () => {
     mock.on(ListVectorsCommand).callsFake(() => page(['a'], false, 'more'));
     for await (const _doc of store.listDocuments()) break;
     expect(mock.commandCalls(ListVectorsCommand)).toHaveLength(1);
+  });
+});
+
+describe('enumeration and the signal', () => {
+  it.each([
+    [
+      'listDocuments',
+      (store: ReturnType<typeof createTestStore>['store'], signal: AbortSignal) =>
+        store.listDocuments({ signal }),
+    ],
+    [
+      'listVectors',
+      (store: ReturnType<typeof createTestStore>['store'], signal: AbortSignal) =>
+        store.listVectors({ signal }),
+    ],
+  ])('%s rejects ABORTED on an already-fired signal, without a request', async (_label, start) => {
+    const { store, mock } = createTestStore();
+    mock.on(ListVectorsCommand).resolves(page(['a'], true));
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await (async () => {
+      try {
+        for await (const _item of start(store, controller.signal)) break;
+        return undefined;
+      } catch (e) {
+        return e;
+      }
+    })();
+
+    expect((error as { code?: string }).code).toBe('ABORTED');
+    expect(mock.commandCalls(ListVectorsCommand)).toHaveLength(0);
+  });
+
+  it('threads the signal into the ListVectors request, so an abort cancels it', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(ListVectorsCommand).resolves(page(['a'], false));
+    const controller = new AbortController();
+    for await (const _doc of store.listDocuments({ signal: controller.signal })) break;
+    expect(sendOptionsOf(mock.commandCalls(ListVectorsCommand)[0]!)?.abortSignal).toBe(
+      controller.signal,
+    );
   });
 });
 

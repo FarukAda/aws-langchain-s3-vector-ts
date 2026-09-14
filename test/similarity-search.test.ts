@@ -1,5 +1,6 @@
 import { QueryVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
+import { Document } from '@langchain/core/documents';
 
 import { cosineRelevanceScoreFn } from '../src/relevance-scores.js';
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
@@ -127,17 +128,38 @@ describe('AmazonS3Vectors page_content handling', () => {
   });
 });
 
-describe('AmazonS3Vectors.similaritySearchWithScore without embeddings', () => {
-  it('throws when no embedding model is available for queries', async () => {
+describe('AmazonS3Vectors — which embedding model answers which call', () => {
+  it('raises EMBEDDINGS_MISSING for a text query when neither model is configured', async () => {
     const { client } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+
+    const error = await store.similaritySearchWithScore('query', 1).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.EMBEDDINGS_MISSING);
+    expect((error as Error).message).toContain('No embedding model available for queries');
+  });
+
+  it('answers text queries from queryEmbeddings alone, with no indexing model at all', async () => {
+    // A legitimate store: vectors are written elsewhere (or by addVectors),
+    // and this instance only needs to embed queries.
+    const { client, mock } = createMockClient();
+    mock.on(QueryVectorsCommand).resolves({
+      distanceMetric: 'cosine',
+      vectors: [{ key: 'k', metadata: { _page_content: 'found' }, distance: 0.1 }],
+    });
     const store = new AmazonS3Vectors(undefined, {
       ...BASE_CONFIG,
       client,
+      queryEmbeddings: createMockEmbeddings(3),
     });
 
-    await expect(store.similaritySearchWithScore('query', 1)).rejects.toThrow(
-      'No embedding model available for queries',
-    );
+    expect(await store.similaritySearch('query', 1)).toHaveLength(1);
+
+    // …and writing from text still fails, naming the option to set.
+    const error = await store
+      .addDocuments([new Document({ pageContent: 'x' })])
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.EMBEDDINGS_MISSING);
+    expect((error as Error).message).toContain('Provide `embeddings`');
   });
 });
 

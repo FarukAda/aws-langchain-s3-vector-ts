@@ -1,4 +1,4 @@
-import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
+import { PutVectorsCommand, type S3VectorsClient } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
@@ -179,7 +179,7 @@ describe('fromDocuments — partial-write failure', () => {
     expect(instance!.vectorBucketName).toBe(BASE_CONFIG.vectorBucketName);
   });
 
-  it('still attaches the instance via the _normalizeToS3VectorsError fallback when addDocuments throws before it wraps anything itself', async () => {
+  it('still attaches the instance when addDocuments throws something this package never wrapped', async () => {
     // addDocuments validates `documents` is an array up front, and its own
     // error-wrapping (_checkAborted, the try/catch around embedBatch+putBatch,
     // _attachPartialIds) starts a few lines later — but `documents.map(...)`
@@ -213,4 +213,43 @@ describe('fromDocuments — partial-write failure', () => {
     const instance = (error as S3VectorsError).context.instance;
     expect(instance).toBeInstanceOf(AmazonS3Vectors);
   });
+});
+
+describe('AmazonS3Vectors static factories — the signal', () => {
+  it.each([
+    [
+      'fromTexts',
+      (client: S3VectorsClient, signal: AbortSignal) =>
+        AmazonS3Vectors.fromTexts(['a'], {}, createMockEmbeddings(3), {
+          ...BASE_CONFIG,
+          client,
+          signal,
+        }),
+    ],
+    [
+      'fromDocuments',
+      (client: S3VectorsClient, signal: AbortSignal) =>
+        AmazonS3Vectors.fromDocuments(
+          [new Document({ pageContent: 'a' })],
+          createMockEmbeddings(3),
+          {
+            ...BASE_CONFIG,
+            client,
+            signal,
+          },
+        ),
+    ],
+  ])(
+    '%s rejects ABORTED on an already-fired signal, before embedding or writing',
+    async (_label, start) => {
+      const { client, mock } = createMockClient();
+      mockExistingIndex(mock);
+      const controller = new AbortController();
+      controller.abort();
+
+      const error = await start(client, controller.signal).catch((e: unknown) => e);
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
+      expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
+    },
+  );
 });
