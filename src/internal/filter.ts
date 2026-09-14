@@ -43,6 +43,145 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * Letter-based rather than pronunciation-based: correct for the constructor
  * names this actually reaches.
  */
+/** Raise a `VALIDATION` naming the filter path that broke a rule. */
+function failFilter(operation: string, scope: StoreScope, message: string): never {
+  throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, { operation, ...scope });
+}
+
+/**
+ * Check the operator object attached to one field name.
+ *
+ * Accepts: the value under a field key — `{ $eq: 'a' }`, `{ $in: [1, 2] }` —
+ * and the path to report it under.
+ *
+ * Returns: nothing. A key that does not start with `$` is a nested field name,
+ * not an operator, and is left alone.
+ *
+ * Throws: `VALIDATION` for an unknown `$`-prefixed key, or for `$in`/`$nin`
+ * whose value is not a non-empty array.
+ */
+function assertOperators(
+  conditions: Record<string, unknown>,
+  path: string,
+  operation: string,
+  scope: StoreScope,
+): void {
+  for (const [key, entry] of Object.entries(conditions)) {
+    if (!key.startsWith('$')) continue;
+    if (!COMPARISON_OPERATORS.has(key) && !LOGICAL_OPERATORS.has(key)) {
+      failFilter(
+        operation,
+        scope,
+        `filter${path} uses unknown operator '${key}'. Valid operators are ` +
+          `${[...COMPARISON_OPERATORS, ...LOGICAL_OPERATORS].join(', ')}.`,
+      );
+    }
+    if (NON_EMPTY_ARRAY_OPERATORS.has(key) && (!Array.isArray(entry) || entry.length === 0)) {
+      failFilter(operation, scope, `filter${path}.${key} must be a non-empty array.`);
+    }
+  }
+}
+
+/**
+ * Check one `$and`/`$or` branch: a non-empty array of nested filters.
+ *
+ * Accepts: the value under a logical operator, and its path.
+ *
+ * Returns: nothing.
+ *
+ * Throws: `VALIDATION` for anything that is not a non-empty array, and
+ * whatever each nested filter raises — recursing back through
+ * {@link assertConditions}, which is what makes nesting depth unbounded here
+ * rather than capped at one level.
+ */
+function assertLogicalBranch(
+  entry: unknown,
+  key: string,
+  path: string,
+  operation: string,
+  scope: StoreScope,
+): void {
+  if (!Array.isArray(entry) || entry.length === 0) {
+    failFilter(operation, scope, `filter${path}.${key} must be a non-empty array of filters.`);
+  }
+  for (const [index, nested] of (entry as unknown[]).entries()) {
+    assertConditions(nested, `${path}.${key}[${index}]`, operation, scope);
+  }
+}
+
+/**
+ * Check one filter object: its shape, then every key it holds.
+ *
+ * Accepts: a value that must be a non-empty plain object, and the path to
+ * report it under (`''` at the top level, `.$and[0]` inside a branch).
+ *
+ * Returns: nothing.
+ *
+ * Throws: `VALIDATION` for an array, a non-plain object, `{}`, a comparison
+ * operator standing where a field name belongs, an unknown `$`-prefixed key,
+ * or a malformed logical branch.
+ */
+function assertConditions(
+  value: unknown,
+  path: string,
+  operation: string,
+  scope: StoreScope,
+): void {
+  if (Array.isArray(value)) {
+    failFilter(
+      operation,
+      scope,
+      `filter${path} must be a plain object of metadata conditions (e.g. { genre: "scifi" }) — ` +
+        'arrays are not a valid filter shape. Omit the filter argument entirely to search ' +
+        'without filtering.',
+    );
+  }
+  if (!isPlainObject(value)) {
+    failFilter(
+      operation,
+      scope,
+      `filter${path} must be a plain object of metadata conditions (e.g. { genre: "scifi" }) — ` +
+        `received ${describeValue(value, 'a non-plain object')}, which AWS's filter syntax does not accept.`,
+    );
+  }
+  const keys = Object.keys(value);
+  if (keys.length === 0) {
+    failFilter(
+      operation,
+      scope,
+      `filter${path} cannot be an empty object ({}) — AWS rejects this as an invalid filter. ` +
+        'Omit the filter argument entirely to search without filtering.',
+    );
+  }
+
+  for (const key of keys) {
+    const entry = value[key];
+    if (!key.startsWith('$')) {
+      // A field name. Its value is either a literal or an operator object.
+      if (isPlainObject(entry)) assertOperators(entry, `${path}.${key}`, operation, scope);
+      continue;
+    }
+    if (COMPARISON_OPERATORS.has(key)) {
+      failFilter(
+        operation,
+        scope,
+        `filter${path} uses '${key}' where a field name belongs. A comparison operator ` +
+          `applies to a field, as in { year: { ${key}: … } }; only ` +
+          `${[...LOGICAL_OPERATORS].join(' and ')} may appear on their own.`,
+      );
+    }
+    if (!LOGICAL_OPERATORS.has(key)) {
+      failFilter(
+        operation,
+        scope,
+        `filter${path} uses unknown operator '${key}'. Valid operators are ` +
+          `${[...COMPARISON_OPERATORS, ...LOGICAL_OPERATORS].join(', ')}.`,
+      );
+    }
+    assertLogicalBranch(entry, key, path, operation, scope);
+  }
+}
+
 /**
  * Validate a metadata filter against the documented operator vocabulary.
  *
@@ -75,76 +214,5 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 export function validateFilter(filter: unknown, operation: string, scope: StoreScope): void {
   if (filter === undefined || filter === null) return;
-
-  const fail: (message: string) => never = (message) => {
-    throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, { operation, ...scope });
-  };
-
-  const validateConditions = (value: unknown, path: string): void => {
-    if (Array.isArray(value)) {
-      fail(
-        `filter${path} must be a plain object of metadata conditions (e.g. { genre: "scifi" }) — ` +
-          'arrays are not a valid filter shape. Omit the filter argument entirely to search ' +
-          'without filtering.',
-      );
-    }
-    if (!isPlainObject(value)) {
-      fail(
-        `filter${path} must be a plain object of metadata conditions (e.g. { genre: "scifi" }) — ` +
-          `received ${describeValue(value, 'a non-plain object')}, which AWS's filter syntax does not accept.`,
-      );
-    }
-    const keys = Object.keys(value);
-    if (keys.length === 0) {
-      fail(
-        `filter${path} cannot be an empty object ({}) — AWS rejects this as an invalid filter. ` +
-          'Omit the filter argument entirely to search without filtering.',
-      );
-    }
-
-    for (const key of keys) {
-      const entry = value[key];
-      if (!key.startsWith('$')) {
-        // A field name. Its value is either a literal or an operator object.
-        if (isPlainObject(entry)) validateOperators(entry, `${path}.${key}`);
-        continue;
-      }
-      if (COMPARISON_OPERATORS.has(key)) {
-        fail(
-          `filter${path} uses '${key}' where a field name belongs. A comparison operator ` +
-            `applies to a field, as in { year: { ${key}: … } }; only ` +
-            `${[...LOGICAL_OPERATORS].join(' and ')} may appear on their own.`,
-        );
-      }
-      if (!LOGICAL_OPERATORS.has(key)) {
-        fail(
-          `filter${path} uses unknown operator '${key}'. Valid operators are ` +
-            `${[...COMPARISON_OPERATORS, ...LOGICAL_OPERATORS].join(', ')}.`,
-        );
-      }
-      if (!Array.isArray(entry) || entry.length === 0) {
-        fail(`filter${path}.${key} must be a non-empty array of filters.`);
-      }
-      for (const [index, nested] of (entry as unknown[]).entries()) {
-        validateConditions(nested, `${path}.${key}[${index}]`);
-      }
-    }
-  };
-
-  const validateOperators = (conditions: Record<string, unknown>, path: string): void => {
-    for (const [key, entry] of Object.entries(conditions)) {
-      if (!key.startsWith('$')) continue;
-      if (!COMPARISON_OPERATORS.has(key) && !LOGICAL_OPERATORS.has(key)) {
-        fail(
-          `filter${path} uses unknown operator '${key}'. Valid operators are ` +
-            `${[...COMPARISON_OPERATORS, ...LOGICAL_OPERATORS].join(', ')}.`,
-        );
-      }
-      if (NON_EMPTY_ARRAY_OPERATORS.has(key) && (!Array.isArray(entry) || entry.length === 0)) {
-        fail(`filter${path}.${key} must be a non-empty array.`);
-      }
-    }
-  };
-
-  validateConditions(filter, '');
+  assertConditions(filter, '', operation, scope);
 }

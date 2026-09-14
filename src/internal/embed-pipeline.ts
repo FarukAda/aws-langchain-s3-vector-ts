@@ -3,15 +3,22 @@ import type { DocumentInterface } from '@langchain/core/documents';
 import { chunk, offsetBatches } from '../shared/batching.js';
 import { attachPartialIds } from '../shared/errors/decorate.js';
 import { writeFirstBatch } from './concurrency.js';
+import type { OperationScope } from './operation.js';
 import { checkAborted, type StoreScope } from './signals.js';
 
-export interface EmbedPipelineOptions extends StoreScope {
-  readonly operation: string;
+export interface EmbedPipelineOptions extends OperationScope {
+  /** The documents to embed and write, in caller order. */
   readonly documents: readonly DocumentInterface[];
   /** One id per document, already resolved and validated. */
   readonly ids: string[];
+  /** Documents per batch: one embed call and one write call each. */
   readonly batchSize: number;
+  /** How many writes may be un-settled at once; embedding pauses when full. */
   readonly maxConcurrent: number;
+  /**
+   * Cancels the run. Checked before and after every embed, because an
+   * `EmbeddingsInterface` takes no signal and cannot self-cancel.
+   */
   readonly signal?: AbortSignal | undefined;
   /** Embed one batch. Never called concurrently with itself. */
   readonly embed: (batch: DocumentInterface[]) => Promise<number[][]>;

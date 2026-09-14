@@ -1,8 +1,8 @@
-import type { S3VectorsClient } from '@aws-sdk/client-s3vectors';
 import type { Document } from '@langchain/core/documents';
 
 import { validateFilter } from '../internal/filter.js';
 import { assertIsArray, assertK, validationError } from '../internal/guards.js';
+import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
 import type { StoreScope } from '../internal/signals.js';
 import { cosineRelevanceScoreFn } from '../relevance-scores.js';
@@ -11,15 +11,17 @@ import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { createDocument } from '../shared/metadata.js';
 import type { DistanceMetric } from '../types.js';
 
-export interface VectorSearchOptions extends StoreScope {
-  readonly client: S3VectorsClient;
-  readonly operation: string;
+export interface VectorSearchOptions extends AwsOperation {
+  /** The store's metric, verified against the response before any score is computed. */
   readonly distanceMetric: DistanceMetric;
+  /** The embedding to search with. */
   readonly queryVector: number[];
+  /** Results wanted, an integer 1–10,000. */
   readonly k: number;
+  /** A metadata filter, validated here before the request. */
   readonly filter?: unknown;
+  /** Where page content is stored, so it can be lifted back out. */
   readonly pageContentMetadataKey: string | null;
-  readonly signal?: AbortSignal | undefined;
 }
 
 /**

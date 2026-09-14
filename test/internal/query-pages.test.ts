@@ -158,6 +158,23 @@ describe('queryPages', () => {
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
   });
 
+  it('keeps the frames of the call that actually failed', async () => {
+    // The failure is decorated with pagination context. If the decorator kept
+    // its own fresh stack instead of the original's frames, the reported
+    // origin would be the decorator — hiding the one thing a stack is for.
+    const { mock, run } = setup();
+    const raised = new S3VectorsError('token expired', S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+      operation: 'similaritySearch',
+    });
+    raised.stack = 'S3VectorsError: token expired\n    at theRealThrowSite (file.ts:1:1)';
+    mock.on(QueryVectorsCommand).resolvesOnce(page(1, 't1')).rejects(raised);
+
+    const error = await run().catch((e: unknown) => e);
+    const stack = String((error as Error).stack);
+    expect(stack).toContain('theRealThrowSite');
+    expect(stack.split('\n')[0]).toContain('page 2 of a paginated');
+  });
+
   it.each([
     ['no stack at all', undefined],
     ['a stack in an unrecognised format', 'S3VectorsError: boom (no frames)'],

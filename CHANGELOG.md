@@ -140,8 +140,42 @@ identically, and the wire format is untouched.
   contract in the JSDoc of every exported function stating what it accepts,
   returns, throws and guarantees.
 
+### Verification
+
+- **Mutation-sampled, not just covered.** 254 semantic mutations were applied
+  across every module in six rounds and the suite re-run for each. Eight
+  survived; each was a real gap — an asserted branch whose *output* nothing
+  checked, a `&&` that could move a metadata field named `"null"` into page
+  content, two stack-provenance tests that checked the old stack was gone
+  rather than that the new one had frames, a non-object `$metadata` that let a
+  non-AWS error be reported with an `awsErrorName` and a retryability verdict,
+  and the cause-walk depth bound, which no test pinned at its boundary. All
+  eight now fail the suite when reintroduced, and the last two rounds (95
+  mutants) found no survivors.
+- **Properties over whole domains** (`test/property/pure-functions.property.test.ts`):
+  `chunk` round-trips and never yields an empty or oversized batch; every
+  offset indexes back into the array it came from; `resolveWriteIds` returns
+  one id per document and prefers the caller's; `validateFilter` throws nothing
+  but a coded `VALIDATION` for *any* input at all and accepts every filter
+  built from documented operators; `classifyAwsError` is total; `toError`
+  always returns an `Error` and preserves an Error-shaped input's identity;
+  `createDocument` round-trips page content and never shares mutable metadata
+  between two documents built from one vector.
+
 ### Documentation
 
+- Every exported function, every private helper and all 139 interface fields
+  carry a contract or a doc line. The fields every action shares — the client,
+  the operation name, the signal, the batch size and the concurrency cap — are
+  documented once on `internal/operation.ts` and inherited, which removed 25
+  duplicate declarations rather than adding 25 duplicate comments.
+- The largest functions were split where the split had a name worth giving:
+  `assertValidConfig` (93 lines, cyclomatic 25) into eight per-option
+  validators, `fetchVectorsByKey` (78/21) into three, `validateFilter` (69/21)
+  into four, plus `queryPages`, `listPages`, `createIndexLifecycle`,
+  `assertCreatable`, `awsDiagnostics`, `mmrSearch` and the constructor. What is
+  left above the thresholds is a pagination loop and an optional-field
+  extractor, where the branches are the algorithm.
 - README, `src/guide.md` and `docs/STABILITY.md` are rewritten against the new
   behaviour: the error-code table, the `getByIds` contract, MMR, enumeration,
   the two retriever signals, the IAM policy (now including

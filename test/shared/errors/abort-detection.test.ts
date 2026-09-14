@@ -38,6 +38,20 @@ describe('isAbortError', () => {
     expect(isAbortError(wrapping(wrapping(wrapping(abort()))))).toBe(true);
   });
 
+  it('recognises an abort exactly at the depth bound — five cause hops', () => {
+    // The bound is five hops from the value itself. Pinning both sides of it
+    // is what stops the walk being quietly shortened or lengthened.
+    let chain: unknown = abort();
+    for (let i = 0; i < 5; i++) chain = wrapping(chain);
+    expect(isAbortError(chain)).toBe(true);
+  });
+
+  it('gives up one hop past the bound', () => {
+    let chain: unknown = abort();
+    for (let i = 0; i < 6; i++) chain = wrapping(chain);
+    expect(isAbortError(chain)).toBe(false);
+  });
+
   it('gives up beyond the depth bound rather than walking an unbounded chain', () => {
     let chain: unknown = abort();
     for (let i = 0; i < 8; i++) chain = wrapping(chain);

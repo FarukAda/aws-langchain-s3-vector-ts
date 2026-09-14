@@ -62,6 +62,12 @@ const RETRYABLE_AWS_ERROR_NAMES = new Set([
   'RequestTimeoutException',
 ]);
 
+/** The `$metadata` bag the SDK attaches to a service error. */
+interface AwsMetadata {
+  readonly httpStatusCode?: unknown;
+  readonly requestId?: unknown;
+}
+
 type AwsDiagnostics = Pick<
   S3VectorsErrorContext,
   'awsErrorName' | 'httpStatusCode' | 'requestId' | 'retryable' | 'fieldList'
@@ -78,6 +84,40 @@ type AwsDiagnostics = Pick<
  * (`…Exception`). A plain `TypeError` from caller code, or an `AbortError`,
  * is not an AWS error and must not be presented as one.
  */
+/**
+ * The `$metadata` an AWS SDK error carries, when it carries one.
+ *
+ * @returns The object, or `undefined` for anything else — a `null`, a string,
+ * a missing field. Everything downstream reads through that `undefined`
+ * rather than guarding again.
+ */
+function metadataOf(candidate: { $metadata?: unknown }): AwsMetadata | undefined {
+  return typeof candidate.$metadata === 'object' && candidate.$metadata !== null
+    ? candidate.$metadata
+    : undefined;
+}
+
+/**
+ * Whether a failed AWS call is worth retrying after a backoff.
+ *
+ * @returns `true` when the SDK marked it retryable, when the exception name is
+ * one of the documented transient ones, or when the status is 429 or 5xx. The
+ * SDK's own strategy has usually already retried these, so `true` here means
+ * those attempts were exhausted.
+ */
+function isRetryable(
+  candidate: { $retryable?: unknown },
+  name: string | undefined,
+  httpStatusCode: number | undefined,
+): boolean {
+  return (
+    candidate.$retryable !== undefined ||
+    (name !== undefined && RETRYABLE_AWS_ERROR_NAMES.has(name)) ||
+    httpStatusCode === 429 ||
+    (httpStatusCode !== undefined && httpStatusCode >= 500)
+  );
+}
+
 function awsDiagnostics(cause: unknown): AwsDiagnostics {
   if (typeof cause !== 'object' || cause === null) return {};
   const candidate = cause as {
@@ -87,10 +127,10 @@ function awsDiagnostics(cause: unknown): AwsDiagnostics {
     fieldList?: unknown;
   };
   const name = typeof candidate.name === 'string' ? candidate.name : undefined;
-  const metadata =
-    typeof candidate.$metadata === 'object' && candidate.$metadata !== null
-      ? (candidate.$metadata as { httpStatusCode?: unknown; requestId?: unknown })
-      : undefined;
+  const metadata = metadataOf(candidate);
+  // Nothing here came from AWS: no SDK metadata, and a name that is not one of
+  // the service's exceptions. Reporting an awsErrorName and a retryability
+  // verdict would invite a caller to retry a bug in their own code.
   if (metadata === undefined && !(name !== undefined && name.endsWith('Exception'))) return {};
 
   const out: {
@@ -109,11 +149,7 @@ function awsDiagnostics(cause: unknown): AwsDiagnostics {
   if (Array.isArray(candidate.fieldList)) {
     out.fieldList = candidate.fieldList as { path?: string; message?: string }[];
   }
-  out.retryable =
-    candidate.$retryable !== undefined ||
-    (name !== undefined && RETRYABLE_AWS_ERROR_NAMES.has(name)) ||
-    out.httpStatusCode === 429 ||
-    (out.httpStatusCode !== undefined && out.httpStatusCode >= 500);
+  out.retryable = isRetryable(candidate, name, out.httpStatusCode);
   return out;
 }
 

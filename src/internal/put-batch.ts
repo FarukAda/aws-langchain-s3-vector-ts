@@ -1,4 +1,4 @@
-import { PutVectorsCommand, type S3VectorsClient } from '@aws-sdk/client-s3vectors';
+import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import type { DocumentInterface } from '@langchain/core/documents';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
@@ -10,24 +10,28 @@ import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import { buildPutMetadata } from '../shared/metadata.js';
 import type { DistanceMetric } from '../types.js';
 import { assertVectorDimension, assertVectorsWritable } from './limits.js';
+import type { AwsOperation } from './operation.js';
 import type { StoreScope } from './signals.js';
 
-export interface PutBatchOptions extends StoreScope {
-  readonly client: S3VectorsClient;
-  readonly operation: string;
+export interface PutBatchOptions extends AwsOperation {
   /** This batch's offset into the flat input; batch 0 is the one that may create the index. */
   readonly batchOffset: number;
+  /** The embeddings to write, all of one dimension. */
   readonly vectors: number[][];
+  /** Their documents, positionally — one per vector. */
   readonly documents: readonly DocumentInterface[];
+  /** Their ids, positionally — one per vector, already validated. */
   readonly ids: readonly string[];
+  /** The store's metric; decides whether a zero vector is writable. */
   readonly distanceMetric: DistanceMetric;
+  /** Where page content is stored, or `null` to store none. */
   readonly pageContentMetadataKey: string | null;
+  /** Keys the index treats as non-filterable, which have the larger byte budget. */
   readonly nonFilterableKeys: readonly string[];
   /** Called for batch 0 only, and only when the store may create an index. */
   readonly ensureIndex?: ((dimension: number, signal?: AbortSignal) => Promise<void>) | undefined;
   /** Called when a write reports the index gone, so the next write re-checks. */
   readonly onIndexAbsent: () => void;
-  readonly signal?: AbortSignal | undefined;
 }
 
 /**

@@ -1,18 +1,16 @@
-import type { S3VectorsClient } from '@aws-sdk/client-s3vectors';
 import type { Document } from '@langchain/core/documents';
 
 import { fetchVectorsByKey } from '../internal/get-vectors.js';
 import { assertIsArray } from '../internal/guards.js';
+import type { BatchedOperation } from '../internal/operation.js';
 import type { StoreScope } from '../internal/signals.js';
 import { createDocument } from '../shared/metadata.js';
 
-export interface GetByIdsOptions extends StoreScope {
-  readonly client: S3VectorsClient;
+export interface GetByIdsOptions extends Omit<BatchedOperation, 'operation'> {
+  /** The ids to fetch, in the order the result should hold them. */
   readonly ids: string[];
-  readonly batchSize?: number | undefined;
-  readonly maxConcurrent: number;
+  /** Where page content is stored, so it can be lifted back out. */
   readonly pageContentMetadataKey: string | null;
-  readonly signal?: AbortSignal | undefined;
 }
 
 /**

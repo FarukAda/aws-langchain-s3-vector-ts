@@ -1,4 +1,4 @@
-import { QueryVectorsCommand, type S3VectorsClient } from '@aws-sdk/client-s3vectors';
+import { QueryVectorsCommand, type QueryVectorsCommandOutput } from '@aws-sdk/client-s3vectors';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
 import { classifyAwsError } from '../shared/errors/classify.js';
@@ -6,6 +6,7 @@ import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { DistanceMetric, S3OutputVector } from '../types.js';
+import type { AwsOperation } from './operation.js';
 import { checkAborted, type StoreScope } from './signals.js';
 
 /**
@@ -21,16 +22,19 @@ import { checkAborted, type StoreScope } from './signals.js';
  */
 const MAX_QUERY_PAGES = 1_000;
 
-export interface QueryPagesOptions extends StoreScope {
-  readonly client: S3VectorsClient;
-  readonly operation: string;
+export interface QueryPagesOptions extends AwsOperation {
+  /** What this store believes the index uses; verified against the response. */
   readonly distanceMetric: DistanceMetric;
+  /** Results wanted. Pagination continues until this many are collected. */
   readonly k: number;
+  /** The embedding to search with. */
   readonly queryVector: number[];
+  /** A metadata filter, already validated by the caller. */
   readonly filter?: unknown;
+  /** Whether each result should carry its metadata. */
   readonly returnMetadata: boolean;
+  /** Whether each result should carry its distance. MMR asks for candidates without one. */
   readonly returnDistance: boolean;
-  readonly signal?: AbortSignal | undefined;
 }
 
 /**
@@ -81,6 +85,37 @@ function assertMetricMatches(
 }
 
 /**
+ * Issue one `QueryVectors` page.
+ *
+ * Accepts: the search options, and the token the previous page returned —
+ * `undefined` for the first.
+ *
+ * Returns: the response, unexamined. Every check on it belongs to the loop,
+ * which is where the page number and the results so far are known.
+ *
+ * Throws: whatever the SDK raises, unwrapped. The caller adds the pagination
+ * context that makes it useful.
+ */
+async function requestPage(
+  opts: QueryPagesOptions,
+  nextToken: string | undefined,
+): Promise<QueryVectorsCommandOutput> {
+  return await opts.client.send(
+    new QueryVectorsCommand({
+      vectorBucketName: opts.vectorBucketName,
+      indexName: opts.indexName,
+      topK: opts.k,
+      nextToken,
+      queryVector: { float32: opts.queryVector },
+      filter: opts.filter as __DocumentType | undefined,
+      returnMetadata: opts.returnMetadata,
+      returnDistance: opts.returnDistance,
+    }),
+    { abortSignal: opts.signal },
+  );
+}
+
+/**
  * Run `QueryVectors`, following `nextToken` until `k` vectors are collected or
  * the result set is exhausted.
  *
@@ -108,7 +143,7 @@ function assertMetricMatches(
  * response and is followed like any other.
  */
 export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVector[]> {
-  const { client, operation, distanceMetric, k, signal } = opts;
+  const { operation, distanceMetric, k, signal } = opts;
   const scope: StoreScope = {
     vectorBucketName: opts.vectorBucketName,
     indexName: opts.indexName,
@@ -126,19 +161,7 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
   do {
     let response;
     try {
-      response = await client.send(
-        new QueryVectorsCommand({
-          vectorBucketName: opts.vectorBucketName,
-          indexName: opts.indexName,
-          topK: k,
-          nextToken,
-          queryVector: { float32: opts.queryVector },
-          filter: opts.filter as __DocumentType | undefined,
-          returnMetadata: opts.returnMetadata,
-          returnDistance: opts.returnDistance,
-        }),
-        { abortSignal: signal },
-      );
+      response = await requestPage(opts, nextToken);
     } catch (error: unknown) {
       throw explainPagination(
         wrapAwsError(error, classifyAwsError(error), { operation, ...scope }),

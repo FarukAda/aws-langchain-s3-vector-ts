@@ -7,6 +7,7 @@ type CommittedIdsKey = 'writtenIds' | 'deletedIds';
 
 /** What every batched operation needs to report a partial failure. */
 export interface BatchReporting extends StoreScope {
+  /** The public method this batch belongs to; named in the error it raises. */
   readonly operation: string;
   /** Which list the ids belong under on a thrown error. */
   readonly key: CommittedIdsKey;

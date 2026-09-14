@@ -1,10 +1,11 @@
-import { ListVectorsCommand, type S3VectorsClient } from '@aws-sdk/client-s3vectors';
+import { ListVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { classifyAwsError } from '../shared/errors/classify.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { S3OutputVector } from '../types.js';
+import type { AwsOperation } from './operation.js';
 import { checkAborted, type StoreScope } from './signals.js';
 
 /**
@@ -15,14 +16,60 @@ import { checkAborted, type StoreScope } from './signals.js';
 const MIN_PAGE_SIZE = 1;
 const MAX_PAGE_SIZE = 1000;
 
-export interface ListPagesOptions extends StoreScope {
-  readonly client: S3VectorsClient;
-  readonly operation: string;
+export interface ListPagesOptions extends AwsOperation {
+  /** Whether each record should carry its embedding. */
   readonly returnData: boolean;
+  /** Whether each record should carry its metadata. */
   readonly returnMetadata: boolean;
   /** 1–1000, and advisory: the 1 MB page cap may return fewer. */
   readonly pageSize?: number | undefined;
-  readonly signal?: AbortSignal | undefined;
+}
+
+/**
+ * Reject a page size AWS would not accept, before any request.
+ *
+ * @throws {S3VectorsError} `VALIDATION` for anything but `undefined` or an
+ * integer 1–1000 (`maxResults` in the `ListVectors` API reference).
+ */
+function assertPageSize(pageSize: number | undefined, operation: string, scope: StoreScope): void {
+  if (pageSize === undefined) return;
+  if (!Number.isInteger(pageSize) || pageSize < MIN_PAGE_SIZE || pageSize > MAX_PAGE_SIZE) {
+    throw new S3VectorsError(
+      `pageSize must be an integer between ${MIN_PAGE_SIZE} and ${MAX_PAGE_SIZE} ` +
+        `(received ${String(pageSize)}).`,
+      S3VectorsErrorCode.VALIDATION,
+      { operation, ...scope },
+    );
+  }
+}
+
+/**
+ * Explain a failed page, and say how far the listing got.
+ *
+ * @returns The mapped error class carrying `pagesScanned` and `yielded`. A
+ * `403` also gets the one hint AWS's own message omits: listing *with*
+ * metadata or data needs `s3vectors:GetVectors` on top of
+ * `s3vectors:ListVectors`, which is the usual cause and is impossible to guess
+ * from "Access Denied".
+ */
+function explainListing(
+  error: unknown,
+  context: { operation: string; vectorBucketName: string; indexName: string },
+  pagesScanned: number,
+  yielded: number,
+): S3VectorsError {
+  const base = wrapAwsError(error, classifyAwsError(error), context);
+  const hint =
+    base.code === S3VectorsErrorCode.ACCESS_DENIED
+      ? ' Listing with metadata or data requires the s3vectors:GetVectors permission in ' +
+        'addition to s3vectors:ListVectors.'
+      : '';
+  return new S3VectorsError(
+    `${base.message}${hint}`,
+    base.code,
+    { ...base.context, pagesScanned, yielded },
+    base.cause,
+  );
 }
 
 /**
@@ -58,17 +105,7 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
   };
 
   const pageSize = opts.pageSize;
-  if (
-    pageSize !== undefined &&
-    (!Number.isInteger(pageSize) || pageSize < MIN_PAGE_SIZE || pageSize > MAX_PAGE_SIZE)
-  ) {
-    throw new S3VectorsError(
-      `pageSize must be an integer between ${MIN_PAGE_SIZE} and ${MAX_PAGE_SIZE} ` +
-        `(received ${String(pageSize)}).`,
-      S3VectorsErrorCode.VALIDATION,
-      { operation, ...scope },
-    );
-  }
+  assertPageSize(pageSize, operation, scope);
 
   let nextToken: string | undefined;
   let pagesScanned = 0;
@@ -91,18 +128,7 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
         { abortSignal: signal },
       );
     } catch (error: unknown) {
-      const base = wrapAwsError(error, classifyAwsError(error), { operation, ...scope });
-      const hint =
-        base.code === S3VectorsErrorCode.ACCESS_DENIED
-          ? ' Listing with metadata or data requires the s3vectors:GetVectors permission in ' +
-            'addition to s3vectors:ListVectors.'
-          : '';
-      throw new S3VectorsError(
-        `${base.message}${hint}`,
-        base.code,
-        { ...base.context, pagesScanned, yielded },
-        base.cause,
-      );
+      throw explainListing(error, { operation, ...scope }, pagesScanned, yielded);
     }
 
     if (typeof response !== 'object' || response === null) {

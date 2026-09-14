@@ -1,4 +1,4 @@
-import { GetVectorsCommand, type S3VectorsClient } from '@aws-sdk/client-s3vectors';
+import { GetVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { chunk } from '../shared/batching.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
@@ -7,6 +7,7 @@ import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { S3OutputVector } from '../types.js';
 import { assertBatchSize } from './guards.js';
+import type { AwsOperation } from './operation.js';
 import { checkAborted, type StoreScope } from './signals.js';
 
 /**
@@ -16,16 +17,17 @@ import { checkAborted, type StoreScope } from './signals.js';
 const MAX_KEYS_PER_CALL = 100;
 const DEFAULT_MAX_CONCURRENT = 10;
 
-export interface FetchVectorsOptions extends StoreScope {
-  readonly client: S3VectorsClient;
-  readonly operation: string;
+export interface FetchVectorsOptions extends AwsOperation {
+  /** The keys to fetch. Duplicates collapse; an empty list issues no request. */
   readonly keys: readonly string[];
+  /** Whether to ask for the embedding. `false` is the cheaper page. */
   readonly returnData: boolean;
+  /** Whether to ask for the metadata, which is where page content lives. */
   readonly returnMetadata: boolean;
   /** Keys per request; 1–100, defaulting to the documented maximum. */
   readonly batchSize?: number | undefined;
+  /** Requests in flight at once. Defaults to 10 when the caller says nothing. */
   readonly maxConcurrent?: number | undefined;
-  readonly signal?: AbortSignal | undefined;
 }
 
 /**

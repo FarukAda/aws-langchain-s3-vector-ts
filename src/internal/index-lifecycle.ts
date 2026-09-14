@@ -17,8 +17,11 @@ import { checkAborted, raceAbort } from './signals.js';
 
 /** The client and the index a lifecycle call acts on. */
 export interface IndexContext {
+  /** The client the control-plane calls go through. */
   readonly client: S3VectorsClient;
+  /** The vector bucket the index lives in. */
   readonly vectorBucketName: string;
+  /** The index this tracker is responsible for. */
   readonly indexName: string;
 }
 
@@ -63,11 +66,21 @@ export async function indexExists(ctx: IndexContext, signal?: AbortSignal): Prom
 
 /** The index attributes a newly created index is given. */
 export interface IndexLifecycleConfig {
+  /**
+   * The vector data type a created index is given. Every field here is read
+   * only at creation: S3 Vectors has no `UpdateIndex`, so an existing index is
+   * never reconfigured from this.
+   */
   readonly dataType: VectorDataType;
+  /** The distance metric a created index is given. Fixed at creation. */
   readonly distanceMetric: DistanceMetric;
+  /** Added to the non-filterable keys, so page content never spends the filterable budget. */
   readonly pageContentMetadataKey: string | null;
+  /** Keys a created index excludes from filters; at most 10 including the page-content key. */
   readonly nonFilterableMetadataKeys?: readonly string[] | undefined;
+  /** Server-side encryption for a created index. Cannot be changed afterwards. */
   readonly encryptionConfiguration?: EncryptionConfiguration | undefined;
+  /** Tags for a created index. Supplying any also requires `s3vectors:TagResource`. */
   readonly tags?: Record<string, string> | undefined;
 }
 
@@ -169,6 +182,50 @@ export function nonFilterableKeys(config: IndexLifecycleConfig): string[] {
  * (https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-indexes.html),
  * so a rejected configuration must never reach the service.
  */
+/**
+ * The non-filterable keys a new index may be created with.
+ *
+ * @throws {S3VectorsError} `VALIDATION` for more than 10 keys, or a key
+ * outside 1–63 characters (limits page). Checked before `CreateIndex` so the
+ * failure names the configuration rather than arriving as an opaque rejection.
+ */
+function assertKeysCreatable(keys: readonly string[], fail: (message: string) => never): void {
+  if (keys.length > MAX_NON_FILTERABLE_KEYS) {
+    fail(
+      `An index may have at most ${MAX_NON_FILTERABLE_KEYS} non-filterable metadata keys; this configuration needs ${keys.length}.`,
+    );
+  }
+  for (const key of keys) {
+    if (key.length < NON_FILTERABLE_KEY_MIN || key.length > NON_FILTERABLE_KEY_MAX) {
+      fail(
+        `Non-filterable metadata key ${JSON.stringify(key)} must be ${NON_FILTERABLE_KEY_MIN}-${NON_FILTERABLE_KEY_MAX} characters.`,
+      );
+    }
+  }
+}
+
+/**
+ * The tags a new index may be created with.
+ *
+ * @throws {S3VectorsError} `VALIDATION` for a key outside 1–128 characters or
+ * a value outside 0–256 (`CreateIndex` API reference).
+ */
+function assertTagsCreatable(
+  tags: Record<string, string> | undefined,
+  fail: (message: string) => never,
+): void {
+  for (const [key, value] of Object.entries(tags ?? {})) {
+    if (key.length < TAG_KEY_MIN || key.length > TAG_KEY_MAX) {
+      fail(`Tag key ${JSON.stringify(key)} must be ${TAG_KEY_MIN}-${TAG_KEY_MAX} characters.`);
+    }
+    if (value.length < TAG_VALUE_MIN || value.length > TAG_VALUE_MAX) {
+      fail(
+        `Tag value for ${JSON.stringify(key)} must be ${TAG_VALUE_MIN}-${TAG_VALUE_MAX} characters.`,
+      );
+    }
+  }
+}
+
 function assertCreatable(
   ctx: IndexContext,
   dimension: number,
@@ -188,27 +245,57 @@ function assertCreatable(
       `dimension must be an integer between ${MIN_DIMENSION} and ${MAX_DIMENSION} (received ${String(dimension)}).`,
     );
   }
-  if (keys.length > MAX_NON_FILTERABLE_KEYS) {
-    fail(
-      `An index may have at most ${MAX_NON_FILTERABLE_KEYS} non-filterable metadata keys; this configuration needs ${keys.length}.`,
+  assertKeysCreatable(keys, fail);
+  assertTagsCreatable(tags, fail);
+}
+
+/**
+ * Create the index at `dimension`, from this store's configuration.
+ *
+ * Accepts: the index to create and the configuration to create it from. No
+ * signal, deliberately: the only caller is the shared memo, so no single
+ * caller may cancel it out from under the others.
+ *
+ * Returns: nothing, both when this call created the index and when another
+ * writer did first — a `ConflictException` means the requested state was
+ * reached, not that anything failed
+ * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_CreateIndex.html).
+ *
+ * Throws: `VALIDATION` for a dimension, key set or tag set AWS would reject,
+ * before the request; otherwise the class the failure maps to.
+ *
+ * Guarantees: optional members are omitted rather than sent as `undefined`, so
+ * a store that configures none creates the index AWS's own defaults would.
+ */
+async function createIndex(
+  ctx: IndexContext,
+  config: IndexLifecycleConfig,
+  dimension: number,
+): Promise<void> {
+  const keys = nonFilterableKeys(config);
+  assertCreatable(ctx, dimension, keys, config.tags);
+  try {
+    await ctx.client.send(
+      new CreateIndexCommand({
+        vectorBucketName: ctx.vectorBucketName,
+        indexName: ctx.indexName,
+        dataType: config.dataType,
+        dimension,
+        distanceMetric: config.distanceMetric,
+        ...(keys.length > 0 ? { metadataConfiguration: { nonFilterableMetadataKeys: keys } } : {}),
+        ...(config.encryptionConfiguration !== undefined
+          ? { encryptionConfiguration: config.encryptionConfiguration }
+          : {}),
+        ...(config.tags !== undefined ? { tags: config.tags } : {}),
+      }),
     );
-  }
-  for (const key of keys) {
-    if (key.length < NON_FILTERABLE_KEY_MIN || key.length > NON_FILTERABLE_KEY_MAX) {
-      fail(
-        `Non-filterable metadata key ${JSON.stringify(key)} must be ${NON_FILTERABLE_KEY_MIN}-${NON_FILTERABLE_KEY_MAX} characters.`,
-      );
-    }
-  }
-  for (const [key, value] of Object.entries(tags ?? {})) {
-    if (key.length < TAG_KEY_MIN || key.length > TAG_KEY_MAX) {
-      fail(`Tag key ${JSON.stringify(key)} must be ${TAG_KEY_MIN}-${TAG_KEY_MAX} characters.`);
-    }
-    if (value.length < TAG_VALUE_MIN || value.length > TAG_VALUE_MAX) {
-      fail(
-        `Tag value for ${JSON.stringify(key)} must be ${TAG_VALUE_MIN}-${TAG_VALUE_MAX} characters.`,
-      );
-    }
+  } catch (error: unknown) {
+    if (isAwsConflictException(error)) return;
+    throw wrapAwsError(error, classifyAwsError(error), {
+      operation: 'CreateIndex',
+      vectorBucketName: ctx.vectorBucketName,
+      indexName: ctx.indexName,
+    });
   }
 }
 
@@ -248,40 +335,6 @@ export function createIndexLifecycle(
   let knownToExist = false;
   let memo: Promise<void> | null = null;
 
-  /**
-   * Deliberately takes no signal: its only caller is the shared memo, so no
-   * single caller may cancel it out from under the others.
-   */
-  const create = async (dimension: number): Promise<void> => {
-    const keys = nonFilterableKeys(config);
-    assertCreatable(ctx, dimension, keys, config.tags);
-    try {
-      await ctx.client.send(
-        new CreateIndexCommand({
-          vectorBucketName: ctx.vectorBucketName,
-          indexName: ctx.indexName,
-          dataType: config.dataType,
-          dimension,
-          distanceMetric: config.distanceMetric,
-          ...(keys.length > 0
-            ? { metadataConfiguration: { nonFilterableMetadataKeys: keys } }
-            : {}),
-          ...(config.encryptionConfiguration !== undefined
-            ? { encryptionConfiguration: config.encryptionConfiguration }
-            : {}),
-          ...(config.tags !== undefined ? { tags: config.tags } : {}),
-        }),
-      );
-    } catch (error: unknown) {
-      if (isAwsConflictException(error)) return;
-      throw wrapAwsError(error, classifyAwsError(error), {
-        operation: 'CreateIndex',
-        vectorBucketName: ctx.vectorBucketName,
-        indexName: ctx.indexName,
-      });
-    }
-  };
-
   return {
     async ensureExists(dimension: number, signal?: AbortSignal): Promise<void> {
       checkAborted('ensureIndexExists', signal, ctx);
@@ -289,7 +342,7 @@ export function createIndexLifecycle(
 
       memo ??= (async () => {
         try {
-          if (!(await indexExists(ctx))) await create(dimension);
+          if (!(await indexExists(ctx))) await createIndex(ctx, config, dimension);
           knownToExist = true;
         } finally {
           memo = null;

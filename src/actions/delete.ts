@@ -1,7 +1,8 @@
-import { DeleteVectorsCommand, type S3VectorsClient } from '@aws-sdk/client-s3vectors';
+import { DeleteVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { settleGroup } from '../internal/concurrency.js';
 import { assertBatchSize, assertIsArray, validationError } from '../internal/guards.js';
+import type { BatchedOperation } from '../internal/operation.js';
 import { sendAws } from '../internal/put-batch.js';
 import type { StoreScope } from '../internal/signals.js';
 import { chunk } from '../shared/batching.js';
@@ -10,14 +11,11 @@ import { chunk } from '../shared/batching.js';
 const MAX_DELETE_BATCH_SIZE = 500;
 const DEFAULT_DELETE_BATCH_SIZE = 500;
 
-export interface DeleteOptions extends StoreScope {
-  readonly client: S3VectorsClient;
+export interface DeleteOptions extends Omit<BatchedOperation, 'operation'> {
   /** Vector ids to delete, or `undefined` together with `deleteAll` for the index. */
   readonly ids?: string[] | undefined;
+  /** `true` deletes the index itself. Must be explicit; see the contract below. */
   readonly deleteAll: boolean;
-  readonly batchSize?: number | undefined;
-  readonly maxConcurrent: number;
-  readonly signal?: AbortSignal | undefined;
   /** Deletes the index itself, serialising behind any creation in flight. */
   readonly deleteIndex: (signal?: AbortSignal) => Promise<void>;
 }

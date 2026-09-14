@@ -1,5 +1,6 @@
-import { DataType, DistanceMetric, SseType } from '@aws-sdk/client-s3vectors';
+import { DataType, DistanceMetric, S3VectorsClient, SseType } from '@aws-sdk/client-s3vectors';
 
+import type { StoreScope } from '../internal/signals.js';
 import type { AmazonS3VectorsConfig } from '../types.js';
 import { describeValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
@@ -288,4 +289,51 @@ export function assertValidConfig(config: AmazonS3VectorsConfig): void {
   assertTags(config.tags);
   assertEncryption(config.encryptionConfiguration);
   assertClientExclusivity(config);
+}
+
+/**
+ * The client this store will use: the caller's, or one built from the config.
+ *
+ * Accepts: the configuration, and the scope for any error.
+ *
+ * Returns: `config.client` when one was supplied, otherwise a new
+ * `S3VectorsClient` built from exactly `region`, `credentials`, `endpoint`,
+ * `maxAttempts` and `retryMode` — the five options this package passes
+ * through. Anything else an `S3VectorsClientConfig` accepts (a custom request
+ * handler, a logger, a proxy) needs a caller-built client.
+ *
+ * Throws: `VALIDATION` when `client` is present but is not an
+ * `S3VectorsClient`. A value check on `config.serviceId`, not `instanceof`:
+ * that survives a bundler duplicating the SDK across a module boundary, which
+ * would make a legitimate client fail an identity test.
+ *
+ * Guarantees: `null` is read as "not provided", the same reading a `null`
+ * filter gets — a DI framework defaulting an optional field to `null` means
+ * absence. A non-nullish value that is not a client is a caller mistake and
+ * fails rather than falling back: the fallback builds from the ambient
+ * credential chain and default region, so it could silently point the store at
+ * a different AWS account.
+ */
+export function resolveClient(config: AmazonS3VectorsConfig, scope: StoreScope): S3VectorsClient {
+  const supplied = config.client ?? undefined;
+  if (supplied !== undefined && supplied.config?.serviceId !== 'S3Vectors') {
+    throw new S3VectorsError(
+      'config.client is not an S3VectorsClient from "@aws-sdk/client-s3vectors" (its ' +
+        'config.serviceId is not "S3Vectors"). Pass a real S3VectorsClient, or omit `client` ' +
+        'entirely and supply `region`/`credentials`/`endpoint` instead — falling back ' +
+        'silently could point this store at a different AWS account or region.',
+      S3VectorsErrorCode.VALIDATION,
+      { operation: 'constructor', ...scope },
+    );
+  }
+  return (
+    supplied ??
+    new S3VectorsClient({
+      region: config.region,
+      credentials: config.credentials,
+      endpoint: config.endpoint,
+      maxAttempts: config.maxAttempts,
+      retryMode: config.retryMode,
+    })
+  );
 }

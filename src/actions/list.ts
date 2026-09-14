@@ -1,20 +1,17 @@
-import type { S3VectorsClient } from '@aws-sdk/client-s3vectors';
 import type { Document } from '@langchain/core/documents';
 
 import { listPages } from '../internal/list-pages.js';
-import type { StoreScope } from '../internal/signals.js';
+import type { AwsOperation } from '../internal/operation.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { createDocument } from '../shared/metadata.js';
 import type { S3VectorsRecord } from '../types.js';
 
-export interface EnumerateOptions extends StoreScope {
-  readonly client: S3VectorsClient;
-  readonly operation: string;
+export interface EnumerateOptions extends AwsOperation {
+  /** Where page content is stored, so `createDocument` can lift it back out. */
   readonly pageContentMetadataKey: string | null;
   /** 1–1000, advisory: the 1 MB page cap may return fewer. */
   readonly pageSize?: number | undefined;
-  readonly signal?: AbortSignal | undefined;
 }
 
 /**

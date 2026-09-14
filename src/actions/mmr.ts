@@ -1,8 +1,8 @@
-import type { S3VectorsClient } from '@aws-sdk/client-s3vectors';
 import type { Document } from '@langchain/core/documents';
 import { maximalMarginalRelevance } from '@langchain/core/utils/math';
 
 import { fetchVectorsByKey } from '../internal/get-vectors.js';
+import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
 import { checkAborted, type StoreScope } from '../internal/signals.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
@@ -13,10 +13,10 @@ import type { DistanceMetric } from '../types.js';
 /** "Top-K results per QueryVectors request: Up to 10,000" (limits page). */
 const MAX_TOP_K = 10_000;
 
-export interface MmrSearchOptions extends StoreScope {
-  readonly client: S3VectorsClient;
-  readonly operation: string;
+export interface MmrSearchOptions extends AwsOperation {
+  /** The store's metric, verified against the query response. */
   readonly distanceMetric: DistanceMetric;
+  /** The embedding to rank against. */
   readonly queryVector: number[];
   /** Documents to return. */
   readonly k: number;
@@ -24,9 +24,56 @@ export interface MmrSearchOptions extends StoreScope {
   readonly fetchK: number;
   /** 0 favours diversity entirely, 1 favours relevance entirely. */
   readonly lambda: number;
+  /** A metadata filter, applied to the candidate query. */
   readonly filter?: unknown;
+  /** Where page content is stored, so it can be lifted back out. */
   readonly pageContentMetadataKey: string | null;
-  readonly signal?: AbortSignal | undefined;
+}
+
+/**
+ * Check the three numbers MMR is steered by, before anything is spent.
+ *
+ * Accepts: `k` and `fetchK`, each an integer 1–10,000 (AWS's `topK` ceiling),
+ * and `lambda` between 0 and 1 inclusive.
+ *
+ * Returns: nothing.
+ *
+ * Throws: `VALIDATION`, naming the parameter and the range.
+ *
+ * Guarantees: `fetchK` below `k` is **not** an error. At most `fetchK`
+ * candidates exist, so at most that many can be returned — the same
+ * short-but-complete result a filtered search produces. And a `lambda` outside
+ * [0, 1] is refused rather than clamped: outside that range the selection is
+ * not a trade-off between relevance and diversity, it is arbitrary, and
+ * silently clamping would return a ranking the caller did not ask for.
+ */
+function assertMmrParameters(
+  k: number,
+  fetchK: number,
+  lambda: number,
+  operation: string,
+  scope: StoreScope,
+): void {
+  for (const [name, value] of [
+    ['k', k],
+    ['fetchK', fetchK],
+  ] as const) {
+    if (!Number.isInteger(value) || value < 1 || value > MAX_TOP_K) {
+      throw new S3VectorsError(
+        `${name} must be an integer between 1 and ${MAX_TOP_K} (received ${String(value)}).`,
+        S3VectorsErrorCode.VALIDATION,
+        { operation, ...scope },
+      );
+    }
+  }
+  if (!(lambda >= 0 && lambda <= 1)) {
+    throw new S3VectorsError(
+      `lambda must be between 0 and 1 (received ${String(lambda)}). Outside that range the ` +
+        'selection is not a trade-off between relevance and diversity.',
+      S3VectorsErrorCode.VALIDATION,
+      { operation, ...scope },
+    );
+  }
 }
 
 /**
@@ -69,24 +116,7 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
     throw new S3VectorsError(message, code, { operation, ...scope });
   };
 
-  for (const [name, value] of [
-    ['k', k],
-    ['fetchK', fetchK],
-  ] as const) {
-    if (!Number.isInteger(value) || value < 1 || value > MAX_TOP_K) {
-      fail(
-        `${name} must be an integer between 1 and ${MAX_TOP_K} (received ${String(value)}).`,
-        S3VectorsErrorCode.VALIDATION,
-      );
-    }
-  }
-  if (!(lambda >= 0 && lambda <= 1)) {
-    fail(
-      `lambda must be between 0 and 1 (received ${String(lambda)}). Outside that range the ` +
-        'selection is not a trade-off between relevance and diversity.',
-      S3VectorsErrorCode.VALIDATION,
-    );
-  }
+  assertMmrParameters(k, fetchK, lambda, operation, scope);
 
   checkAborted(operation, signal, scope);
 

@@ -29,16 +29,30 @@ type PutBatchFn = (
 ) => Promise<void>;
 
 export interface AddVectorsOptions extends StoreScope {
+  /** The embeddings to store, one per document. */
   readonly vectors: number[][];
+  /** Their documents, positionally. */
   readonly documents: DocumentInterface[];
+  /**
+   * Caller-supplied ids. Omitted, each document's own `id` is used and a fresh
+   * UUID minted only where there is none.
+   */
   readonly ids?: string[] | undefined;
+  /** Vectors per `PutVectors` call: 1–500, defaulting to 200. */
   readonly batchSize?: number | undefined;
+  /** How many of those calls may be in flight at once. */
   readonly maxConcurrent: number;
+  /** Cancels the writes in flight and stops later batches from starting. */
   readonly signal?: AbortSignal | undefined;
+  /** Writes one batch; the store binds its own index configuration to it. */
   readonly putBatch: PutBatchFn;
 }
 
 export interface AddDocumentsOptions extends Omit<AddVectorsOptions, 'vectors'> {
+  /**
+   * The indexing model. Called once per batch, never concurrently with
+   * itself, and checked to return exactly one vector per document.
+   */
   readonly embeddings: EmbeddingsInterface;
 }
 

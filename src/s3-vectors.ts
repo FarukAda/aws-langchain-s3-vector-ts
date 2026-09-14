@@ -29,7 +29,7 @@ import { attachInstance } from './shared/errors/decorate.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
-import { assertValidConfig, assertValidIndexConfig } from './shared/validation.js';
+import { assertValidConfig, assertValidIndexConfig, resolveClient } from './shared/validation.js';
 import type {
   AmazonS3VectorsConfig,
   DistanceMetric,
@@ -244,27 +244,7 @@ export class AmazonS3Vectors extends VectorStore {
     // credential chain and default region — so a caller who passed an
     // explicit but wrong client could silently read and write against a
     // different AWS account or region than they intended.
-    const suppliedClient = config.client ?? undefined;
-    if (suppliedClient !== undefined && suppliedClient.config?.serviceId !== 'S3Vectors') {
-      throw validationError(
-        'constructor',
-        this._scope,
-        'config.client is not an S3VectorsClient from "@aws-sdk/client-s3vectors" (its ' +
-          'config.serviceId is not "S3Vectors"). Pass a real S3VectorsClient, or omit `client` ' +
-          'entirely and supply `region`/`credentials`/`endpoint` instead — falling back ' +
-          'silently could point this store at a different AWS account or region.',
-      );
-    }
-
-    this._client =
-      suppliedClient ??
-      new S3VectorsClient({
-        region: config.region,
-        credentials: config.credentials,
-        endpoint: config.endpoint,
-        maxAttempts: config.maxAttempts,
-        retryMode: config.retryMode,
-      });
+    this._client = resolveClient(config, this._scope);
 
     this._nonFilterableKeys = nonFilterableKeys({
       dataType: this.dataType,

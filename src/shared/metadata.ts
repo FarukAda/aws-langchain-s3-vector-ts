@@ -6,11 +6,15 @@ import { S3VectorsError } from './errors/s3-vectors-error.js';
 
 /** Options for {@link buildPutMetadata}. */
 export interface PutMetadataOptions {
+  /** Where page content is stored, or `null` to store none at all. */
   readonly pageContentMetadataKey: string | null;
   /** The index's non-filterable keys, already merged with the page-content key. */
   readonly nonFilterableKeys: readonly string[];
+  /** The public method this write belongs to; named in the error it raises. */
   readonly operation: string;
+  /** The bucket, for the error's context. */
   readonly vectorBucketName: string;
+  /** The index, for the error's context. */
   readonly indexName: string;
 }
 

@@ -914,12 +914,14 @@ src/
 │   ├── ids.ts / limits.ts        # Write-id resolution; dimension and value checks
 │   ├── guards.ts                 # Caller-input checks shared by the entry points
 │   ├── filter.ts                 # Filter vocabulary validation
+│   ├── operation.ts              # The request fields every action shares
 │   └── signals.ts                # checkAborted / raceAbort
 ├── shared/                       # Pure helpers (not re-exported)
 │   ├── stub-embeddings.ts        # StubEmbeddings placeholder for raw-vector workflows
 │   ├── validation.ts             # assertValidConfig, assertValidIndexConfig
 │   ├── metadata.ts               # buildPutMetadata, createDocument (pure functions)
 │   ├── batching.ts               # chunk, offsetBatches (pure functions)
+│   ├── describe.ts               # Describes a rejected value by kind, never by content
 │   └── errors/                   # Typed error model
 │       ├── s3-vectors-error.ts   # S3VectorsError + isS3VectorsError guard
 │       ├── error-code.ts         # S3VectorsErrorCode enum
@@ -938,7 +940,7 @@ test/                             # Unit (100% coverage), contract, property, ty
 ├── internal/                     # Mirrors src/internal, one suite per contract
 ├── actions/                      # Mirrors src/actions
 ├── contract/                     # VectorStore + MMR contract tests, run through core
-├── property/                     # fast-check invariants (metadata, batching)
+├── property/                     # fast-check invariants over whole input domains
 ├── types/                        # Compile-time public-API assertions
 ├── package-smoke/                # Pack, install, then import / require / type-check the tarball (node --test)
 └── integration/                  # Live-AWS integration tests (env-gated)
