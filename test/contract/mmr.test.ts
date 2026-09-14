@@ -41,7 +41,10 @@ describe('maxMarginalRelevanceSearch', () => {
     const { store } = mmrStore();
     const docs = await store.maxMarginalRelevanceSearch('q', { k: 2 });
     expect(docs).toHaveLength(2);
-    expect(docs[0]?.pageContent).toBeDefined();
+    // Real documents from the fixture, not empty shells: each candidate's
+    // page content is its own key.
+    expect(docs.map((doc) => doc.pageContent).sort()).toEqual(docs.map((doc) => doc.id).sort());
+    expect(Object.keys(VECTORS)).toEqual(expect.arrayContaining(docs.map((d) => d.id as string)));
   });
 
   it('works through asRetriever({ searchType: "mmr" }), the path core dispatches', async () => {

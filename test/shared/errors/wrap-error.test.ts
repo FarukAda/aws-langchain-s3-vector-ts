@@ -211,6 +211,29 @@ describe('wrapAwsError', () => {
     });
   });
 
+  it.each([
+    'ThrottlingException',
+    'TooManyRequestsException',
+    'ServiceUnavailableException',
+    'InternalServerException',
+    'InternalServerError',
+    'RequestTimeout',
+    'RequestTimeoutException',
+  ])('marks %s retryable, so a caller-side backoff can act on it', (name) => {
+    const cause = Object.assign(new Error('x'), { name, $metadata: {} });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, { operation: 'op' });
+    expect(err.context.retryable).toBe(true);
+  });
+
+  it.each(['ValidationException', 'AccessDeniedException', 'ConflictException'])(
+    'leaves %s not retryable, because backoff cannot fix it',
+    (name) => {
+      const cause = Object.assign(new Error('x'), { name, $metadata: { httpStatusCode: 400 } });
+      const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REJECTED, { operation: 'op' });
+      expect(err.context.retryable).toBe(false);
+    },
+  );
+
   it('returns an already-S3VectorsError unchanged', () => {
     const original = new S3VectorsError('v', S3VectorsErrorCode.VALIDATION, { operation: 'x' });
     expect(wrapAwsError(original, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'y' })).toBe(

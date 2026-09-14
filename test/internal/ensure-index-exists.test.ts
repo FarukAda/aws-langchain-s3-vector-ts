@@ -27,7 +27,7 @@ describe('createIndexLifecycle().ensureExists', () => {
   it('resolves without creating anything when the index is already there', async () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(GetIndexCommand).resolves({ index: indexFixture() });
-    await lifecycle.ensureExists(3);
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
     expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
   });
@@ -36,7 +36,7 @@ describe('createIndexLifecycle().ensureExists', () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(GetIndexCommand).rejects(awsError('NotFoundException'));
     mock.on(CreateIndexCommand).resolves({});
-    await lifecycle.ensureExists(7);
+    await lifecycle.ensureExists(7, undefined, 'ensureIndexExists');
     const call = mock.commandCalls(CreateIndexCommand)[0]!;
     expect(call.args[0].input).toMatchObject({
       vectorBucketName: 'test-bucket',
@@ -51,31 +51,35 @@ describe('createIndexLifecycle().ensureExists', () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(GetIndexCommand).rejects(awsError('NotFoundException'));
     mock.on(CreateIndexCommand).rejects(awsError('ConflictException'));
-    await expect(lifecycle.ensureExists(3)).resolves.toBeUndefined();
+    await expect(
+      lifecycle.ensureExists(3, undefined, 'ensureIndexExists'),
+    ).resolves.toBeUndefined();
   });
 
   it('propagates a non-conflict creation failure with its class', async () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(GetIndexCommand).rejects(awsError('NotFoundException'));
     mock.on(CreateIndexCommand).rejects(awsError('AccessDeniedException'));
-    const error = await lifecycle.ensureExists(3).catch((e: unknown) => e);
+    const error = await lifecycle
+      .ensureExists(3, undefined, 'ensureIndexExists')
+      .catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
   });
 
   it('issues no further request once existence is known', async () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(GetIndexCommand).resolves({ index: indexFixture() });
-    await lifecycle.ensureExists(3);
-    await lifecycle.ensureExists(3);
-    await lifecycle.ensureExists(3);
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
   });
 
   it('does not remember existence after a failure, so the next call retries', async () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(GetIndexCommand).rejects(awsError('TooManyRequestsException'));
-    await lifecycle.ensureExists(3).catch(notFound);
-    await lifecycle.ensureExists(3).catch(notFound);
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists').catch(notFound);
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists').catch(notFound);
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
   });
 
@@ -90,10 +94,10 @@ describe('createIndexLifecycle().ensureExists', () => {
     mock.on(CreateIndexCommand).resolves({});
 
     const all = Promise.all([
-      lifecycle.ensureExists(3),
-      lifecycle.ensureExists(3),
-      lifecycle.ensureExists(3),
-      lifecycle.ensureExists(3),
+      lifecycle.ensureExists(3, undefined, 'ensureIndexExists'),
+      lifecycle.ensureExists(3, undefined, 'ensureIndexExists'),
+      lifecycle.ensureExists(3, undefined, 'ensureIndexExists'),
+      lifecycle.ensureExists(3, undefined, 'ensureIndexExists'),
     ]);
     release();
     await all;
@@ -107,7 +111,9 @@ describe('createIndexLifecycle().ensureExists', () => {
     mock.on(GetIndexCommand).resolves({ index: indexFixture() });
     const ac = new AbortController();
     ac.abort();
-    const error = await lifecycle.ensureExists(3, ac.signal).catch((e: unknown) => e);
+    const error = await lifecycle
+      .ensureExists(3, ac.signal, 'ensureIndexExists')
+      .catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.ABORTED);
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(0);
   });
@@ -122,8 +128,10 @@ describe('createIndexLifecycle().ensureExists', () => {
     });
 
     const ac = new AbortController();
-    const aborted = lifecycle.ensureExists(3, ac.signal).catch((e: unknown) => codeOf(e));
-    const sibling = lifecycle.ensureExists(3);
+    const aborted = lifecycle
+      .ensureExists(3, ac.signal, 'ensureIndexExists')
+      .catch((e: unknown) => codeOf(e));
+    const sibling = lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
     ac.abort();
     expect(await aborted).toBe(S3VectorsErrorCode.ABORTED);
 
@@ -136,7 +144,7 @@ describe('createIndexLifecycle().ensureExists', () => {
     mock.on(GetIndexCommand).rejects(awsError('NotFoundException'));
     mock.on(CreateIndexCommand).resolves({});
     const ac = new AbortController();
-    await lifecycle.ensureExists(3, ac.signal);
+    await lifecycle.ensureExists(3, ac.signal, 'ensureIndexExists');
     const call = mock.commandCalls(CreateIndexCommand)[0]!;
     expect(sendOptionsOf(call)?.abortSignal).toBeUndefined();
   });
@@ -144,19 +152,21 @@ describe('createIndexLifecycle().ensureExists', () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(GetIndexCommand).rejects(awsError('TooManyRequestsException'));
     const ac = new AbortController();
-    const error = await lifecycle.ensureExists(3, ac.signal).catch((e: unknown) => e);
+    const error = await lifecycle
+      .ensureExists(3, ac.signal, 'ensureIndexExists')
+      .catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.THROTTLED);
   });
   it('re-checks after markAbsent, so a write that met NotFoundException recovers', async () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(GetIndexCommand).resolves({ index: indexFixture() });
 
-    await lifecycle.ensureExists(3);
-    await lifecycle.ensureExists(3);
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
 
     lifecycle.markAbsent();
-    await lifecycle.ensureExists(3);
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
   });
 });

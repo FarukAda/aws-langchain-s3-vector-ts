@@ -140,18 +140,37 @@ identically, and the wire format is untouched.
   contract in the JSDoc of every exported function stating what it accepts,
   returns, throws and guarantees.
 
+### Fixed (found by the verification work)
+
+- **An error could name an internal step instead of the call the caller made.**
+  `addVectors` aborted with `operation: 'ensureIndexExists'`, and
+  `similaritySearch` and `similaritySearchWithRelevanceScores` both reported
+  `similaritySearchWithScore`, because they delegate. `context.operation` is
+  how a caller finds the call site, so a delegate's name sends them to the
+  wrong one. The three text searches now share one private path that is told
+  which public method it serves, `addVectors` checks its own signal, and the
+  index lifecycle takes the caller's operation so an abort while waiting on a
+  shared index creation still names the write.
+- **`delete({ ids })` did not reject an already-fired signal.** Every other
+  entry point refuses before any request; this one threaded the signal into
+  `DeleteVectors` and let the SDK reject each batch instead, issuing N
+  cancelled requests where the contract promises none.
+
 ### Verification
 
-- **Mutation-sampled, not just covered.** 254 semantic mutations were applied
-  across every module in six rounds and the suite re-run for each. Eight
-  survived; each was a real gap — an asserted branch whose *output* nothing
+- **Mutation-sampled, not just covered.** 389 mutations were applied across
+  every module in nine rounds and the suite re-run for each — comparison and
+  logical flips, numeric and boundary changes, removed `await`s, **deleted
+  statements** and **altered string literals**. Every statement deletion was
+  caught, which is what says there is no code here that does nothing. Fifteen
+  survived in total; each was a real gap — an asserted branch whose *output* nothing
   checked, a `&&` that could move a metadata field named `"null"` into page
   content, two stack-provenance tests that checked the old stack was gone
   rather than that the new one had frames, a non-object `$metadata` that let a
   non-AWS error be reported with an `awsErrorName` and a retryability verdict,
   and the cause-walk depth bound, which no test pinned at its boundary. All
-  eight now fail the suite when reintroduced, and the last two rounds (95
-  mutants) found no survivors.
+  eight now fail the suite when reintroduced, and the only survivors that remain are message prose, which
+  `docs/STABILITY.md` §3 explicitly excludes from the contract.
 - **Properties over whole domains** (`test/property/pure-functions.property.test.ts`):
   `chunk` round-trips and never yields an empty or oversized batch; every
   offset indexes back into the array it came from; `resolveWriteIds` returns
@@ -161,6 +180,14 @@ identically, and the wire format is untouched.
   always returns an `Error` and preserves an Error-shaped input's identity;
   `createDocument` round-trips page content and never shares mutable metadata
   between two documents built from one vector.
+
+- **The documentation is checked against the API** (`test/contract/documented-api.test.ts`):
+  every method, static factory, error code and package export a doc names must
+  exist. Verified against the three lies this rework actually had to correct —
+  a removed method, a removed error code and an export that never existed.
+- **Every error names the public method that raised it**
+  (`test/contract/error-operation.test.ts`), for all eleven entry points, the
+  retriever, the callbacks-slot guard and an abort during a shared index wait.
 
 - **The audits are gates now** (`test/contract/source-contracts.test.ts`).
   Every exported function must carry a contract naming what it returns and

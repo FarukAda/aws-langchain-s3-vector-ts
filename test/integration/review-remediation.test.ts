@@ -294,7 +294,7 @@ if (!env) {
 
       const search = await store.similaritySearch('the cat sat', 2);
       expect(search.length).toBeGreaterThan(0);
-      expect(search[0]!.pageContent).toBeTruthy();
+      expect(search[0]!.pageContent).toBe('the cat sat');
 
       const scored = await store.similaritySearchWithRelevanceScores('the cat sat', 1);
       expect(scored).toHaveLength(1);

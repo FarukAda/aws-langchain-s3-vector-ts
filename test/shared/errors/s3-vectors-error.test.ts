@@ -54,6 +54,38 @@ describe('S3VectorsError', () => {
   });
 });
 
+describe('S3VectorsErrorCode — the value is the contract, not the key', () => {
+  it('every member serialises to its own name', () => {
+    // A caller who cannot import the enum compares against the string, and
+    // docs/STABILITY.md promises a value is never renamed. A key and value
+    // that drift apart break that silently.
+    for (const [key, value] of Object.entries(S3VectorsErrorCode)) {
+      expect(value).toBe(key);
+    }
+  });
+
+  it('holds exactly the codes the documentation lists', () => {
+    expect(Object.keys(S3VectorsErrorCode).sort()).toEqual([
+      'ABORTED',
+      'ACCESS_DENIED',
+      'AWS_INVALID_RESPONSE',
+      'AWS_REJECTED',
+      'AWS_REQUEST_FAILED',
+      'CONFLICT',
+      'EMBEDDINGS_MISSING',
+      'INDEX_CONFIG_MISMATCH',
+      'KMS_ERROR',
+      'NOT_FOUND',
+      'QUERY_PAGE_LIMIT_EXCEEDED',
+      'QUOTA_EXCEEDED',
+      'SERVICE_UNAVAILABLE',
+      'THROTTLED',
+      'UNEXPECTED_ERROR',
+      'VALIDATION',
+    ]);
+  });
+});
+
 describe('S3VectorsErrorContext.instance — serialization safety', () => {
   // context.instance is a live store handle carrying `_client`, and that
   // client carries credentials. It is safe to JSON.stringify only because
@@ -73,7 +105,10 @@ describe('S3VectorsErrorContext.instance — serialization safety', () => {
       { ...BASE_CONFIG, client },
     ).catch((e: unknown) => e)) as S3VectorsError;
 
-    expect(error.context.instance).toBeDefined();
+    // The instance is the store the write was attempted against, not merely
+    // something truthy: a caller recovers by calling delete/getByIds on it.
+    expect(error.context.instance).toBeInstanceOf(AmazonS3Vectors);
+    expect(error.context.instance?.indexName).toBe(BASE_CONFIG.indexName);
 
     const serialized = JSON.stringify(error.context.instance);
     expect(serialized).not.toContain('_client');

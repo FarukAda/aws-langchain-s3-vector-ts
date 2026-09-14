@@ -108,7 +108,11 @@ export interface IndexLifecycle {
    * call. Concurrent callers share one request sequence. Existence is
    * remembered only on resolution, never on failure.
    */
-  ensureExists(dimension: number, signal?: AbortSignal): Promise<void>;
+  ensureExists(
+    dimension: number,
+    signal: AbortSignal | undefined,
+    operation: string,
+  ): Promise<void>;
 
   /**
    * Delete the index and everything in it.
@@ -130,7 +134,7 @@ export interface IndexLifecycle {
    * write that starts after this call begins may re-create the index; last
    * operation wins.
    */
-  deleteIndex(signal?: AbortSignal): Promise<void>;
+  deleteIndex(signal: AbortSignal | undefined, operation: string): Promise<void>;
 
   /**
    * Forget that the index exists, so the next {@link ensureExists} re-checks.
@@ -340,8 +344,12 @@ export function createIndexLifecycle(
   let memo: Promise<void> | null = null;
 
   return {
-    async ensureExists(dimension: number, signal?: AbortSignal): Promise<void> {
-      checkAborted('ensureIndexExists', signal, ctx);
+    async ensureExists(
+      dimension: number,
+      signal: AbortSignal | undefined,
+      operation: string,
+    ): Promise<void> {
+      checkAborted(operation, signal, ctx);
       if (knownToExist) return;
 
       memo ??= (async () => {
@@ -357,15 +365,15 @@ export function createIndexLifecycle(
       // cancelled: one caller's abort must not cancel a creation the others
       // are waiting on (DESIGN.md §7.2).
       const shared = memo;
-      await raceAbort(() => shared, signal, 'ensureIndexExists', ctx);
+      await raceAbort(() => shared, signal, operation, ctx);
     },
 
     markAbsent(): void {
       knownToExist = false;
     },
 
-    async deleteIndex(signal?: AbortSignal): Promise<void> {
-      checkAborted('DeleteIndex', signal, ctx);
+    async deleteIndex(signal: AbortSignal | undefined, operation: string): Promise<void> {
+      checkAborted(operation, signal, ctx);
 
       // Serialise behind any creation already running. Without this, a
       // creation that started before this delete settles after it and

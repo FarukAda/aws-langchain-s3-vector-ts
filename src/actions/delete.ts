@@ -4,6 +4,7 @@ import { settleGroup } from '../internal/concurrency.js';
 import { assertBatchSize, assertIsArray, validationError } from '../internal/guards.js';
 import type { BatchedOperation } from '../internal/operation.js';
 import { sendAws } from '../internal/put-batch.js';
+import { checkAborted } from '../internal/signals.js';
 import type { StoreScope } from '../internal/signals.js';
 import { chunk } from '../shared/batching.js';
 
@@ -51,6 +52,10 @@ export async function deleteVectors(opts: DeleteOptions): Promise<void> {
     vectorBucketName: opts.vectorBucketName,
     indexName: opts.indexName,
   };
+
+  // Before the argument checks below would even matter: an already-fired
+  // signal must cost nothing, and every other entry point refuses here.
+  checkAborted('delete', signal, scope);
 
   if (ids !== undefined && deleteAll) {
     throw validationError(

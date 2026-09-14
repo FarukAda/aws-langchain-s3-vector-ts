@@ -321,6 +321,7 @@ export class AmazonS3Vectors extends VectorStore {
     documents: DocumentInterface[],
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
+    this._checkAborted('addVectors', options?.signal);
     return await addVectors({
       vectors,
       documents,
@@ -475,16 +476,55 @@ export class AmazonS3Vectors extends VectorStore {
     // again inside _queryVectors for the direct-vector entry points;
     // running it twice here is free.
     rejectSignalInCallbacksSlot('similaritySearchWithScore', this._scope, _callbacks);
-    assertK('similaritySearchWithScore', this._scope, k);
-    validateFilter(filter, 'similaritySearchWithScore', this._scope);
+    return await this._textSearch('similaritySearchWithScore', query, k, filter, signal);
+  }
+
+  /**
+   * The text-search path all three public text searches share.
+   *
+   * @param operation - The public method the caller invoked. Passed down so
+   * every error names that, not this helper and not whichever sibling
+   * happened to delegate here — `context.operation` is how a caller finds the
+   * call site, and a delegate's name sends them to the wrong one.
+   * @param query - The text to embed and search with
+   * @param k - Results wanted
+   * @param filter - Metadata filter
+   * @param signal - Abort, checked before the billable embed call
+   * @returns `[document, distance]` pairs, nearest first
+   * @throws {S3VectorsError} `VALIDATION` for `k` or the filter, `ABORTED`
+   * for an already-fired signal — all before `embedQuery`, which is billable
+   * and cannot be cancelled; otherwise whatever the vector search raises.
+   */
+  private async _textSearch(
+    operation: string,
+    query: string,
+    k: number,
+    filter: this['FilterType'] | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<[Document, number][]> {
+    // Everything cheap and synchronous runs before the billable — and
+    // uncancellable — embedQuery call: an invalid k, an invalid filter, or a
+    // signal that already fired should not cost an embedding round trip
+    // before failing.
+    assertK(operation, this._scope, k);
+    validateFilter(filter, operation, this._scope);
     // embedQuery has no signal support (LangChain's EmbeddingsInterface
-    // doesn't accept one), so it can't self-cancel the way _send()'s AWS
-    // calls do — check explicitly, matching addDocuments's guard before its
-    // own embedDocuments call. Only the QueryVectors call after it can be
-    // cancelled mid-flight.
-    this._checkAborted('similaritySearchWithScore', signal);
+    // doesn't accept one), so it can't self-cancel the way an AWS call does —
+    // check explicitly. Only the QueryVectors call after it can be cancelled
+    // mid-flight.
+    this._checkAborted(operation, signal);
     const queryVector = await this._getQueryEmbeddings().embedQuery(query);
-    return this.similaritySearchVectorWithScore(queryVector, k, filter, signal);
+    return await searchByVector({
+      client: this._client,
+      operation,
+      distanceMetric: this.distanceMetric,
+      queryVector,
+      k,
+      filter,
+      pageContentMetadataKey: this.pageContentMetadataKey,
+      signal,
+      ...this._scope,
+    });
   }
 
   /**
@@ -517,7 +557,7 @@ export class AmazonS3Vectors extends VectorStore {
     // into that slot, so the delegate's own check can never see what this
     // caller actually passed.
     rejectSignalInCallbacksSlot('similaritySearch', this._scope, _callbacks);
-    return (await this.similaritySearchWithScore(query, k, filter, undefined, signal)).map(
+    return (await this._textSearch('similaritySearch', query, k, filter, signal)).map(
       ([doc]) => doc,
     );
   }
@@ -557,7 +597,13 @@ export class AmazonS3Vectors extends VectorStore {
   ): Promise<[Document, number][]> {
     rejectSignalInCallbacksSlot('similaritySearchWithRelevanceScores', this._scope, callbacks);
     const scoreFn = this._selectRelevanceScoreFn();
-    const results = await this.similaritySearchWithScore(query, k, filter, undefined, signal);
+    const results = await this._textSearch(
+      'similaritySearchWithRelevanceScores',
+      query,
+      k,
+      filter,
+      signal,
+    );
     return results.map(([doc, distance]) => [doc, scoreFn(distance)]);
   }
 
@@ -656,7 +702,7 @@ export class AmazonS3Vectors extends VectorStore {
       batchSize: params?.batchSize,
       maxConcurrent: this.maxConcurrentBatchCalls,
       signal: params?.signal,
-      deleteIndex: (signal) => this._lifecycle.deleteIndex(signal),
+      deleteIndex: (signal) => this._lifecycle.deleteIndex(signal, 'delete'),
       ...this._scope,
     });
   }
@@ -940,7 +986,7 @@ export class AmazonS3Vectors extends VectorStore {
       pageContentMetadataKey: this.pageContentMetadataKey,
       nonFilterableKeys: this._nonFilterableKeys,
       ensureIndex: this.createIndexIfNotExist
-        ? (dimension, abort) => this._lifecycle.ensureExists(dimension, abort)
+        ? (dimension, abort) => this._lifecycle.ensureExists(dimension, abort, operation)
         : undefined,
       onIndexAbsent: () => {
         this._lifecycle.markAbsent();

@@ -30,20 +30,20 @@ describe('createIndexLifecycle().deleteIndex', () => {
   it('issues DeleteIndex and resolves', async () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(DeleteIndexCommand).resolves({});
-    await expect(lifecycle.deleteIndex()).resolves.toBeUndefined();
+    await expect(lifecycle.deleteIndex(undefined, 'DeleteIndex')).resolves.toBeUndefined();
     expect(mock.commandCalls(DeleteIndexCommand)).toHaveLength(1);
   });
 
   it('resolves when AWS reports the index already absent, because the requested state holds', async () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(DeleteIndexCommand).rejects(awsError('NotFoundException'));
-    await expect(lifecycle.deleteIndex()).resolves.toBeUndefined();
+    await expect(lifecycle.deleteIndex(undefined, 'DeleteIndex')).resolves.toBeUndefined();
   });
 
   it('propagates any other failure with its class', async () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(DeleteIndexCommand).rejects(awsError('AccessDeniedException'));
-    const error = await lifecycle.deleteIndex().catch((e: unknown) => e);
+    const error = await lifecycle.deleteIndex(undefined, 'DeleteIndex').catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
   });
 
@@ -52,9 +52,9 @@ describe('createIndexLifecycle().deleteIndex', () => {
     mock.on(GetIndexCommand).resolves({ index: indexFixture() });
     mock.on(DeleteIndexCommand).resolves({});
 
-    await lifecycle.ensureExists(3);
-    await lifecycle.deleteIndex();
-    await lifecycle.ensureExists(3);
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
+    await lifecycle.deleteIndex(undefined, 'DeleteIndex');
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
 
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
   });
@@ -64,9 +64,9 @@ describe('createIndexLifecycle().deleteIndex', () => {
     mock.on(GetIndexCommand).resolves({ index: indexFixture() });
     mock.on(DeleteIndexCommand).rejects(awsError('AccessDeniedException'));
 
-    await lifecycle.ensureExists(3);
-    await lifecycle.deleteIndex().catch(() => undefined);
-    await lifecycle.ensureExists(3);
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
+    await lifecycle.deleteIndex(undefined, 'DeleteIndex').catch(() => undefined);
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
 
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
   });
@@ -83,9 +83,9 @@ describe('createIndexLifecycle().deleteIndex', () => {
     mock.on(DeleteIndexCommand).resolves({});
 
     // A write opens the creation memo; its GetIndex is still in flight.
-    const writing = lifecycle.ensureExists(3);
+    const writing = lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
     // A delete arrives while that creation is running.
-    const deleting = lifecycle.deleteIndex();
+    const deleting = lifecycle.deleteIndex(undefined, 'DeleteIndex');
 
     release();
     await Promise.all([writing, deleting]);
@@ -112,12 +112,12 @@ describe('createIndexLifecycle().deleteIndex', () => {
     mock.on(CreateIndexCommand).resolves({});
     mock.on(DeleteIndexCommand).resolves({});
 
-    const writing = lifecycle.ensureExists(3);
-    const deleting = lifecycle.deleteIndex();
+    const writing = lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
+    const deleting = lifecycle.deleteIndex(undefined, 'DeleteIndex');
     release();
     await Promise.all([writing, deleting]);
 
-    await lifecycle.ensureExists(3);
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
   });
 
@@ -126,7 +126,7 @@ describe('createIndexLifecycle().deleteIndex', () => {
     mock.on(DeleteIndexCommand).resolves({});
     const ac = new AbortController();
     ac.abort();
-    const error = await lifecycle.deleteIndex(ac.signal).catch((e: unknown) => e);
+    const error = await lifecycle.deleteIndex(ac.signal, 'DeleteIndex').catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.ABORTED);
     expect(mock.commandCalls(DeleteIndexCommand)).toHaveLength(0);
   });
@@ -135,7 +135,7 @@ describe('createIndexLifecycle().deleteIndex', () => {
     const { mock, lifecycle } = lifecycleWith();
     mock.on(DeleteIndexCommand).resolves({});
     const ac = new AbortController();
-    await lifecycle.deleteIndex(ac.signal);
+    await lifecycle.deleteIndex(ac.signal, 'DeleteIndex');
     const call = mock.commandCalls(DeleteIndexCommand)[0]!;
     expect(sendOptionsOf(call)?.abortSignal).toBe(ac.signal);
   });
@@ -149,8 +149,10 @@ describe('createIndexLifecycle().deleteIndex', () => {
     });
     mock.on(DeleteIndexCommand).resolves({});
 
-    const writing = lifecycle.ensureExists(3).catch(() => undefined);
-    const deleting = lifecycle.deleteIndex();
+    const writing = lifecycle
+      .ensureExists(3, undefined, 'ensureIndexExists')
+      .catch(() => undefined);
+    const deleting = lifecycle.deleteIndex(undefined, 'DeleteIndex');
     release();
     await Promise.all([writing, deleting]);
 

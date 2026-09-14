@@ -41,14 +41,16 @@ describe('createIndexLifecycle — index creation rules', () => {
   describe('dimension', () => {
     it.each([0, -1, 4097, 1.5])('rejects %p before issuing CreateIndex', async (dimension) => {
       const { mock, lifecycle } = lifecycleWith();
-      const error = await lifecycle.ensureExists(dimension).catch((e: unknown) => e);
+      const error = await lifecycle
+        .ensureExists(dimension, undefined, 'ensureIndexExists')
+        .catch((e: unknown) => e);
       expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
       expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
     });
 
     it.each([1, 4096])('accepts the boundary %p', async (dimension) => {
       const { mock, lifecycle } = lifecycleWith();
-      await lifecycle.ensureExists(dimension);
+      await lifecycle.ensureExists(dimension, undefined, 'ensureIndexExists');
       expect(inputOf(mock)['dimension']).toBe(dimension);
     });
   });
@@ -56,7 +58,7 @@ describe('createIndexLifecycle — index creation rules', () => {
   describe('non-filterable metadata keys', () => {
     it('adds the page-content key to the configured list', async () => {
       const { mock, lifecycle } = lifecycleWith({ nonFilterableMetadataKeys: ['bulk'] });
-      await lifecycle.ensureExists(3);
+      await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
       expect(inputOf(mock)['metadataConfiguration']).toEqual({
         nonFilterableMetadataKeys: ['bulk', '_page_content'],
       });
@@ -66,7 +68,7 @@ describe('createIndexLifecycle — index creation rules', () => {
       const { mock, lifecycle } = lifecycleWith({
         nonFilterableMetadataKeys: ['_page_content', 'bulk'],
       });
-      await lifecycle.ensureExists(3);
+      await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
       expect(inputOf(mock)['metadataConfiguration']).toEqual({
         nonFilterableMetadataKeys: ['_page_content', 'bulk'],
       });
@@ -74,7 +76,7 @@ describe('createIndexLifecycle — index creation rules', () => {
 
     it('sends no metadataConfiguration when there are no keys at all', async () => {
       const { mock, lifecycle } = lifecycleWith({ pageContentMetadataKey: null });
-      await lifecycle.ensureExists(3);
+      await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
       expect(inputOf(mock)['metadataConfiguration']).toBeUndefined();
     });
 
@@ -82,7 +84,9 @@ describe('createIndexLifecycle — index creation rules', () => {
       const { mock, lifecycle } = lifecycleWith({
         nonFilterableMetadataKeys: Array.from({ length: 10 }, (_, i) => `k${i}`),
       });
-      const error = await lifecycle.ensureExists(3).catch((e: unknown) => e);
+      const error = await lifecycle
+        .ensureExists(3, undefined, 'ensureIndexExists')
+        .catch((e: unknown) => e);
       expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
       expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
     });
@@ -92,7 +96,9 @@ describe('createIndexLifecycle — index creation rules', () => {
         pageContentMetadataKey: null,
         nonFilterableMetadataKeys: Array.from({ length: 11 }, (_, i) => `k${i}`),
       });
-      const error = await lifecycle.ensureExists(3).catch((e: unknown) => e);
+      const error = await lifecycle
+        .ensureExists(3, undefined, 'ensureIndexExists')
+        .catch((e: unknown) => e);
       expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
       expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
     });
@@ -102,52 +108,64 @@ describe('createIndexLifecycle — index creation rules', () => {
       ['x'.repeat(64), '64 characters'],
     ])('rejects a non-filterable key that is %s', async (key) => {
       const { mock, lifecycle } = lifecycleWith({ nonFilterableMetadataKeys: [key] });
-      const error = await lifecycle.ensureExists(3).catch((e: unknown) => e);
+      const error = await lifecycle
+        .ensureExists(3, undefined, 'ensureIndexExists')
+        .catch((e: unknown) => e);
       expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
       expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
     });
 
     it('accepts a non-filterable key at the 63-character boundary', async () => {
       const { lifecycle } = lifecycleWith({ nonFilterableMetadataKeys: ['x'.repeat(63)] });
-      await expect(lifecycle.ensureExists(3)).resolves.toBeUndefined();
+      await expect(
+        lifecycle.ensureExists(3, undefined, 'ensureIndexExists'),
+      ).resolves.toBeUndefined();
     });
   });
 
   describe('tags', () => {
     it('forwards tags when configured', async () => {
       const { mock, lifecycle } = lifecycleWith({ tags: { team: 'search' } });
-      await lifecycle.ensureExists(3);
+      await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
       expect(inputOf(mock)['tags']).toEqual({ team: 'search' });
     });
 
     it('omits tags when not configured', async () => {
       const { mock, lifecycle } = lifecycleWith();
-      await lifecycle.ensureExists(3);
+      await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
       expect(inputOf(mock)['tags']).toBeUndefined();
     });
 
     it('rejects a tag key over 128 characters', async () => {
       const { mock, lifecycle } = lifecycleWith({ tags: { ['x'.repeat(129)]: 'v' } });
-      const error = await lifecycle.ensureExists(3).catch((e: unknown) => e);
+      const error = await lifecycle
+        .ensureExists(3, undefined, 'ensureIndexExists')
+        .catch((e: unknown) => e);
       expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
       expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
     });
 
     it('rejects an empty tag key', async () => {
       const { lifecycle } = lifecycleWith({ tags: { '': 'v' } });
-      const error = await lifecycle.ensureExists(3).catch((e: unknown) => e);
+      const error = await lifecycle
+        .ensureExists(3, undefined, 'ensureIndexExists')
+        .catch((e: unknown) => e);
       expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     });
 
     it('rejects a tag value over 256 characters', async () => {
       const { lifecycle } = lifecycleWith({ tags: { k: 'x'.repeat(257) } });
-      const error = await lifecycle.ensureExists(3).catch((e: unknown) => e);
+      const error = await lifecycle
+        .ensureExists(3, undefined, 'ensureIndexExists')
+        .catch((e: unknown) => e);
       expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     });
 
     it('accepts an empty tag value, which the documented minimum of 0 allows', async () => {
       const { lifecycle } = lifecycleWith({ tags: { k: '' } });
-      await expect(lifecycle.ensureExists(3)).resolves.toBeUndefined();
+      await expect(
+        lifecycle.ensureExists(3, undefined, 'ensureIndexExists'),
+      ).resolves.toBeUndefined();
     });
   });
 
@@ -156,13 +174,13 @@ describe('createIndexLifecycle — index creation rules', () => {
       const { mock, lifecycle } = lifecycleWith({
         encryptionConfiguration: { sseType: 'AES256' },
       });
-      await lifecycle.ensureExists(3);
+      await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
       expect(inputOf(mock)['encryptionConfiguration']).toEqual({ sseType: 'AES256' });
     });
 
     it('omits encryptionConfiguration when not configured', async () => {
       const { mock, lifecycle } = lifecycleWith();
-      await lifecycle.ensureExists(3);
+      await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
       expect(inputOf(mock)['encryptionConfiguration']).toBeUndefined();
     });
   });
