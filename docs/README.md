@@ -21,6 +21,7 @@ LangChain-compatible Amazon S3 Vectors store for TypeScript.
 - [AmazonS3VectorsConfig](interfaces/AmazonS3VectorsConfig.md)
 - [AmazonS3VectorsRetrieverFields](interfaces/AmazonS3VectorsRetrieverFields.md)
 - [S3OutputVector](interfaces/S3OutputVector.md)
+- [S3VectorsDeleteIndexParams](interfaces/S3VectorsDeleteIndexParams.md)
 - [S3VectorsDeleteParams](interfaces/S3VectorsDeleteParams.md)
 - [S3VectorsErrorContext](interfaces/S3VectorsErrorContext.md)
 - [S3VectorsListParams](interfaces/S3VectorsListParams.md)

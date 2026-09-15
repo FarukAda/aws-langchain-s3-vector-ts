@@ -70,7 +70,7 @@ if (!env) {
         // Absence is an ordinary outcome now: an undefined slot, not an error (D-6).
         expect(await store4.getByIds(['id-2'])).toEqual([undefined]);
       } finally {
-        await store4.delete({ deleteAll: true }).catch(() => undefined);
+        await store4.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -114,7 +114,7 @@ if (!env) {
           S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
         );
       } finally {
-        await cosineStore.delete({ deleteAll: true }).catch(() => undefined);
+        await cosineStore.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -143,7 +143,7 @@ if (!env) {
         const returnedIds = new Set(results.map(([doc]) => doc.pageContent));
         expect(returnedIds.size).toBe(count);
       } finally {
-        await store.delete({ deleteAll: true }).catch(() => undefined);
+        await store.deleteIndex().catch(() => undefined);
       }
     }, 120_000);
 
@@ -185,7 +185,7 @@ if (!env) {
         expect(docs).toHaveLength(1);
         expect(await creator.getByIds(['id-2'])).toEqual([undefined]);
       } finally {
-        await creator.delete({ deleteAll: true }).catch(() => undefined);
+        await creator.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -202,7 +202,9 @@ if (!env) {
           ids: ['id-1'],
         });
 
-        await expect(store.delete()).rejects.toThrow('deleteAll');
+        await expect(store.delete(undefined as unknown as { ids: string[] })).rejects.toThrow(
+          'requires `ids`',
+        );
 
         const stillExists = await rawClient
           .send(new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }))
@@ -210,7 +212,7 @@ if (!env) {
           .catch(() => false);
         expect(stillExists).toBe(true);
 
-        await store.delete({ deleteAll: true });
+        await store.deleteIndex();
 
         const existsAfter = await rawClient
           .send(new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }))
@@ -218,7 +220,7 @@ if (!env) {
           .catch(() => false);
         expect(existsAfter).toBe(false);
       } finally {
-        await store.delete({ deleteAll: true }).catch(() => undefined);
+        await store.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
   });

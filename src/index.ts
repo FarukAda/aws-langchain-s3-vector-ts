@@ -10,6 +10,7 @@ export type {
   AmazonS3VectorsConfig,
   DistanceMetric,
   VectorDataType,
+  S3VectorsDeleteIndexParams,
   S3VectorsDeleteParams,
   S3VectorsListParams,
   S3VectorsRecord,

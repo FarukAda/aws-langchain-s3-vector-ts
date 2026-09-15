@@ -4,7 +4,7 @@ This package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## 1. The public API
 
-The public API is everything exported from the package entry point (`src/index.ts`, published as `dist/esm/index.js` and `dist/cjs/index.js` with matching declarations): the `AmazonS3Vectors` class; the error model (`S3VectorsError`, `S3VectorsErrorCode`, `isS3VectorsError`, `S3VectorsErrorContext`); the `AmazonS3VectorsRetriever` class; the relevance helper `cosineRelevanceScoreFn`; and the types `AmazonS3VectorsConfig`, `AmazonS3VectorsRetrieverFields`, `AmazonS3VectorsRetrieverInput`, `DistanceMetric`, `VectorDataType`, `S3VectorsDeleteParams`, `S3VectorsListParams`, `S3VectorsRecord` and `S3OutputVector`. Tests pin the export set (`test/index-exports.test.ts`), the method signatures (`test/types/public-api.test-d.ts`) and the package manifest (`test/package-exports.test.ts`).
+The public API is everything exported from the package entry point (`src/index.ts`, published as `dist/esm/index.js` and `dist/cjs/index.js` with matching declarations): the `AmazonS3Vectors` class; the error model (`S3VectorsError`, `S3VectorsErrorCode`, `isS3VectorsError`, `S3VectorsErrorContext`); the `AmazonS3VectorsRetriever` class; the relevance helper `cosineRelevanceScoreFn`; and the types `AmazonS3VectorsConfig`, `AmazonS3VectorsRetrieverFields`, `AmazonS3VectorsRetrieverInput`, `DistanceMetric`, `VectorDataType`, `S3VectorsDeleteParams`, `S3VectorsDeleteIndexParams`, `S3VectorsListParams`, `S3VectorsRecord` and `S3OutputVector`. Tests pin the export set (`test/index-exports.test.ts`), the method signatures (`test/types/public-api.test-d.ts`) and the package manifest (`test/package-exports.test.ts`).
 
 - A **minor** release may add exports, add optional options and parameters, add optional fields to returned objects and to `S3VectorsErrorContext`, and widen accepted inputs.
 - A **patch** release changes behaviour only to fix a defect against the documented behaviour.
@@ -26,7 +26,7 @@ On read (`similaritySearch*`, `getByIds`), the reserved key is lifted back out i
 
 Index configuration is fixed at creation and is not part of a stored vector. `dimension` (inferred from the first vector written), `distanceMetric`, `dataType`, `nonFilterableMetadataKeys`, `encryptionConfiguration` and `tags` are sent with `CreateIndex` when the store creates an index. Nothing about an existing index is cached: AWS enforces the dimension on every write, and the distance metric is checked against the `QueryVectors` response on every read. A minor release may add optional index-creation fields; it will not change what an existing option sends.
 
-`delete({ deleteAll: true })` deletes the *index* (`DeleteIndex`), not the vectors inside it: S3 Vectors has no truncate API. Everything attached to the index goes with it — its encryption configuration, tags and non-filterable-metadata configuration. That is documented behaviour and stable for `1.x`.
+`delete` removes vectors by id and never destroys an index; `deleteIndex()` deletes the *index* (`DeleteIndex`), not the vectors inside it — S3 Vectors has no truncate API. Everything attached to the index goes with it: its encryption configuration, tags and non-filterable-metadata configuration. Both are documented behaviour and stable for `1.x`.
 
 ## 3. Errors
 

@@ -74,7 +74,7 @@ if (!env) {
           region: safeEnv.region,
         });
         try {
-          await cleanup.delete({ deleteAll: true });
+          await cleanup.deleteIndex();
         } catch {
           // deleteAll is idempotent as of 0.8.0, so a missing index is fine.
         }
@@ -118,10 +118,10 @@ if (!env) {
       const { store } = newStore();
       await store.addDocuments([new Document({ pageContent: 'hello' })], { ids: ['d1'] });
 
-      await expect(store.delete({ deleteAll: true })).resolves.toBeUndefined();
+      await expect(store.deleteIndex()).resolves.toBeUndefined();
       // The regression: before 0.8.0 this second call rejected with
       // AWS_REQUEST_FAILED ("The specified index could not be found").
-      await expect(store.delete({ deleteAll: true })).resolves.toBeUndefined();
+      await expect(store.deleteIndex()).resolves.toBeUndefined();
     }, 120_000);
 
     // ── IM3 / IM2: cancellation ─────────────────────────────────────────
@@ -308,7 +308,7 @@ if (!env) {
       // state of the world (DESIGN.md D-6).
       expect(await store.getByIds(['doc-1'])).toEqual([undefined]);
 
-      await store.delete({ deleteAll: true });
+      await store.deleteIndex();
     }, 180_000);
   });
 }

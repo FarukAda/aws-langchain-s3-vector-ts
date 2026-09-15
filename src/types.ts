@@ -207,22 +207,30 @@ export interface S3OutputVector {
 
 /** Options accepted by {@link AmazonS3Vectors.delete}. */
 export interface S3VectorsDeleteParams {
-  /** Vector IDs to delete. Omit together with {@link deleteAll} to delete the entire index. */
-  readonly ids?: string[];
+  /**
+   * The vector ids to delete. Required: `delete` removes vectors, and nothing
+   * else. Destroying the index is {@link AmazonS3Vectors.deleteIndex}, which
+   * has to be named to be called.
+   */
+  readonly ids: string[];
   /**
    * Batch size for `DeleteVectors` calls.
    * @defaultValue `500`
    */
   readonly batchSize?: number;
   /**
-   * Must be explicitly `true` to delete the **entire index** (used together
-   * with omitting `ids`). Guards against an accidentally-`undefined` `ids`
-   * array silently wiping the whole index.
+   * Abort an in-progress delete. Cancels the `DeleteVectors` call currently in
+   * flight and stops any further batches from starting.
    */
-  readonly deleteAll?: true;
+  readonly signal?: AbortSignal;
+}
+
+/** Options accepted by {@link AmazonS3Vectors.deleteIndex}. */
+export interface S3VectorsDeleteIndexParams {
   /**
-   * Abort an in-progress delete. Cancels the `DeleteVectors`/`DeleteIndex`
-   * call currently in flight and stops any further batches from starting.
+   * Abort the deletion. An already-fired signal rejects before any request;
+   * one that fires while an index creation is being awaited ends this
+   * caller's wait without cancelling that shared work.
    */
   readonly signal?: AbortSignal;
 }

@@ -125,8 +125,8 @@ try {
   const euclideanScores = await scaled.similaritySearchWithRelevanceScores('space', 1);
   check('a supplied relevanceScoreFn is used', euclideanScores[0][1] > 0);
 } finally {
-  await cosine.delete({ deleteAll: true }).catch(() => {});
-  await euclidean.delete({ deleteAll: true }).catch(() => {});
+  await cosine.deleteIndex().catch(() => {});
+  await euclidean.deleteIndex().catch(() => {});
 }
 
 summary();

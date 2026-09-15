@@ -68,7 +68,7 @@ if (!env) {
           region: safeEnv.region,
         });
         try {
-          await cleanup.delete({ deleteAll: true });
+          await cleanup.deleteIndex();
         } catch {
           // deleteAll is idempotent, so an index that never got created is fine.
         }

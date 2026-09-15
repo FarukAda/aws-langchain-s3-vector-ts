@@ -23,6 +23,14 @@ identically, and the wire format is untouched.
 
 ### Breaking
 
+- **`delete` no longer destroys the index; `deleteIndex()` does.** `ids` is now
+  required, and `deleteAll` is refused with a message naming the replacement.
+  `@langchain/core` describes the interface method as "remove stored documents
+  by ID", S3 Vectors has no truncate operation, and a flag meaning "all of
+  them" is how a production index gets destroyed by a typo. Destroying an index
+  now has to be named to be called. `deleteIndex()` is idempotent and takes an
+  optional `signal`, exactly as the flag did.
+
 - **`getByIds` returns `(Document | undefined)[]`.** A missing id is now an
   `undefined` slot in the id's position rather than a thrown `NOT_FOUND`.
   `GetVectors` returns neither an entry nor an error for a key that is not
@@ -141,6 +149,12 @@ identically, and the wire format is untouched.
   returns, throws and guarantees.
 
 ### Fixed (found by the verification work)
+
+- **A decided behaviour had never been implemented.** Auditing all 38 entries
+  of the design's decision log against the code found two that were decided and
+  then missed: `context.batchSize` on a write failure (D-24) and the split of
+  index deletion out of `delete` (D-10) — the latter chosen explicitly during
+  the design review. Both are now implemented; the other 36 check out.
 
 - **A 503 did not say how big the batch was.** `docs/DESIGN.md` D-24 decided
   that a write failure would carry the batch size, because AWS answers an

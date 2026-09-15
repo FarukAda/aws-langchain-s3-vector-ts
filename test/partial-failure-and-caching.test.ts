@@ -309,7 +309,7 @@ describe('AmazonS3Vectors caches index info across sequential writes on the defa
     mockExistingIndex(mock);
 
     await store.addDocuments([new Document({ pageContent: 'a' })], { ids: ['id-a'] });
-    await store.delete({ deleteAll: true });
+    await store.deleteIndex();
     await store.addDocuments([new Document({ pageContent: 'b' })], { ids: ['id-b'] });
 
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);

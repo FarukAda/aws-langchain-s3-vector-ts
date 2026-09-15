@@ -86,7 +86,7 @@ describe('later write batches — validation against the established index', () 
       puts += 1;
       // Between batch 0 and batch 1, wipe the index — clearing the cache
       // the later-batch check would otherwise consult.
-      if (puts === 1) await store.delete({ deleteAll: true });
+      if (puts === 1) await store.deleteIndex();
       return {};
     });
 

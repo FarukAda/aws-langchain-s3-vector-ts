@@ -16,7 +16,7 @@ Options accepted by [AmazonS3Vectors.delete](../classes/AmazonS3Vectors.md#delet
 
 > `readonly` `optional` **batchSize?**: `number`
 
-Defined in: [types.ts:216](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L216)
+Defined in: [types.ts:220](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L220)
 
 Batch size for `DeleteVectors` calls.
 
@@ -26,25 +26,15 @@ Batch size for `DeleteVectors` calls.
 
 ***
 
-### deleteAll?
+### ids
 
-> `readonly` `optional` **deleteAll?**: `true`
+> `readonly` **ids**: `string`[]
 
-Defined in: [types.ts:222](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L222)
+Defined in: [types.ts:215](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L215)
 
-Must be explicitly `true` to delete the **entire index** (used together
-with omitting `ids`). Guards against an accidentally-`undefined` `ids`
-array silently wiping the whole index.
-
-***
-
-### ids?
-
-> `readonly` `optional` **ids?**: `string`[]
-
-Defined in: [types.ts:211](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L211)
-
-Vector IDs to delete. Omit together with [deleteAll](#deleteall) to delete the entire index.
+The vector ids to delete. Required: `delete` removes vectors, and nothing
+else. Destroying the index is [AmazonS3Vectors.deleteIndex](../classes/AmazonS3Vectors.md#deleteindex), which
+has to be named to be called.
 
 ***
 
@@ -52,7 +42,7 @@ Vector IDs to delete. Omit together with [deleteAll](#deleteall) to delete the e
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [types.ts:227](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L227)
+Defined in: [types.ts:225](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L225)
 
-Abort an in-progress delete. Cancels the `DeleteVectors`/`DeleteIndex`
-call currently in flight and stops any further batches from starting.
+Abort an in-progress delete. Cancels the `DeleteVectors` call currently in
+flight and stops any further batches from starting.

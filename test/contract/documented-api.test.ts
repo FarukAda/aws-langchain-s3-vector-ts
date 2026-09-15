@@ -93,6 +93,7 @@ describe.each(DOCS)('%s documents only names that exist', (doc) => {
       'DistanceMetric',
       'VectorDataType',
       'S3VectorsDeleteParams',
+      'S3VectorsDeleteIndexParams',
       'S3VectorsListParams',
       'S3VectorsRecord',
       'S3OutputVector',

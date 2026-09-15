@@ -83,7 +83,7 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
     mock.on(DeleteIndexCommand).resolves({});
     const controller = new AbortController();
 
-    await store.delete({ deleteAll: true, signal: controller.signal });
+    await store.deleteIndex({ signal: controller.signal });
 
     expect(sendOptionsOf(mock.commandCalls(DeleteIndexCommand)[0]!)).toEqual({
       abortSignal: controller.signal,

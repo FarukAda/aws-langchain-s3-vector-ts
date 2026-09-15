@@ -186,7 +186,7 @@ Every failure this library surfaces — caller mistake, not-found, malformed AWS
 | `QUERY_PAGE_LIMIT_EXCEEDED` | A paginated search hit the 1,000-page runaway ceiling with pages still outstanding and fewer than `k` results collected. |
 | `UNEXPECTED_ERROR` | A failure that never touched AWS — a raw throw from a caller-supplied embeddings model, or input malformed enough to bypass validation. |
 
-`NotFoundException` is still caught and treated as an expected outcome in the places where absence is the normal case: index detection during a write, and `delete({ deleteAll: true })` against an index that is already gone.
+`NotFoundException` is still caught and treated as an expected outcome in the places where absence is the normal case: index detection during a write, and `deleteIndex()` against an index that is already gone.
 
 The library fails closed rather than guessing. A query result missing a usable numeric `distance`, a response whose `distanceMetric` cannot be recognised, a response that is not an object at all, a vector returned without data when data was requested, and a paginated search that hits the page ceiling short of `k` all raise a coded error instead of returning a plausible-looking but wrong result.
 
@@ -201,9 +201,9 @@ The AWS SDK v3 has built-in retry behaviour (exponential backoff with jitter) fo
 The `delete()` method supports two modes:
 
 - **By IDs:** `await store.delete({ ids: ["id1", "id2"] })` — deletes specific vectors (batched, default 500 per call)
-- **Entire index:** `await store.delete({ deleteAll: true })` — deletes the whole vector index (not the bucket). `deleteAll` must be explicit; `delete()` with neither `ids` nor `deleteAll` throws instead of guessing, and passing both together is rejected.
+- **Entire index:** `await store.deleteIndex()` — deletes the whole vector index (not the bucket). It is a separate, named method precisely because destroying a resource is not what `delete` means: `delete` requires `ids` and will not destroy an index whatever it is passed.
 
-Both modes are idempotent, so a blind retry after an ambiguous network failure is safe: deleting ids that are already gone succeeds, and `deleteAll` against an index that no longer exists resolves cleanly rather than erroring.
+Both are idempotent, so a blind retry after an ambiguous network failure is safe: deleting ids that are already gone succeeds, and `deleteIndex()` against an index that no longer exists resolves cleanly rather than erroring.
 
 ## Enumeration
 

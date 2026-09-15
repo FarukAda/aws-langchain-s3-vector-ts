@@ -117,11 +117,11 @@ try {
   const afterBatchDelete = await batchStore.getByIds(['b-0']);
   check('delete across the 500 boundary removed every vector', afterBatchDelete[0] === undefined);
 } finally {
-  await noContentStore.delete({ deleteAll: true }).catch(() => {});
-  await rawStore.delete({ deleteAll: true }).catch(() => {});
-  await dupStore.delete({ deleteAll: true }).catch(() => {});
-  await nonFilterableStore.delete({ deleteAll: true }).catch(() => {});
-  await batchStore.delete({ deleteAll: true }).catch(() => {});
+  await noContentStore.deleteIndex().catch(() => {});
+  await rawStore.deleteIndex().catch(() => {});
+  await dupStore.deleteIndex().catch(() => {});
+  await nonFilterableStore.deleteIndex().catch(() => {});
+  await batchStore.deleteIndex().catch(() => {});
 }
 
 summary();

@@ -17,7 +17,7 @@ describe('AmazonS3Vectors.delete', () => {
 
     mock.on(DeleteIndexCommand).resolves({});
 
-    await store.delete({ deleteAll: true });
+    await store.deleteIndex();
 
     expect(mock.commandCalls(DeleteIndexCommand)).toHaveLength(1);
     expect(mock.commandCalls(DeleteVectorsCommand)).toHaveLength(0);
@@ -33,21 +33,35 @@ describe('AmazonS3Vectors.delete', () => {
     expect((error as { context: { operation: string } }).context.operation).toBe('DeleteVectors');
   });
 
-  it('says how to confirm the destructive reading, and how to avoid it', async () => {
+  it('requires ids, and says where destroying the index lives instead', async () => {
     const { store } = createTestStore();
-    const error = await store.delete().catch((e: unknown) => e);
+    const error = await store
+      .delete(undefined as unknown as { ids: string[] })
+      .catch((e: unknown) => e);
     expect((error as Error).message).toBe(
-      'delete() with no `ids` would delete the entire index. Pass `{ deleteAll: true }` ' +
-        'to confirm, or pass `ids` to delete specific vectors.',
+      'delete() requires `ids`. It removes vectors by id; to destroy the index itself, ' +
+        'call deleteIndex().',
     );
   });
 
-  it('throws instead of deleting the index when neither ids nor deleteAll are given', async () => {
-    const { client } = createMockClient();
-    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+  it('never destroys the index, whatever it is given', async () => {
+    const { store, mock } = createTestStore();
+    await store.delete(undefined as unknown as { ids: string[] }).catch(() => undefined);
+    await store.delete({} as unknown as { ids: string[] }).catch(() => undefined);
+    // The one behaviour this method must never have.
+    expect(mock.commandCalls(DeleteIndexCommand)).toHaveLength(0);
+  });
 
-    await expect(store.delete()).rejects.toThrow(/deleteAll/);
-    await expect(store.delete({})).rejects.toThrow(/deleteAll/);
+  it('refuses the flag it used to accept, naming the method that replaced it', async () => {
+    const { store, mock } = createTestStore();
+    const error = await store
+      .delete({ ids: ['a'], deleteAll: true } as unknown as { ids: string[] })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain('delete() no longer takes `deleteAll`');
+    expect((error as Error).message).toContain('call deleteIndex() instead');
+    expect(mock.commandCalls(DeleteIndexCommand)).toHaveLength(0);
+    expect(mock.commandCalls(DeleteVectorsCommand)).toHaveLength(0);
   });
 
   it('deletes vectors by IDs in batches', async () => {
@@ -83,7 +97,9 @@ describe('AmazonS3Vectors.delete', () => {
     const { client } = createMockClient();
     const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
 
-    await expect(store.delete({ ids: ['a'], deleteAll: true })).rejects.toThrow(/cannot take both/);
+    await expect(
+      store.delete({ ids: ['a'], deleteAll: true } as unknown as { ids: string[] }),
+    ).rejects.toThrow(/no longer takes/);
   });
 
   it('rejects a non-array ids argument with a coded VALIDATION error, not a raw TypeError', async () => {
@@ -112,7 +128,7 @@ describe('AmazonS3Vectors.delete({ deleteAll }) — idempotency', () => {
     const { store, mock } = createTestStore();
     mock.on(DeleteIndexCommand).rejects(notFound());
 
-    await expect(store.delete({ deleteAll: true })).resolves.toBeUndefined();
+    await expect(store.deleteIndex()).resolves.toBeUndefined();
   });
 
   it('clears the validated-index cache even when the index was already gone', async () => {
@@ -123,7 +139,7 @@ describe('AmazonS3Vectors.delete({ deleteAll }) — idempotency', () => {
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
 
     mock.on(DeleteIndexCommand).rejects(notFound());
-    await store.delete({ deleteAll: true });
+    await store.deleteIndex();
 
     // Cache cleared, so the next write re-fetches rather than validating
     // against index info the delete just revealed to be stale.
@@ -137,7 +153,7 @@ describe('AmazonS3Vectors.delete({ deleteAll }) — idempotency', () => {
       .on(DeleteIndexCommand)
       .rejects(Object.assign(new Error('nope'), { name: 'AccessDeniedException' }));
 
-    const error = await store.delete({ deleteAll: true }).catch((e: unknown) => e);
+    const error = await store.deleteIndex().catch((e: unknown) => e);
 
     // Classified, not generic: an access failure is an IAM problem the caller
     // acts on differently from a transient one (DESIGN.md D-16).

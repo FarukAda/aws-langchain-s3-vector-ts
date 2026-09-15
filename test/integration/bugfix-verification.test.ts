@@ -51,7 +51,7 @@ if (!env) {
           '_page_content',
         );
       } finally {
-        await store.delete({ deleteAll: true }).catch(() => undefined);
+        await store.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -73,7 +73,7 @@ if (!env) {
         const docs = await store.getByIds(['a', 'b']);
         expect(docs.map((d) => d?.id).sort()).toEqual(['a', 'b']);
       } finally {
-        await store.delete({ deleteAll: true }).catch(() => undefined);
+        await store.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -105,7 +105,7 @@ if (!env) {
         const docs = await storeA.getByIds(['a', 'b']);
         expect(docs.map((d) => d?.id).sort()).toEqual(['a', 'b']);
       } finally {
-        await storeA.delete({ deleteAll: true }).catch(() => undefined);
+        await storeA.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -141,7 +141,7 @@ if (!env) {
         const docs = await stores[0]!.getByIds(Array.from({ length: N }, (_, i) => `id-${i}`));
         expect(docs).toHaveLength(N);
       } finally {
-        await stores[0]!.delete({ deleteAll: true }).catch(() => undefined);
+        await stores[0]!.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -170,7 +170,7 @@ if (!env) {
         expect(scored).toHaveLength(1);
         expect(typeof scored[0]![1]).toBe('number');
       } finally {
-        await store.delete({ deleteAll: true }).catch(() => undefined);
+        await store.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -195,7 +195,7 @@ if (!env) {
       } finally {
         // Defensive: if a future regression of the guard above ever lets an
         // index get created here, don't leak it.
-        await store.delete({ deleteAll: true }).catch(() => undefined);
+        await store.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -235,7 +235,7 @@ if (!env) {
           .catch(() => false);
         expect(exists).toBe(false);
       } finally {
-        await store.delete({ deleteAll: true }).catch(() => undefined);
+        await store.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -260,7 +260,7 @@ if (!env) {
         const keys = index.index?.metadataConfiguration?.nonFilterableMetadataKeys ?? [];
         expect(new Set(keys)).toEqual(new Set([...nineKeys, '_page_content']));
       } finally {
-        await store.delete({ deleteAll: true }).catch(() => undefined);
+        await store.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -287,7 +287,7 @@ if (!env) {
           .catch(() => false);
         expect(exists).toBe(false);
       } finally {
-        await store.delete({ deleteAll: true }).catch(() => undefined);
+        await store.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
   });

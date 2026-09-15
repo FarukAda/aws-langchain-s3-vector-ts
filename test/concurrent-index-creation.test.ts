@@ -184,7 +184,7 @@ describe('delete({deleteAll: true}) racing an in-flight PutVectors call', () => 
     // still in flight.
     await Promise.resolve();
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(0);
-    await store.delete({ deleteAll: true });
+    await store.deleteIndex();
     releasePutVectors();
     await writePromise;
 
@@ -222,7 +222,7 @@ describe('delete({deleteAll: true}) racing an in-flight PutVectors call', () => 
       ids: ['id-2'],
     });
     await Promise.resolve();
-    await store.delete({ deleteAll: true });
+    await store.deleteIndex();
     rejectPutVectors(
       Object.assign(new Error('The vector index does not exist'), { name: 'NotFoundException' }),
     );

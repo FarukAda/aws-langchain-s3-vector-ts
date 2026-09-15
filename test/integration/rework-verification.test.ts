@@ -67,7 +67,7 @@ if (!env) {
 
     afterAll(async () => {
       try {
-        await store.delete({ deleteAll: true });
+        await store.deleteIndex();
       } catch {
         // Best-effort teardown: a failed setup leaves nothing to delete.
       }
@@ -123,7 +123,7 @@ if (!env) {
         const copied = await copy.getByIds(['alpha']);
         expect(copied[0]?.pageContent).toBe('alpha');
       } finally {
-        await copy.delete({ deleteAll: true }).catch(() => undefined);
+        await copy.deleteIndex().catch(() => undefined);
       }
     }, 300_000);
 
@@ -162,13 +162,13 @@ if (!env) {
 
       try {
         await cycle.addDocuments([new Document({ pageContent: 'alpha' })], { ids: ['a'] });
-        await cycle.delete({ deleteAll: true });
+        await cycle.deleteIndex();
         // The lifecycle's "known to exist" flag must have been cleared, or
         // this write would PutVectors into an index that is gone.
         await cycle.addDocuments([new Document({ pageContent: 'beta' })], { ids: ['b'] });
         expect((await cycle.getByIds(['b']))[0]?.pageContent).toBe('beta');
       } finally {
-        await cycle.delete({ deleteAll: true }).catch(() => undefined);
+        await cycle.deleteIndex().catch(() => undefined);
       }
     }, 300_000);
   });

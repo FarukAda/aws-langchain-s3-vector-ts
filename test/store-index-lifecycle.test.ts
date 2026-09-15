@@ -99,7 +99,7 @@ describe('store — index lifecycle', () => {
     mock.on(DeleteIndexCommand).resolves({});
 
     await store.addVectors([[1, 2, 3]], [doc('x')], { ids: ['a'] });
-    await store.delete({ deleteAll: true });
+    await store.deleteIndex();
     await store.addVectors([[4, 5, 6]], [doc('y')], { ids: ['b'] });
 
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
@@ -108,7 +108,7 @@ describe('store — index lifecycle', () => {
   it('classifies a DeleteIndex failure rather than reporting a generic request failure', async () => {
     const { store, mock } = createTestStore();
     mock.on(DeleteIndexCommand).rejects(awsError('AccessDeniedException'));
-    const error = await store.delete({ deleteAll: true }).catch((e: unknown) => e);
+    const error = await store.deleteIndex().catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
   });
 

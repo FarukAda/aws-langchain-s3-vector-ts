@@ -60,6 +60,7 @@ const CASES: [string, (store: Store) => Promise<unknown>][] = [
   ],
   ['listDocuments', (store) => drain(store.listDocuments({ signal: fired() }))],
   ['listVectors', (store) => drain(store.listVectors({ signal: fired() }))],
+  ['deleteIndex', (store) => store.deleteIndex({ signal: fired() })],
 ];
 
 describe('every error names the public method that raised it', () => {

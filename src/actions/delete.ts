@@ -13,72 +13,63 @@ const MAX_DELETE_BATCH_SIZE = 500;
 const DEFAULT_DELETE_BATCH_SIZE = 500;
 
 export interface DeleteOptions extends Omit<BatchedOperation, 'operation'> {
-  /** Vector ids to delete, or `undefined` together with `deleteAll` for the index. */
-  readonly ids?: string[] | undefined;
-  /** `true` deletes the index itself. Must be explicit; see the contract below. */
-  readonly deleteAll: boolean;
-  /** Deletes the index itself, serialising behind any creation in flight. */
-  readonly deleteIndex: (signal?: AbortSignal) => Promise<void>;
+  /** The vector ids to delete. Required, and never a stand-in for "all of them". */
+  readonly ids: string[];
 }
 
 /**
- * Delete vectors by id, or the entire index.
+ * Delete vectors by id.
  *
- * Accepts: exactly one of `ids` or `deleteAll: true`.
+ * Accepts: the ids to delete — required — plus a batch size of 1–500 and a
+ * signal.
  *
  * Returns: nothing.
  *
- * Throws: `VALIDATION` when both or neither are given, when `ids` is not an
- * array, or for a `batchSize` outside 1–500; otherwise the class the
- * `DeleteVectors`/`DeleteIndex` failure maps to, carrying
- * `context.deletedIds` — every id confirmed deleted before the failure.
+ * Throws: `ABORTED` for an already-fired signal, before any request;
+ * `VALIDATION` when `ids` is missing, is not an array, or when `deleteAll` is
+ * passed — the flag this package used to accept for destroying the index, now
+ * refused with a message naming `deleteIndex()`; `VALIDATION` for a batch size
+ * outside 1–500; otherwise the class the `DeleteVectors` failure maps to,
+ * carrying `context.deletedIds` — every id confirmed deleted before it.
  *
  * Guarantees:
- * - Neither argument means **nothing is deleted**. An accidentally `undefined`
- *   `ids` array would otherwise wipe the whole index, so the destructive
- *   reading has to be asked for explicitly.
- * - Both arguments is also refused rather than resolved in either direction:
- *   the two mean opposite things, and guessing which one the caller meant is
- *   not a decision this package gets to make.
+ * - **This never destroys the index.** `delete` means "remove stored documents
+ *   by id" in `@langchain/core`'s own description of the interface, and S3
+ *   Vectors has no truncate operation, so a flag meaning "the whole index" was
+ *   an invitation to destroy production data with a typo. That lives in
+ *   {@link AmazonS3Vectors.deleteIndex}, which has to be named to be called.
  * - Deleting ids that are not there succeeds — AWS accepts absent keys
  *   (`docs/evidence/delete-absent.md`) — so a blind retry of the full list
  *   after an ambiguous failure is safe.
- * - `deleteAll` removes the **index** (`DeleteIndex`), not just its vectors:
- *   S3 Vectors has no truncate API.
  */
 export async function deleteVectors(opts: DeleteOptions): Promise<void> {
-  const { ids, deleteAll, signal } = opts;
+  const { ids, signal } = opts;
   const scope: StoreScope = {
     vectorBucketName: opts.vectorBucketName,
     indexName: opts.indexName,
   };
 
-  // Before the argument checks below would even matter: an already-fired
-  // signal must cost nothing, and every other entry point refuses here.
   checkAborted('delete', signal, scope);
 
-  if (ids !== undefined && deleteAll) {
+  if ((opts as { deleteAll?: unknown }).deleteAll !== undefined) {
     throw validationError(
       'delete',
       scope,
-      'delete() cannot take both `ids` and `deleteAll: true` — pass one or the other.',
+      'delete() no longer takes `deleteAll`: it removes vectors by id and nothing else. ' +
+        'To destroy the index — and with it its encryption configuration, tags and ' +
+        'non-filterable-metadata configuration — call deleteIndex() instead.',
     );
   }
-  if (ids === undefined && !deleteAll) {
-    throw validationError(
-      'delete',
-      scope,
-      'delete() with no `ids` would delete the entire index. Pass `{ deleteAll: true }` ' +
-        'to confirm, or pass `ids` to delete specific vectors.',
-    );
-  }
-
   if (ids === undefined) {
-    await opts.deleteIndex(signal);
-    return;
+    throw validationError(
+      'delete',
+      scope,
+      'delete() requires `ids`. It removes vectors by id; to destroy the index itself, ' +
+        'call deleteIndex().',
+    );
   }
-
   assertIsArray('delete', scope, 'ids', ids);
+
   const batchSize = opts.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
   assertBatchSize('delete', scope, batchSize, MAX_DELETE_BATCH_SIZE);
 

@@ -33,6 +33,7 @@ import { assertValidConfig, assertValidIndexConfig, resolveClient } from './shar
 import type {
   AmazonS3VectorsConfig,
   DistanceMetric,
+  S3VectorsDeleteIndexParams,
   S3VectorsDeleteParams,
   S3VectorsListParams,
   S3VectorsRecord,
@@ -661,49 +662,71 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
-   * Delete vectors by ID, or delete the entire index.
+   * Delete vectors by id.
+   *
+   * @remarks
+   * This removes vectors and nothing else. `@langchain/core` describes the
+   * interface method as "remove stored documents by ID", and S3 Vectors has no
+   * truncate operation, so there is no reading of `delete` under which it
+   * destroys an index. That is {@link deleteIndex}, which has to be named to
+   * be called — a flag meaning "everything" is how a production index gets
+   * destroyed by a typo.
+   *
+   * Deleting an id that is not there succeeds: AWS accepts absent keys
+   * (`docs/evidence/delete-absent.md`), so a blind retry of the full list
+   * after an ambiguous network failure is safe.
    *
    * @param params - Deletion parameters
-   * @param params.ids - Vector IDs to delete
-   * @param params.batchSize - Number of IDs per `DeleteVectors` call (default: 500)
-   * @param params.deleteAll - Must be `true` (with `ids` omitted) to delete the
-   * entire **index** — the `DeleteIndex` API, not a bulk `DeleteVectors`.
-   * Everything attached to the index goes with it: its encryption
-   * configuration, tags, and non-filterable-metadata configuration, plus
-   * any IAM policy statements scoped to the index ARN keep pointing at a
-   * resource that no longer exists. A later write with
-   * `createIndexIfNotExist: true` re-creates the index from *this store's*
-   * configuration (`dimension` from the first vector, `distanceMetric`,
-   * `nonFilterableMetadataKeys`, `encryptionConfiguration`, `tags`), which
-   * may differ from how the original was provisioned. If the index must
-   * survive, delete vectors by id instead — S3 Vectors has no
-   * "truncate" API.
-   * @param params.signal - Abort an in-progress delete. Cancels the
-   * `DeleteVectors`/`DeleteIndex` call currently in flight and stops any
-   * further batches from starting.
-   * @returns Nothing. A delete reports what it removed only when it fails
-   * partway, via `context.deletedIds`; a complete one removed everything
-   * asked for, including ids that were not there to begin with.
-   * @throws Error if both `ids` and `deleteAll` are omitted — a safety guard against an
-   * accidentally-`undefined` `ids` array silently wiping the whole index — or if both `ids`
-   * and `deleteAll` are passed together. On a partial-delete failure (a
-   * later batch fails after earlier ones already succeeded), the thrown
-   * {@link S3VectorsError}'s `context.deletedIds` lists every id confirmed
-   * deleted before the failure — deleting is idempotent, so a blind retry
-   * of the full `ids` list is always safe regardless, but `deletedIds`
-   * tells you exactly what already happened.
+   * @param params.ids - The vector ids to delete. Required.
+   * @param params.batchSize - Ids per `DeleteVectors` call, 1–500 (default 500)
+   * @param params.signal - Abort an in-progress delete. Cancels the call in
+   * flight and stops further batches from starting.
+   * @returns Nothing. A complete delete removed everything asked for; a
+   * partial one reports what it managed via `context.deletedIds`.
+   * @throws {S3VectorsError} `VALIDATION` when `ids` is missing or not an
+   * array, when the legacy `deleteAll` flag is passed, or for a batch size
+   * outside 1–500; `ABORTED` for a fired signal; otherwise the class the
+   * `DeleteVectors` failure maps to, carrying `context.deletedIds`.
    */
-  async delete(params?: S3VectorsDeleteParams): Promise<void> {
+  async delete(params: S3VectorsDeleteParams): Promise<void> {
     await deleteVectors({
       client: this._client,
-      ids: params?.ids,
-      deleteAll: params?.deleteAll === true,
-      batchSize: params?.batchSize,
+      ...(params as { ids: string[] }),
       maxConcurrent: this.maxConcurrentBatchCalls,
-      signal: params?.signal,
-      deleteIndex: (signal) => this._lifecycle.deleteIndex(signal, 'delete'),
       ...this._scope,
     });
+  }
+
+  /**
+   * Delete the index itself.
+   *
+   * @remarks
+   * This calls `DeleteIndex`. It removes the **index**, not its contents:
+   * everything attached to it goes too — its encryption configuration, its
+   * tags, its non-filterable-metadata configuration — and any IAM statement
+   * scoped to the index ARN is left pointing at a resource that no longer
+   * exists. Because an index's configuration is immutable, what a later write
+   * re-creates under the same name is a different index that happens to share
+   * it: `dimension` comes from the first vector written, and the rest from
+   * *this store's* configuration, which may not be how the original was
+   * provisioned.
+   *
+   * It is idempotent: deleting an index that is already gone resolves cleanly,
+   * so a retry after an ambiguous network failure is safe.
+   *
+   * If the index must survive, delete vectors by id instead — S3 Vectors has
+   * no truncate operation.
+   *
+   * @param options - Optional settings
+   * @param options.signal - Abort the deletion. An already-fired signal
+   * rejects before any request; one that fires while an index creation is
+   * being awaited ends this caller's wait without cancelling that shared work.
+   * @returns Nothing.
+   * @throws {S3VectorsError} `ABORTED` for a fired signal; otherwise the class
+   * the `DeleteIndex` failure maps to. A missing index is not a failure.
+   */
+  async deleteIndex(options?: S3VectorsDeleteIndexParams): Promise<void> {
+    await this._lifecycle.deleteIndex(options?.signal, 'deleteIndex');
   }
 
   /**
