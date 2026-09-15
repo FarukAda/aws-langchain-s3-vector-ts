@@ -108,7 +108,7 @@ export interface AmazonS3VectorsConfig {
    * Raise it to ingest faster against a generous account-level rate
    * limit; lower it (down to `1` for strictly sequential calls) if you
    * share the account's S3 Vectors request quota with other workloads or
-   * see sustained `ThrottlingException`s even with the SDK's own retries.
+   * see sustained `TooManyRequestsException`s even with the SDK's own retries.
    * Peak memory for in-flight write payloads scales with
    * `maxConcurrentBatchCalls × batchSize`.
    * @defaultValue `10`
@@ -178,8 +178,9 @@ export interface AmazonS3VectorsConfig {
   readonly maxAttempts?: number;
 
   /**
-   * AWS SDK retry mode. Throttling and 5xx errors are retried by the SDK.
-   * Not accepted together with `client`, which carries its own.
+   * AWS SDK retry mode. Throttling (`TooManyRequestsException`) and 5xx errors
+   * are retried by the SDK. Not accepted together with `client`, which carries
+   * its own.
    */
   readonly retryMode?: 'standard' | 'adaptive' | 'legacy';
 

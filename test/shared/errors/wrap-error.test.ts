@@ -77,18 +77,18 @@ describe('wrapAwsError', () => {
 
   it('lifts httpStatusCode and requestId off $metadata into context and the message', () => {
     const cause = Object.assign(new Error('slow down'), {
-      name: 'ThrottlingException',
+      name: 'TooManyRequestsException',
       $metadata: { httpStatusCode: 429, requestId: 'REQ-123', attempts: 3 },
     });
     const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, {
       operation: 'QueryVectors',
     });
     expect(err.message).toBe(
-      'QueryVectors failed (ThrottlingException, HTTP 429, requestId REQ-123): slow down',
+      'QueryVectors failed (TooManyRequestsException, HTTP 429, requestId REQ-123): slow down',
     );
     expect(err.context).toMatchObject({
       operation: 'QueryVectors',
-      awsErrorName: 'ThrottlingException',
+      awsErrorName: 'TooManyRequestsException',
       httpStatusCode: 429,
       requestId: 'REQ-123',
       retryable: true,
@@ -96,7 +96,7 @@ describe('wrapAwsError', () => {
   });
 
   it.each([
-    ['ThrottlingException', 400],
+    ['RequestTimeoutException', 408],
     ['TooManyRequestsException', 429],
     ['ServiceUnavailableException', 503],
     ['InternalServerException', 500],
@@ -199,12 +199,12 @@ describe('wrapAwsError', () => {
 
   it('reads the diagnostics when $metadata is the shape the SDK documents', () => {
     const cause = Object.assign(new Error('boom'), {
-      name: 'ThrottlingException',
+      name: 'TooManyRequestsException',
       $metadata: { httpStatusCode: 429, requestId: 'r-9' },
     });
     const err = wrapAwsError(cause, S3VectorsErrorCode.THROTTLED, { operation: 'op' });
     expect(err.context).toMatchObject({
-      awsErrorName: 'ThrottlingException',
+      awsErrorName: 'TooManyRequestsException',
       httpStatusCode: 429,
       requestId: 'r-9',
       retryable: true,
@@ -212,18 +212,32 @@ describe('wrapAwsError', () => {
   });
 
   it.each([
-    'ThrottlingException',
     'TooManyRequestsException',
     'ServiceUnavailableException',
     'InternalServerException',
-    'InternalServerError',
-    'RequestTimeout',
     'RequestTimeoutException',
+    // Not a service exception: the SDK's HTTP handler raises it on a connection,
+    // socket-idle or request timeout, and this package applies a socket timeout
+    // by default — so it is a failure callers actually see.
+    'TimeoutError',
   ])('marks %s retryable, so a caller-side backoff can act on it', (name) => {
     const cause = Object.assign(new Error('x'), { name, $metadata: {} });
     const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, { operation: 'op' });
     expect(err.context.retryable).toBe(true);
   });
+
+  it.each(['ThrottlingException', 'InternalServerError', 'RequestTimeout'])(
+    'does not claim %s is retryable, because S3 Vectors never sends it',
+    (name) => {
+      // These three were in the retryable set and in the `retryable` field
+      // documentation, and S3 Vectors declares none of them. A caller branching
+      // on the prose would have written a branch that never runs. Kept as a
+      // test so the names cannot drift back in.
+      const cause = Object.assign(new Error('x'), { name, $metadata: {} });
+      const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, { operation: 'op' });
+      expect(err.context.retryable).toBe(false);
+    },
+  );
 
   it.each(['ValidationException', 'AccessDeniedException', 'ConflictException'])(
     'leaves %s not retryable, because backoff cannot fix it',

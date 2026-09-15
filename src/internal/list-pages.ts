@@ -18,6 +18,45 @@ import { checkAborted, type StoreScope } from './signals.js';
 const MIN_PAGE_SIZE = 1;
 const MAX_PAGE_SIZE = 1000;
 
+/**
+ * Reject a record that arrived without a usable embedding.
+ *
+ * Accepts: the record, and how far the listing had got.
+ *
+ * Returns: nothing.
+ *
+ * Throws: {@link S3VectorsError} with code `AWS_INVALID_RESPONSE`, carrying
+ * `pagesScanned` and `yielded`.
+ *
+ * Guarantees: raised here rather than by the caller, because this generator owns
+ * the counters. Raised from `listVectors` instead, the one failure the
+ * documentation singles out was the only listing failure that could not say how
+ * far it had got.
+ *
+ * An empty `float32` is refused as well as a missing one. `[]` satisfied a check
+ * for `undefined`, so a record with no embedding at all was yielded as though it
+ * had one — and the migration case `listVectors` exists for would write
+ * dimensionless vectors into the target index and look complete.
+ */
+function assertRecordHasData(
+  vector: S3OutputVector,
+  scope: StoreScope,
+  operation: string,
+  pagesScanned: number,
+  yielded: number,
+): void {
+  const data = vector.data?.float32;
+  if (data !== undefined && data.length > 0) return;
+  throw new S3VectorsError(
+    `ListVectors returned vector '${vector.key}' ${
+      data === undefined ? 'without data' : 'with an empty embedding'
+    }, even though this call requested returnData: true. The response may be malformed, or ` +
+      'come from an incompatible SDK version or a mocked/stubbed client.',
+    S3VectorsErrorCode.AWS_INVALID_RESPONSE,
+    { operation, ...scope, pagesScanned, yielded },
+  );
+}
+
 export interface ListPagesOptions extends AwsOperation {
   /** Whether each record should carry its embedding. */
   readonly returnData: boolean;
@@ -83,11 +122,15 @@ function explainListing(
  * - `signal` — checked before each page and threaded into the request.
  *
  * Returns: an async generator. Memory is bounded by one page however large the
- * index, and a consumer that stops iterating issues no further request.
+ * index, and a consumer that stops iterating issues no further request. With
+ * `returnData` set, every record yielded carries a non-empty `data.float32`,
+ * which is what lets the caller read it without re-checking.
  *
  * Throws: `VALIDATION` for `pageSize`, before any request; `ABORTED` for
- * `signal`; `AWS_INVALID_RESPONSE` for a nullish response; otherwise the class
- * {@link classifyAwsError} assigns, carrying `pagesScanned` and `yielded` —
+ * `signal`; `AWS_INVALID_RESPONSE` for a nullish response, for an entry that is
+ * not a vector, and — when `returnData` is set — for a record carrying no
+ * embedding or an empty one; otherwise the class {@link classifyAwsError}
+ * assigns, carrying `pagesScanned` and `yielded` —
  * items already yielded have been consumed by the caller, so this is not
  * atomic and does not pretend to be.
  *
@@ -145,6 +188,9 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
 
     pagesScanned++;
     for (const vector of outputVectorsOf(response.vectors, 'ListVectors', operation, scope)) {
+      if (opts.returnData) {
+        assertRecordHasData(vector, scope, operation, pagesScanned, yielded);
+      }
       yielded++;
       yield vector;
     }

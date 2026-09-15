@@ -58,21 +58,24 @@ export function toError(value: unknown): Error {
 }
 
 /**
- * AWS exception names that are worth retrying after a backoff. The SDK's own
- * retry strategy has usually already retried these before the error reaches
- * this library; a caller seeing one here is looking at exhausted attempts.
+ * AWS exception names worth retrying after a backoff. The SDK's own retry
+ * strategy has usually already retried these before the error reaches this
+ * library, so a caller seeing one here is looking at exhausted attempts.
+ *
+ * Every name is one S3 Vectors actually declares, checked against the SDK's own
+ * exports by `test/contract/aws-error-names.test.ts`. Three that it does not —
+ * `ThrottlingException`, `InternalServerError` and `RequestTimeout` — used to
+ * sit here, which is harmless in a set that is only ever read, and not harmless
+ * in the prose that named them to callers as something they would see.
  */
 const RETRYABLE_AWS_ERROR_NAMES = new Set([
   // Raised by the SDK's own HTTP handler when a socket goes idle past
   // `socketTimeout`, or a request past `requestTimeout`. Waiting again is
   // exactly what might work, so it is retryable.
   'TimeoutError',
-  'ThrottlingException',
   'TooManyRequestsException',
   'ServiceUnavailableException',
   'InternalServerException',
-  'InternalServerError',
-  'RequestTimeout',
   'RequestTimeoutException',
 ]);
 

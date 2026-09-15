@@ -35,7 +35,7 @@ in the client's favour.
 
 > `readonly` `optional` **connectionTimeout?**: `number`
 
-Defined in: [types.ts:191](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L191)
+Defined in: [types.ts:192](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L192)
 
 Milliseconds the connection phase of a request may take before it is
 abandoned, defaulting to 5,000. `0` disables it. Not accepted together
@@ -183,7 +183,7 @@ calls this store keeps in flight at once during a batched
 Raise it to ingest faster against a generous account-level rate
 limit; lower it (down to `1` for strictly sequential calls) if you
 share the account's S3 Vectors request quota with other workloads or
-see sustained `ThrottlingException`s even with the SDK's own retries.
+see sustained `TooManyRequestsException`s even with the SDK's own retries.
 Peak memory for in-flight write payloads scales with
 `maxConcurrentBatchCalls × batchSize`.
 
@@ -274,7 +274,7 @@ based on the configured [distanceMetric](#distancemetric).
 
 > `readonly` `optional` **requestTimeout?**: `number`
 
-Defined in: [types.ts:221](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L221)
+Defined in: [types.ts:222](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L222)
 
 Milliseconds a whole request and response may take, as a **total
 deadline**. No default, and `0` disables it. Not accepted together with
@@ -294,10 +294,11 @@ mean something other than what its name says.
 
 > `readonly` `optional` **retryMode?**: `"standard"` \| `"adaptive"` \| `"legacy"`
 
-Defined in: [types.ts:184](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L184)
+Defined in: [types.ts:185](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L185)
 
-AWS SDK retry mode. Throttling and 5xx errors are retried by the SDK.
-Not accepted together with `client`, which carries its own.
+AWS SDK retry mode. Throttling (`TooManyRequestsException`) and 5xx errors
+are retried by the SDK. Not accepted together with `client`, which carries
+its own.
 
 ***
 
@@ -305,7 +306,7 @@ Not accepted together with `client`, which carries its own.
 
 > `readonly` `optional` **socketTimeout?**: `number`
 
-Defined in: [types.ts:206](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L206)
+Defined in: [types.ts:207](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L207)
 
 Milliseconds a socket may sit **idle** before the request is failed,
 defaulting to 60,000. `0` disables it. Not accepted together with

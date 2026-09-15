@@ -2,8 +2,6 @@ import type { Document } from '@langchain/core/documents';
 
 import { listPages } from '../internal/list-pages.js';
 import type { AwsOperation } from '../internal/operation.js';
-import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
-import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { createDocument } from '../shared/metadata.js';
 import type { S3VectorsRecord } from '../types.js';
 
@@ -50,27 +48,20 @@ export async function* listDocuments(opts: EnumerateOptions): AsyncGenerator<Doc
  * migration path AWS leaves open when a dimension or distance metric must
  * change, since both are fixed at index creation.
  *
- * Throws: what {@link listDocuments} throws, plus `AWS_INVALID_RESPONSE` when
- * a record comes back without data despite `returnData: true`. Absent data is
- * not skipped: a migration that silently dropped records would produce a
- * target index that looks complete and is not.
+ * Throws: what {@link listDocuments} throws, including `AWS_INVALID_RESPONSE`
+ * when a record comes back without data, or with an empty embedding, despite
+ * `returnData: true`. Absent data is not skipped: a migration that silently
+ * dropped records would produce a target index that looks complete and is not.
+ *
+ * That check lives in {@link listPages}, which owns the page and yield counters
+ * — raised here instead, the one failure the documentation singles out was the
+ * only listing failure unable to say how far it had got.
  */
 export async function* listVectors(opts: EnumerateOptions): AsyncGenerator<S3VectorsRecord> {
   for await (const vector of listPages({ ...opts, returnData: true, returnMetadata: true })) {
-    const data = vector.data?.float32;
-    if (data === undefined) {
-      throw new S3VectorsError(
-        `ListVectors returned vector '${vector.key}' without data, even though this call ` +
-          'requested returnData: true. The response may be malformed, or come from an ' +
-          'incompatible SDK version or a mocked/stubbed client.',
-        S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-        {
-          operation: opts.operation,
-          vectorBucketName: opts.vectorBucketName,
-          indexName: opts.indexName,
-        },
-      );
-    }
+    // Non-null by `listPages`' contract: with `returnData` set it yields only
+    // records carrying a non-empty embedding.
+    const data = vector.data!.float32!;
     yield {
       id: vector.key,
       vector: data,

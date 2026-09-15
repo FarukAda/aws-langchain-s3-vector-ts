@@ -32,12 +32,17 @@ export interface S3VectorsErrorContext {
   /** Ids confirmed durably deleted before a partial `delete({ ids })` failure. */
   readonly deletedIds?: string[];
   /**
-   * `QueryVectors` pages scanned before a paginated search stopped early.
+   * Pages scanned before a paginated operation stopped.
    *
-   * Set on a `QUERY_PAGE_LIMIT_EXCEEDED` error, and also on a failure that
-   * happened partway through pagination (page 2 or later) — where the code
-   * is whatever the underlying call failed with, typically
-   * `AWS_REQUEST_FAILED`.
+   * On a search: set on `QUERY_PAGE_LIMIT_EXCEEDED`, and on a failure partway
+   * through pagination (page 2 or later), where the code is whatever the
+   * underlying call failed with.
+   *
+   * On a listing (`listDocuments`/`listVectors`): set on **every** failure,
+   * including one on the very first page, where it reads `0`. That is the
+   * useful answer rather than an omission — "nothing was scanned" is what a
+   * caller needs to know — and it is why the record-level checks were moved
+   * into the generator that keeps the count.
    */
   readonly pagesScanned?: number;
   /**
@@ -68,11 +73,17 @@ export interface S3VectorsErrorContext {
    */
   readonly yielded?: number;
   /**
-   * The AWS exception name (`"AccessDeniedException"`, `"ThrottlingException"`,
-   * `"ValidationException"`, …) when the failure came from an AWS SDK call.
-   * Lifted off `cause.name` so a log line or alert can branch on it without
-   * walking `cause`. Set on `AWS_REQUEST_FAILED` and `NOT_FOUND`
-   * errors whose cause is an SDK error; absent otherwise.
+   * The AWS exception name (`"AccessDeniedException"`,
+   * `"TooManyRequestsException"`, `"ValidationException"`, …) when the failure
+   * came from an AWS SDK call. Lifted off `cause.name` so a log line or alert
+   * can branch on it without walking `cause`.
+   *
+   * Set on **every** error whose cause is AWS-shaped — one carrying the SDK's
+   * `$metadata`, or named for a service exception — whatever code that error
+   * was given. So `AWS_REJECTED` carries `"ValidationException"` and `THROTTLED`
+   * carries `"TooManyRequestsException"`, not only the two codes this field was
+   * once documented as being limited to. Absent when the failure did not come
+   * from AWS: a validation error, or an embeddings model that threw.
    */
   readonly awsErrorName?: string;
   /** HTTP status of the failed AWS response (`cause.$metadata.httpStatusCode`), when known. */
@@ -84,22 +95,29 @@ export interface S3VectorsErrorContext {
   readonly requestId?: string;
   /**
    * Whether the failed AWS call is worth retrying after a backoff. `true` for
-   * throttling (`ThrottlingException`, `TooManyRequestsException`, HTTP 429),
-   * transient service errors (`ServiceUnavailableException`,
-   * `InternalServerException`, HTTP 5xx) and anything the SDK itself marked
-   * `$retryable`. Only set when the cause is an AWS SDK error; a non-AWS
-   * failure (an embeddings model throwing, a validation error) leaves it
-   * `undefined`. Note the SDK's own retry strategy (3 attempts by default)
-   * has usually already run before an error reaches this library — a
-   * `retryable: true` error means those attempts were exhausted.
+   * throttling (`TooManyRequestsException`, HTTP 429), transient service errors
+   * (`ServiceUnavailableException`, `InternalServerException`,
+   * `RequestTimeoutException`, HTTP 5xx), a `TimeoutError` from the SDK's own
+   * HTTP handler, and anything the SDK itself marked `$retryable`.
+   *
+   * Set alongside {@link awsErrorName}, on any AWS-shaped cause and whatever
+   * code the error was given — `false` is a real answer and means "this will
+   * fail again", which is the point. Absent when the failure did not come from
+   * AWS at all.
+   *
+   * Note the SDK's own retry strategy (3 attempts by default) has usually
+   * already run before an error reaches this library, so `retryable: true`
+   * means those attempts were exhausted.
    */
   readonly retryable?: boolean;
   /**
-   * Ids confirmed found (and already fetched) before a partial `getByIds`
-   * failure — either a `GetVectors` batch rejecting while sibling batches
-   * in the same concurrency group succeed, or an id genuinely not found
-   * after other ids in the same group were already confirmed. Present so
-   * a caller doesn't have to re-fetch everything from scratch.
+   * Ids confirmed found (and already fetched) before a partial fetch failure —
+   * either a `GetVectors` batch rejecting while sibling batches in the same
+   * concurrency group succeed, or an id genuinely not found after other ids in
+   * the same group were already confirmed. Present so a caller doesn't have to
+   * re-fetch everything from scratch.
+   *
+   * Set by `getByIds` **and** by MMR, which fetches its candidates the same way.
    */
   readonly foundIds?: string[];
   /**

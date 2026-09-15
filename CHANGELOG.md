@@ -23,6 +23,47 @@ identically, and the wire format is untouched.
 
 ### Breaking
 
+- **A listing failure says how far it got.** The one failure the documentation
+  singles out — a `listVectors` record arriving without data — was raised outside
+  the generator that keeps the page and yield counters, so it was the only
+  listing failure unable to report them. It is raised inside it now, and an
+  empty `float32` is refused as well as a missing one: `[]` satisfied a check for
+  `undefined`, so a record with no embedding was yielded as though it had one,
+  and the migration case `listVectors` exists for would have written
+  dimensionless vectors into the target index and looked complete.
+
+- **`ResourceNotFoundException` is no longer read as an absent index.** Other AWS
+  services use that name; S3 Vectors declares thirteen exceptions and it is not
+  among them. The not-found predicate accepted it while `classify.ts` — whose
+  table is exactly those thirteen — called the same value an ordinary request
+  failure, so two modules disagreed about one value with nothing able to trigger
+  it. If it ever does arrive, from a proxy or a middleware, that is not evidence
+  an index is gone, and creating one on the strength of it is the wrong recovery.
+
+- **`ThrottlingException`, `InternalServerError` and `RequestTimeout` are gone
+  from the retryable set,** because S3 Vectors sends none of them. The real names
+  are `TooManyRequestsException`, `InternalServerException` and
+  `RequestTimeoutException`, and all three were already there. A new contract
+  test reads the thirteen names out of the SDK and fails on any the code acts on
+  that the service does not declare, so this cannot drift back.
+
+### Fixed documentation
+
+- **`awsErrorName` and `retryable` are documented as what they are:** set on
+  every error whose cause is AWS-shaped, whatever code that error was given, not
+  only on `AWS_REQUEST_FAILED` and `NOT_FOUND`. `AWS_REJECTED` carries
+  `"ValidationException"`; `THROTTLED` carries `"TooManyRequestsException"`. The
+  `retryable` field no longer names an exception the service cannot send.
+- **`pagesScanned`** is documented as being set on every listing failure,
+  including one on the first page where it reads `0`, which is an answer rather
+  than an omission.
+- **`foundIds`** is documented as being set by MMR as well as `getByIds`, which
+  fetches its candidates the same way.
+- **`context.operation`** is described by the rule the code actually follows: the
+  caller's own method, except on a failure raised by an AWS request itself, where
+  it is that command. An earlier entry claimed the public method in every case,
+  which the code never did.
+
 - **MMR honours `maxConcurrentBatchCalls`.** Its `GetVectors` fan-out never
   received the store's cap and fell back to the helper's own default of 10, so a
   store configured for strictly sequential calls issued ten at once. A cap a
@@ -401,9 +442,15 @@ identically, and the wire format is untouched.
   every method, static factory, error code and package export a doc names must
   exist. Verified against the three lies this rework actually had to correct —
   a removed method, a removed error code and an export that never existed.
-- **Every error names the public method that raised it**
-  (`test/contract/error-operation.test.ts`), for all eleven entry points, the
-  retriever, the callbacks-slot guard and an abort during a shared index wait.
+- **Every error names what raised it** (`test/contract/error-operation.test.ts`),
+  for all eleven entry points, the retriever, the callbacks-slot guard and an
+  abort during a shared index wait. The rule is the one `internal/operation.ts`
+  states: `context.operation` is the caller's own method — `addDocuments`,
+  `similaritySearch` — except on a failure raised by an AWS request itself, where
+  it is that command (`PutVectors`, `DeleteVectors`, `GetIndex`, `CreateIndex`,
+  `DeleteIndex`), because that is the call that failed. This entry previously
+  claimed the public method in every case, which the code never did and was never
+  meant to.
 
 - **Two more gates, each verified against the defect it prevents**: an
   unhandled promise rejection or a listener-leak warning now fails the test run

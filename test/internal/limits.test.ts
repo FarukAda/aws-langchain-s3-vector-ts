@@ -131,3 +131,59 @@ describe('assertVectorsWritable', () => {
     }).not.toThrow();
   });
 });
+
+/**
+ * Every one of these failures names the operation and the index (F-30).
+ *
+ * Mutation testing found this hole before a reviewer did: replacing `fail`'s
+ * context with `{}` survived all seventeen tests that cover it, because every
+ * one of them asserted the code and none asserted the context. An error that
+ * lost its scope would still have looked correct — while telling an operator
+ * which bucket and index to look at is most of what makes it useful, and is the
+ * one thing a caller cannot reconstruct from the message alone.
+ */
+describe('the write-path limit checks say what failed and where', () => {
+  const contextOf = (e: unknown): Record<string, unknown> =>
+    (e as { context: Record<string, unknown> }).context;
+
+  it('names them on a rejected dimension', () => {
+    const error = thrownBy(() => {
+      assertVectorDimension(0, 'addVectors', SCOPE);
+    });
+    expect(contextOf(error)).toEqual({
+      operation: 'addVectors',
+      vectorBucketName: 'b',
+      indexName: 'i',
+    });
+  });
+
+  it('names them on a non-finite component', () => {
+    const error = thrownBy(() => {
+      assertVectorsWritable([[1, Number.NaN]], {
+        operation: 'addDocuments',
+        distanceMetric: 'cosine',
+        ...SCOPE,
+      });
+    });
+    expect(contextOf(error)).toEqual({
+      operation: 'addDocuments',
+      vectorBucketName: 'b',
+      indexName: 'i',
+    });
+  });
+
+  it('names them on a zero-norm vector', () => {
+    const error = thrownBy(() => {
+      assertVectorsWritable([[0, 0, 0]], {
+        operation: 'addVectors',
+        distanceMetric: 'cosine',
+        ...SCOPE,
+      });
+    });
+    expect(contextOf(error)).toEqual({
+      operation: 'addVectors',
+      vectorBucketName: 'b',
+      indexName: 'i',
+    });
+  });
+});

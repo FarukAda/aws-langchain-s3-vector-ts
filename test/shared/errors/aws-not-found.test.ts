@@ -15,8 +15,16 @@ describe('isAwsNotFoundException', () => {
     expect(isAwsNotFoundException({ name: 'ValidationException' })).toBe(false);
   });
 
-  it('returns true for the two recognised not-found error names', () => {
+  it('returns true for the one name S3 Vectors actually sends', () => {
     expect(isAwsNotFoundException({ name: 'NotFoundException' })).toBe(true);
-    expect(isAwsNotFoundException({ name: 'ResourceNotFoundException' })).toBe(true);
+  });
+
+  it('returns false for ResourceNotFoundException, which this service never sends', () => {
+    // Other AWS services use that name; S3 Vectors declares thirteen exceptions
+    // and it is not among them. Accepting it meant this predicate read a value
+    // as proof an index was absent while `classify.ts` called the same value an
+    // ordinary request failure — two modules disagreeing about one value, with
+    // nothing able to trigger it.
+    expect(isAwsNotFoundException({ name: 'ResourceNotFoundException' })).toBe(false);
   });
 });
