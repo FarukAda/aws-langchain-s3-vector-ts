@@ -2,6 +2,7 @@ import type { Document } from '@langchain/core/documents';
 
 import { validateFilter } from '../internal/filter.js';
 import { assertIsArray, assertK, validationError } from '../internal/guards.js';
+import { assertVectorDimension, assertVectorsWritable } from '../internal/limits.js';
 import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
 import type { StoreScope } from '../internal/signals.js';
@@ -28,8 +29,11 @@ export interface VectorSearchOptions extends AwsOperation {
  * Search by vector, returning each document with its raw distance.
  *
  * Accepts: `k` (an integer 1–10,000) and a filter, both validated before the
- * request; the query vector, checked to be an array for the same reason every
- * public entry point checks — an untyped caller can reach here with anything.
+ * request; the query vector, checked to be an array of 1–4,096 finite
+ * components, and — on a cosine index — not the zero vector. Those are the rules
+ * a *stored* vector is held to, and AWS applies them to a query too, answering
+ * every one of them with the same message that names neither the component nor
+ * the reason.
  *
  * Returns: `[document, distance]` pairs, nearest first, at most `k` of them.
  * Fewer than `k` is normal for a filtered search over a sparse index.
@@ -53,6 +57,18 @@ export async function searchByVector(opts: VectorSearchOptions): Promise<[Docume
 
   assertK(operation, scope, opts.k);
   assertIsArray(operation, scope, 'query vector', opts.queryVector);
+  // The same rules a stored vector is held to. All three failures were probed
+  // against the live service and answered identically — "Query vector contains
+  // invalid values or is invalid for this index" — for a zero-norm vector, an
+  // empty one, and one of the wrong length. That message names no component and
+  // no reason, so the round trip bought nothing this package could not say
+  // itself, and said better.
+  assertVectorDimension(opts.queryVector.length, operation, scope);
+  assertVectorsWritable([opts.queryVector], {
+    operation,
+    distanceMetric: opts.distanceMetric,
+    ...scope,
+  });
   validateFilter(opts.filter, operation, scope);
 
   const outputVectors = await queryPages({

@@ -12,7 +12,12 @@ import { listDocuments, listVectors } from './actions/list.js';
 import { assertMmrParameters, mmrSearch } from './actions/mmr.js';
 import { searchByVector, selectRelevanceScoreFn } from './actions/search.js';
 import { validateFilter } from './internal/filter.js';
-import { assertK, rejectSignalInCallbacksSlot, validationError } from './internal/guards.js';
+import {
+  assertK,
+  assertOptionsBag,
+  rejectSignalInCallbacksSlot,
+  validationError,
+} from './internal/guards.js';
 import {
   createIndexLifecycle,
   nonFilterableKeys,
@@ -51,6 +56,16 @@ const DEFAULT_MAX_CONCURRENT_BATCH_CALLS = 10;
 
 /** Default metadata key to store page_content in. */
 const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
+
+/**
+ * A plain object, not an array and not null.
+ *
+ * `fromTexts` takes two arguments the type system cannot police for an untyped
+ * caller, and both were previously read for whatever they happened to be.
+ */
+function isPlainObjectValue(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 /**
  * LangChain vector store backed by **Amazon S3 Vectors**.
@@ -326,6 +341,7 @@ export class AmazonS3Vectors extends VectorStore {
     documents: DocumentInterface[],
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
+    assertOptionsBag('addVectors', this._scope, options);
     this._checkAborted('addVectors', options?.signal);
     return await addVectors({
       vectors,
@@ -936,11 +952,32 @@ export class AmazonS3Vectors extends VectorStore {
         operation: 'fromTexts',
       });
     }
-    if (Array.isArray(metadatas) && metadatas.length !== texts.length) {
-      throw new S3VectorsError(
-        `Number of metadatas (${metadatas.length}) must match number of texts (${texts.length})`,
-        S3VectorsErrorCode.VALIDATION,
-        { operation: 'fromTexts' },
+    const fail = (message: string): never => {
+      throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, { operation: 'fromTexts' });
+    };
+    texts.forEach((text: unknown, index: number) => {
+      if (typeof text !== 'string') {
+        fail(`texts[${index}] must be a string (received ${renderValue(text)}).`);
+      }
+    });
+    if (Array.isArray(metadatas)) {
+      if (metadatas.length !== texts.length) {
+        fail(
+          `Number of metadatas (${metadatas.length}) must match number of texts (${texts.length})`,
+        );
+      }
+      metadatas.forEach((metadata: unknown, index: number) => {
+        if (metadata !== undefined && metadata !== null && !isPlainObjectValue(metadata)) {
+          fail(`metadatas[${index}] must be an object (received ${renderValue(metadata)}).`);
+        }
+      });
+    } else if (metadatas !== undefined && metadatas !== null && !isPlainObjectValue(metadatas)) {
+      // Not an array, so it would be broadcast to every document — and a string
+      // broadcast that way was spread into one metadata key per character and
+      // written.
+      fail(
+        `metadatas must be an array of objects, or a single object to apply to every text ` +
+          `(received ${renderValue(metadatas)}).`,
       );
     }
 

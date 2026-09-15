@@ -63,6 +63,13 @@ export function assertIsArray(
  * the list surfaced there as "Cannot read properties of null (reading 'id')" —
  * a raw, uncoded escape from a package whose stated guarantee is that every
  * failure is an `S3VectorsError`.
+ *
+ * `pageContent` and `metadata` are checked here too, because an untyped caller
+ * reaches the write with whatever they have. A number under `pageContent` was
+ * stored as a number and read back as `pageContent: ''` with the number left
+ * behind in metadata; a string under `metadata` was spread into
+ * `{0:'s',1:'t',2:'r'}` and written as three filterable keys. Both wrote
+ * something, successfully, that nobody asked for.
  */
 export function assertDocumentObjects(
   operation: string,
@@ -80,6 +87,57 @@ export function assertDocumentObjects(
           '`metadata`.',
       );
     }
+
+    const { pageContent, metadata } = document as { pageContent?: unknown; metadata?: unknown };
+    if (typeof pageContent !== 'string') {
+      throw validationError(
+        operation,
+        scope,
+        `Document at index ${index} has a \`pageContent\` that is not a string (received ` +
+          `${describeValue(pageContent)}). It would be stored under the page-content key as ` +
+          'given and read back as an empty string, with the original left behind in metadata.',
+      );
+    }
+    if (metadata !== undefined && metadata !== null && !isPlainObject(metadata)) {
+      throw validationError(
+        operation,
+        scope,
+        `Document at index ${index} has a \`metadata\` that is not an object (received ` +
+          `${describeValue(metadata)}). A string would be spread into one metadata key per ` +
+          'character.',
+      );
+    }
+  }
+}
+
+/** A plain object, not an array and not null — the shape metadata must have. */
+function isPlainObject(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Reject an options bag that is not one.
+ *
+ * Accepts: `undefined` and `null` (no options given) or a plain object.
+ *
+ * Returns: nothing.
+ *
+ * Throws: `VALIDATION`, naming the argument.
+ *
+ * Guarantees: a non-object was read through `?.` and therefore ignored — every
+ * option in it silently unset. `addVectors(vectors, documents, 0)` wrote with
+ * default batching and no ids, telling the caller nothing, when what they had
+ * done was pass the wrong argument.
+ */
+export function assertOptionsBag(operation: string, scope: StoreScope, options: unknown): void {
+  if (options === undefined || options === null) return;
+  if (typeof options !== 'object' || Array.isArray(options)) {
+    throw validationError(
+      operation,
+      scope,
+      `The options argument must be an object (received ${describeValue(options)}). Passed ` +
+        'anything else, every option in it would be read as unset rather than reported.',
+    );
   }
 }
 

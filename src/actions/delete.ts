@@ -2,6 +2,7 @@ import { DeleteVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { settleGroup } from '../internal/concurrency.js';
 import { assertBatchSize, assertIsArray, validationError } from '../internal/guards.js';
+import { assertIdsWellFormed } from '../internal/ids.js';
 import type { BatchedOperation } from '../internal/operation.js';
 import { sendAws } from '../internal/put-batch.js';
 import { checkAborted } from '../internal/signals.js';
@@ -26,11 +27,12 @@ export interface DeleteOptions extends Omit<BatchedOperation, 'operation'> {
  * Returns: nothing.
  *
  * Throws: `ABORTED` for an already-fired signal, before any request;
- * `VALIDATION` when `ids` is missing, is not an array, or when `deleteAll` is
- * passed — the flag this package used to accept for destroying the index, now
- * refused with a message naming `deleteIndex()`; `VALIDATION` for a batch size
- * outside 1–500; otherwise the class the `DeleteVectors` failure maps to,
- * carrying `context.deletedIds` — every id confirmed deleted before it.
+ * `VALIDATION` when `ids` is missing, is not an array, holds anything that is
+ * not a 1–1024 character string, repeats a key, or when `deleteAll` is passed —
+ * the flag this package used to accept for destroying the index, now refused
+ * with a message naming `deleteIndex()`; `VALIDATION` for a batch size outside
+ * 1–500; otherwise the class the `DeleteVectors` failure maps to, carrying
+ * `context.deletedIds` — every id confirmed deleted before it.
  *
  * Guarantees:
  * - **This never destroys the index.** `delete` means "remove stored documents
@@ -40,7 +42,8 @@ export interface DeleteOptions extends Omit<BatchedOperation, 'operation'> {
  *   {@link AmazonS3Vectors.deleteIndex}, which has to be named to be called.
  * - Deleting ids that are not there succeeds — AWS accepts absent keys
  *   (`docs/evidence/delete-absent.md`) — so a blind retry of the full list
- *   after an ambiguous failure is safe.
+ *   after an ambiguous failure is safe. Absent is not the same as malformed: a
+ *   key `DeleteVectors` would refuse is refused here first.
  */
 export async function deleteVectors(opts: DeleteOptions): Promise<void> {
   const { ids, signal } = opts;
@@ -69,6 +72,11 @@ export async function deleteVectors(opts: DeleteOptions): Promise<void> {
     );
   }
   assertIsArray('delete', scope, 'ids', ids);
+  // The same rules the write path applies, duplicates included. `DeleteVectors`
+  // refuses a request that repeats a key — "Request must not contain duplicate
+  // keys", probed live — and refuses a zero-length one, so forwarding either was
+  // a round trip spent to be told what this package already knew.
+  assertIdsWellFormed(ids, 'delete', scope, true);
 
   const batchSize = opts.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
   assertBatchSize('delete', scope, batchSize, MAX_DELETE_BATCH_SIZE);

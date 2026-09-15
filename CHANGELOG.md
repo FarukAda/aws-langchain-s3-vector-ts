@@ -23,6 +23,41 @@ identically, and the wire format is untouched.
 
 ### Breaking
 
+- **`delete` validates its ids the way a write does,** locally, before any
+  request: a `null`, an empty string, a number, an over-long key or a repeated
+  key is now refused rather than forwarded. All of them are refused by AWS too,
+  probed against the live service — `Member must have length between 1 and 1024`
+  for the empty string, and `Request must not contain duplicate keys` for the
+  repeat — so forwarding them only ever bought a round trip to be told what this
+  package already knew.
+
+  Duplicates are worth calling out: this looked like the one rule a delete could
+  safely relax, on the reasoning that deleting a key twice is idempotent. It is
+  not. `DeleteVectors` refuses the whole request.
+
+- **A query vector is validated the way a stored vector is.** Its components were
+  never checked, so `[NaN, 1, 2]`, `['1','2','3']`, `[]` and the zero vector all
+  went to AWS. Every one of them comes back as `Query vector contains invalid
+  values or is invalid for this index` — a message naming neither the component
+  nor the reason — so the round trip bought nothing this package could not say
+  itself, and say better.
+
+- **`fromTexts` checks the two arguments its types cannot police.** A `metadatas`
+  that is neither an array nor an object was broadcast to every document and then
+  spread into one metadata key per character; a `texts` entry that was not a
+  string became a `Document` with a non-string `pageContent` and failed later as
+  a raw `TypeError`. Both are refused by position now.
+
+- **A document must have a string `pageContent` and an object `metadata`.** A
+  number under `pageContent` was written as a number and read back as `''` with
+  the original left behind in metadata; a string under `metadata` was spread into
+  one key per character. Both wrote something, successfully, that nobody asked
+  for.
+
+- **An options argument that is not an object is refused.** It was read through
+  `?.`, so every option in it was silently unset — `addVectors(vectors,
+  documents, 0)` wrote with default batching and no ids and reported nothing.
+
 - **A listing failure says how far it got.** The one failure the documentation
   singles out — a `listVectors` record arriving without data — was raised outside
   the generator that keeps the page and yield counters, so it was the only

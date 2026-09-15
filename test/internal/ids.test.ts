@@ -26,11 +26,18 @@ const withId = (id: string | undefined): Document => {
 };
 
 describe('resolveWriteIds', () => {
-  it('returns the caller list verbatim when given one', () => {
-    expect(resolveWriteIds([withId('ignored')], ['a', 'b'])).toEqual(['a', 'b']);
+  it("returns the caller's values, in its own array", () => {
+    const supplied = ['a', 'b'];
+    const resolved = resolveWriteIds([withId('ignored')], supplied);
+    expect(resolved).toEqual(['a', 'b']);
+    // A copy, not the instance. The list is validated once and then re-read per
+    // batch as each one is dispatched, so against the caller's own array those
+    // two moments can disagree — and it is also the record handed back on
+    // success, which a later mutation would otherwise rewrite.
+    expect(resolved).not.toBe(supplied);
   });
 
-  it('returns the caller list verbatim even when its length disagrees, which the caller checks', () => {
+  it('returns the values even when the length disagrees, which the caller checks', () => {
     expect(resolveWriteIds([withId(undefined)], [])).toEqual([]);
   });
 
@@ -95,15 +102,16 @@ describe('assertIdsWellFormed', () => {
     expect((error as Error).message).toContain('Ids were taken from options.ids');
   });
 
-  it('rejects a duplicate within one call, which AWS would silently collapse', () => {
+  it('rejects a duplicate within one call, which the two paths punish differently', () => {
     const error = check(['a', 'b', 'a']);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).toContain('Duplicate');
-    // The message says what AWS would have done and what to do instead — the
-    // failure it prevents is silent, so the explanation has to be explicit.
-    expect((error as Error).message).toContain(
-      'silently overwrite the earlier vector with the later one',
-    );
+    // The message says what each path would have done and what to do instead. On
+    // a write the failure is silent, so it has to be spelled out; on a delete
+    // `DeleteVectors` refuses the request outright, which the message also names
+    // now that `delete` shares this check.
+    expect((error as Error).message).toContain('silently overwrites the');
+    expect((error as Error).message).toContain('must not contain duplicate keys');
     expect((error as Error).message).toContain('write it in a separate call');
   });
 

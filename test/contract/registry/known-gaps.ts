@@ -4,11 +4,17 @@ import type { KnownGap } from './types.js';
  * Contracts the code does not honour yet, each named by the finding that closes
  * it.
  *
- * The registry states the intended contract from the first commit, so until the
- * remediation lands there are cases that legitimately fail. They are listed here
- * rather than softened in the contract, because a contract written down to what
- * the code happens to do is worth nothing — that is how a suite at 100% coverage
- * came to certify thirty defects.
+ * **Currently empty.** Every executable contract in the registry is honoured:
+ * `delete` and `addVectors` pass all six properties over the whole corpus, on
+ * both axes, with nothing excused.
+ *
+ * It was not empty when it was written, and that was the point. The registry
+ * states the intended contract from the first commit, so before the remediation
+ * landed there were cases that legitimately failed — 40 on `delete` alone, and
+ * 124 once `addVectors` was registered. Listing them here rather than softening
+ * the contract is what kept the suite green without letting the gaps out of
+ * sight, because a contract written down to what the code happens to do is worth
+ * nothing. That is how a suite at 100% coverage came to certify thirty defects.
  *
  * The runner enforces this ledger in both directions:
  *
@@ -17,41 +23,13 @@ import type { KnownGap } from './types.js';
  * - an entry that **no longer reproduces** fails the suite, so a fixed gap
  *   cannot be left behind to rot.
  *
- * The list only shrinks. It is empty when the audit is closed.
+ * The second half is what emptied it. Each entry was removed only after the
+ * suite insisted it had stopped failing, rather than when someone believed it
+ * had — which is also how the last seven went, in one step, when validation
+ * parity landed.
+ *
+ * Adding an entry is allowed: a contract found to be wrong is worth stating
+ * before it is met. But every entry needs the finding that closes it, and from
+ * there the list only shrinks.
  */
-export const KNOWN_GAPS: readonly KnownGap[] = [
-  // ── F-18 · delete forwards its ids to AWS unvalidated ────────────────────
-  //
-  // `delete.ts:71` checks `Array.isArray(ids)` and nothing about the elements,
-  // so a `null`, an empty string, a number or a hole is sent as a vector key.
-  // The write path rejects all of these locally through `assertIdsWellFormed`.
-  ...(
-    [
-      ['array with hole', 'a hole reads as `undefined` and is sent as a key'],
-      ['array with undefined', 'an explicit `undefined` is sent as a key'],
-      ['nested array', 'an array is sent where a string key belongs'],
-      ['array of null', '`null` is sent as a key'],
-      ['array of empty string', "`''` is sent as a key; a vector key is 1–1024 characters"],
-      ['array of number', 'a number is sent as a key'],
-    ] as const
-  ).map(([label, note]): KnownGap => ({
-    finding: 'F-18',
-    symbol: 'AmazonS3Vectors.delete',
-    property: 'P2',
-    caseLabel: `ids = ${label}`,
-    note: `${note}. Reuse assertIdsWellFormed, minus the duplicate rule, which delete does not need.`,
-  })),
-
-  // ── F-27 · a non-object options bag is ignored rather than refused ────────
-  //
-  // `addVectors(vectors, documents, 0)` reads `options?.ids` off a number,
-  // gets undefined, and writes as though no options were passed. The caller
-  // asked for something; they are told nothing.
-  {
-    finding: 'F-27',
-    symbol: 'AmazonS3Vectors.addVectors',
-    property: 'P2',
-    caseLabel: 'options = ',
-    note: 'A non-nullish options argument that is not a plain object must raise VALIDATION.',
-  },
-];
+export const KNOWN_GAPS: readonly KnownGap[] = [];

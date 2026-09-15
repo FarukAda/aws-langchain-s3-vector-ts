@@ -65,10 +65,15 @@ export function resolveWriteIds(
  *
  * Throws: {@link S3VectorsError} with code `VALIDATION`, naming the offending
  * index, for a non-string, an empty string, an id over 1024 characters, or a
- * duplicate within this call. A duplicate matters because AWS accepts it and
- * the later vector silently overwrites the earlier one, so the caller would get
- * back a full-length id list having lost a document. Duplicates *across* calls
- * are an upsert and are untouched.
+ * duplicate within this call.
+ *
+ * A duplicate matters differently on each path, and is refused on both.
+ * `PutVectors` accepts it and lets the later vector silently overwrite the
+ * earlier, so a caller would get back a full-length id list having lost a
+ * document. `DeleteVectors` refuses the request outright — "Request must not
+ * contain duplicate keys", probed against the live service — so forwarding it
+ * only buys a round trip. Duplicates *across* calls are an upsert and are
+ * untouched.
  */
 export function assertIdsWellFormed(
   ids: string[],
@@ -108,8 +113,10 @@ export function assertIdsWellFormed(
     }
     if (seen.has(id)) {
       fail(
-        `Duplicate vector id "${id}" at index ${i} — each id may appear only once per call, ` +
-          'since S3 Vectors would silently overwrite the earlier vector with the later one. ' +
+        `Duplicate vector id "${id}" at index ${i} — each id may appear only once per call. ` +
+          'On a write S3 Vectors takes both and the later vector silently overwrites the ' +
+          'earlier, so the returned id list would be full length having lost a document; on a ' +
+          'delete it refuses the request outright ("Request must not contain duplicate keys"). ' +
           'To overwrite an existing vector, write it in a separate call.',
       );
     }

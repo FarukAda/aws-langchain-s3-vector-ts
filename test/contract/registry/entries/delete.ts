@@ -27,10 +27,13 @@ function isAbortSignalLike(value: unknown): boolean {
  * What `delete` accepts, stated from the contract rather than from the code.
  *
  * Deliberately *not* a call into `assertIdsWellFormed`: a domain test that
- * delegates to the validator under test can only ever agree with it. The one
- * difference from the write path is on purpose — a repeated id is accepted
- * here, because deleting the same key twice is idempotent, whereas writing the
- * same key twice silently discards a document.
+ * delegates to the validator under test can only ever agree with it.
+ *
+ * This once accepted a repeated id, reasoning that deleting the same key twice
+ * is idempotent. It is not, and the reasoning was never checked: `DeleteVectors`
+ * answers a request that repeats a key with "Request must not contain duplicate
+ * keys", probed against the live service. So the domain is the write path's,
+ * duplicates included — which is also what the audit recommended against.
  */
 function accepts(input: unknown): boolean {
   if (!isPlainObject(input)) return false;
@@ -38,8 +41,11 @@ function accepts(input: unknown): boolean {
 
   const ids: unknown = input['ids'];
   if (!Array.isArray(ids)) return false;
+  const seen = new Set<string>();
   for (const id of ids as unknown[]) {
     if (typeof id !== 'string' || id.length < 1 || id.length > KEY_MAX_LENGTH) return false;
+    if (seen.has(id)) return false;
+    seen.add(id);
   }
 
   // `null` means "not provided" throughout this package — the store reads a
@@ -105,7 +111,7 @@ function cases(): readonly ContractCase<unknown>[] {
   // request, and a repeated key is idempotent.
   built.push({ label: 'ids = [] issues no request', input: { ids: [] }, ambient: BENIGN });
   built.push({
-    label: 'ids with a repeat is idempotent',
+    label: 'a repeated id is refused, as DeleteVectors refuses it',
     input: { ids: ['same', 'same'] },
     ambient: BENIGN,
   });
