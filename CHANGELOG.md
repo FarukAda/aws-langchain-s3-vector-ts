@@ -417,6 +417,26 @@ identically, and the wire format is untouched.
   as the date it records. `release.yml` is unaffected: its CI gate counts the
   check runs on the tagged commit, and a scheduled workflow never produced one.
 
+- **A non-object options bag is refused by every method that takes one,** not
+  read as an absent one. `assertOptionsBag` was written for exactly this and
+  wired into `addVectors` alone, so the other seven — `addDocuments`,
+  `getByIds`, `delete`, `deleteIndex`, `listDocuments`, `listVectors` and
+  `maxMarginalRelevanceSearch` — took a string, a number or a stray array in
+  the options position and read every option in it as unset. The cost is
+  silence in each case: `deleteIndex('cancel-me')` destroyed the index with the
+  caller's signal dropped, `addDocuments(docs, ids)` with the ids array in the
+  bag's place wrote generated UUIDs nobody could reconcile afterwards, and
+  `maxMarginalRelevanceSearch('q', 5)` — a plausible misreading of an API where
+  `similaritySearch('q', 5)` is right — ran with `k` defaulted to `4` and
+  returned four documents as though that had been asked for. `undefined` and
+  `null` still mean "no options", unchanged.
+
+  `listDocuments` and `listVectors` are now generators rather than methods that
+  return one, so the refusal arrives on the first `next()` — the same place an
+  out-of-range `pageSize` arrives, and inside any `try` wrapped around the loop.
+  Found by re-running the audit's own probes against the finished package
+  rather than against the tests written for each finding.
+
 ### Added
 
 - **Maximal Marginal Relevance, for real.** `maxMarginalRelevanceSearch(query,

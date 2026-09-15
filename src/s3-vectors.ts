@@ -80,6 +80,16 @@ const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
  * candidates come from `QueryVectors`, their embeddings from `GetVectors`, and
  * the selection from `@langchain/core`'s own `maximalMarginalRelevance`.
  *
+ * **Every method that takes an options bag refuses a non-object one** with
+ * `VALIDATION`, rather than reading each option in it as unset. `undefined`
+ * and `null` still mean "no options"; anything else — a string, a number, an
+ * array — is a mistake whose cost is silence: `deleteIndex('cancel-me')` would
+ * destroy the index with the signal dropped, and `addDocuments(docs, ids)`
+ * with the ids in the bag's place would write UUIDs nobody can find again. For
+ * the two enumeration methods the refusal arrives on the first `next()`, the
+ * same place an out-of-range `pageSize` arrives, so one `try` around the loop
+ * catches both.
+ *
  * @example
  * ```ts
  * import { AmazonS3Vectors } from "@farukada/aws-langchain-s3-vector-ts";
@@ -400,6 +410,7 @@ export class AmazonS3Vectors extends VectorStore {
     documents: DocumentInterface[],
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
+    assertOptionsBag('addDocuments', this.#scope, options);
     return await addDocuments({
       documents,
       ids: options?.ids,
@@ -648,6 +659,7 @@ export class AmazonS3Vectors extends VectorStore {
     signal?: AbortSignal,
   ): Promise<Document[]> {
     rejectSignalInCallbacksSlot('maxMarginalRelevanceSearch', this.#scope, callbacks);
+    assertOptionsBag('maxMarginalRelevanceSearch', this.#scope, options);
     if (options === undefined || options === null) {
       throw validationError(
         'maxMarginalRelevanceSearch',
@@ -716,6 +728,7 @@ export class AmazonS3Vectors extends VectorStore {
    * `DeleteVectors` failure maps to, carrying `context.deletedIds`.
    */
   override async delete(params: S3VectorsDeleteParams): Promise<void> {
+    assertOptionsBag('delete', this.#scope, params);
     await deleteVectors({
       client: this.#client,
       ...(params as { ids: string[] }),
@@ -753,6 +766,7 @@ export class AmazonS3Vectors extends VectorStore {
    * the `DeleteIndex` failure maps to. A missing index is not a failure.
    */
   async deleteIndex(options?: S3VectorsDeleteIndexParams): Promise<void> {
+    assertOptionsBag('deleteIndex', this.#scope, options);
     await this.#lifecycle.deleteIndex(options?.signal, 'deleteIndex');
   }
 
@@ -791,6 +805,7 @@ export class AmazonS3Vectors extends VectorStore {
     ids: string[],
     options?: { batchSize?: number; signal?: AbortSignal },
   ): Promise<(Document | undefined)[]> {
+    assertOptionsBag('getByIds', this.#scope, options);
     return await getByIds({
       client: this.#client,
       ids,
@@ -831,8 +846,13 @@ export class AmazonS3Vectors extends VectorStore {
    * yielded — items already yielded have been consumed, so a listing is not
    * atomic and does not pretend to be.
    */
-  listDocuments(options?: S3VectorsListParams): AsyncGenerator<Document> {
-    return listDocuments({
+  async *listDocuments(options?: S3VectorsListParams): AsyncGenerator<Document> {
+    // A generator, not a plain method, so a malformed bag fails on the first
+    // `next()` — exactly where an out-of-range `pageSize` fails. Throwing
+    // synchronously from a method documented to return a generator would make
+    // one of the two validations escape a `try` wrapped around the loop.
+    assertOptionsBag('listDocuments', this.#scope, options);
+    yield* listDocuments({
       client: this.#client,
       operation: 'listDocuments',
       pageContentMetadataKey: this.pageContentMetadataKey,
@@ -866,8 +886,10 @@ export class AmazonS3Vectors extends VectorStore {
    * because a migration that dropped records silently would produce a target
    * index that looks complete and is not.
    */
-  listVectors(options?: S3VectorsListParams): AsyncGenerator<S3VectorsRecord> {
-    return listVectors({
+  async *listVectors(options?: S3VectorsListParams): AsyncGenerator<S3VectorsRecord> {
+    // See {@link listDocuments} for why this is a generator.
+    assertOptionsBag('listVectors', this.#scope, options);
+    yield* listVectors({
       client: this.#client,
       operation: 'listVectors',
       pageContentMetadataKey: this.pageContentMetadataKey,
