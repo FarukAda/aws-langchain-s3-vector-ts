@@ -25,7 +25,7 @@ export interface S3VectorsErrorContext {
   /**
    * The specific validation failures AWS reported, each naming the field that
    * failed and why. A `ValidationException` carries these
-   * (`@aws-sdk/client-s3vectors@3.1132.0` `dist-types/models/models_0.d.ts:94`)
+   * (`@aws-sdk/client-s3vectors@3.1133.0` `dist-types/models/models_0.d.ts:94`)
    * and they are the actionable half of an otherwise opaque rejection.
    */
   readonly fieldList?: { path?: string; message?: string }[];

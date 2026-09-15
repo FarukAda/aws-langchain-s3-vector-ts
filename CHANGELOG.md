@@ -528,14 +528,30 @@ identically, and the wire format is untouched.
   checks and the unit tier against — so the range this package promises is the
   range it is tested at, rather than a wider one nothing exercises.
 - **Every dependency is at its current version**, including
-  `@aws-sdk/client-s3vectors` 3.1132.0, `@langchain/core` 1.2.11 and the whole
+  `@aws-sdk/client-s3vectors` 3.1133.0, `@langchain/core` 1.2.11 and the whole
   development set (jest 30.5.1, eslint 10.10.0, typescript-eslint 8.70.0, knip
-  6.35.1, jscpd 5.2.0, fast-check 4.10.0 and the rest). Every fact this package
-  cites out of the two peers was re-read against the new versions: the required `distanceMetric` on `QueryVectorsOutput`, the literal
-  exception names, `ValidationExceptionField`, the optional `vectors` on
-  `ListVectorsOutput`, core's retriever `invoke`, its MMR dispatch and its
-  `maximalMarginalRelevance` signature. All still hold, and the citations now
-  name the versions they were re-read at.
+  6.35.1, jscpd 5.2.1, fast-check 4.10.1, `@types/node` 26.6.1,
+  eslint-plugin-perfectionist 5.11.1 and the rest). Every fact this package
+  cites out of the two peers was re-read against the new versions: the required
+  `distanceMetric` on `QueryVectorsOutput`, the literal exception names (still
+  thirteen), `ValidationExceptionField` at `models_0.d.ts:94`, the optional
+  `vectors` on `ListVectorsOutput`, core's retriever `invoke`, its MMR dispatch
+  and its `maximalMarginalRelevance` signature. All still hold, and the
+  citations name the versions they were re-read at.
+
+  The declared ranges are deliberately left where they are. Each new version is
+  already inside its `^` range, and `@aws-sdk/client-s3vectors` is a *peer*:
+  narrowing its floor to the version that happens to be installed here would
+  raise the bar for every consumer to buy nothing, and the peer-floors CI job
+  exists precisely so the declared floor is tested rather than assumed.
+
+- **Every pinned GitHub Action is at its current release.**
+  `github/codeql-action` (`init`, `analyze`, `upload-sarif`) moves 4.37.9 →
+  4.38.0, and `softprops/action-gh-release` 3.0.2 → 3.0.3. Each is pinned by
+  commit SHA with the tag in a trailing comment, as every action in this
+  repository is; each SHA was resolved from the upstream annotated tag rather
+  than copied from a bump notification, and the method was checked by resolving
+  the tag already pinned and confirming it matched.
 - **The source is split by responsibility** — `actions/` (one operation each),
   `internal/` (request-shaped helpers) and `shared/` (pure helpers) — with a
   contract in the JSDoc of every exported function stating what it accepts,
