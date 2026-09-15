@@ -29,9 +29,27 @@ npm run build
 - **Commit style:** Conventional Commits (`feat`, `fix`, `refactor`, `test`, `chore`, `docs`).
 - No unused exports/files (`npm run unused`, backed by `knip`), no unused/missing dependencies (`npx depcheck .`), and no duplicated code blocks (`npm run cpd`, backed by `jscpd`) — run these in addition to lint/typecheck before opening a PR.
 
-## Behavioural Parity with Python
+## Where Behaviour Comes From
 
-This package tracks [`langchain_aws.vectorstores.s3_vectors.base.AmazonS3Vectors`](https://github.com/langchain-ai/langchain-aws/blob/main/libs/aws/langchain_aws/vectorstores/s3_vectors/base.py) for behaviour. Batch sizes, metadata conventions, and duplicate-ID deep-copy semantics all match the Python reference. If upstream Python fixes a bug or adds a feature, please open an issue so we can port it here — and if a deliberate divergence from Python is needed (e.g. a safety guard Python doesn't have), call it out explicitly in the PR description.
+Every behaviour here is specified against a primary source and cited where it is
+implemented: the [S3 Vectors API reference](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Operations_Amazon_S3_Vectors.html),
+the `@aws-sdk/client-s3vectors` service model, `@langchain/core`'s own source for
+what an interface method must do, or — where AWS documents nothing — a recorded
+live probe under [`docs/evidence/`](./docs/evidence/) with a live test that fails
+if the service changes its answer.
+
+What another implementation of the same store does is not a source. A proposal
+argued as "the other client does it this way" will be asked for the underlying
+reason instead; if there is one, that reason is the justification, and if there
+is not, the behaviour does not change. Limits, batch sizes and error
+classifications in particular must cite the service, not a peer package, because
+a number copied without its source is a number nobody can re-derive when it
+changes.
+
+A behaviour that AWS leaves undocumented needs both: a probe recorded under
+`docs/evidence/` and a live test guarding the claim. A citation to documentation
+that turns out to be silent on the point is not evidence, and neither is test
+coverage.
 
 ## Reporting Bugs
 

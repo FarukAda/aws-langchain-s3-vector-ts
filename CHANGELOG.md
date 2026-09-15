@@ -236,6 +236,20 @@ identically, and the wire format is untouched.
   documentation must resolve, anchors included, which caught the badge-link
   blind spot in the checker itself before it caught anything else.
 
+- **Every sample in the documentation is compiled** (`npm run check:docs`, run
+  in CI). The name checks above cannot see a signature: `delete` stayed a real
+  method when its parameters changed, so a README snippet calling it the old way
+  passed every gate there was. All 34 TypeScript samples in the README, the
+  guide, the stability policy and this changelog are now type-checked against
+  `src/` — with the context a snippet assumes (`store`, `embeddings`, …)
+  supplied as ambient declarations of the real types, so only the setup is
+  elided, never the checking. One block is marked as illustrative, with its
+  reason, and the count of such marks is asserted. Verified against a snippet
+  rewritten to call the old `delete`, which it rejects. It found four defects in
+  the documentation on its first run: a block declaring `const store` twice, a
+  filter over an `ids` array the snippet never defined, an upsert round trip
+  that dereferenced a `getByIds` result the API documents may be `undefined`,
+  and a client built with an empty object for its credentials.
 - **The audits are gates now** (`test/contract/source-contracts.test.ts`).
   Every exported function must carry a contract naming what it returns and
   throws; every interface field must carry a doc line; no doc block may sit
@@ -267,6 +281,13 @@ identically, and the wire format is untouched.
   AWS's documentation and `@langchain/core`, not against another implementation.
 - `docs/evidence/` records each live probe with its raw request and response,
   and the README says which claims rest on it.
+- `CONTRIBUTING.md` says where behaviour comes from — the S3 Vectors API
+  reference, the SDK service model, `@langchain/core`'s source, or a recorded
+  live probe with a test guarding it — replacing the section that told
+  contributors to track another implementation of this store and port its
+  fixes. The feature-request template asks for the primary source behind a
+  proposal instead of whether that package does the same. A test holds the rule
+  in place across the contributor documents and issue templates.
 
 ## [1.0.0-rc.1] - 2026-09-02
 

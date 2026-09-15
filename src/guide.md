@@ -240,7 +240,13 @@ const retriever = store.asRetriever({ k: 5, signal });
 
 // Or with diversity, through core's own MMR dispatch:
 const diverse = store.asRetriever({ k: 4, searchType: "mmr", searchKwargs: { fetchK: 20 } });
+```
 
+From there it is an ordinary `@langchain/core` retriever, so a RAG chain or an
+agent takes it directly:
+
+<!-- sample:skip illustrative: the chain and agent APIs come from packages this one does not depend on -->
+```typescript
 // In a RAG chain
 const chain = RetrievalQAChain.fromLLM(llm, retriever);
 

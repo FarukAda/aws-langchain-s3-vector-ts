@@ -150,6 +150,19 @@ describe('the package cites primary sources, not another implementation', () => 
   // fourteen places before this rework removed them.
   const SHIPPED = ['README.md', 'CHANGELOG.md', 'docs/STABILITY.md'] as const;
 
+  // What a contributor is told to justify a change by. This is where the rule
+  // has to hold hardest: CONTRIBUTING.md used to instruct contributors to track
+  // that package for behaviour and port its fixes, and the feature-request
+  // template asked submitters whether it did the same thing.
+  const GOVERNANCE = [
+    'CONTRIBUTING.md',
+    'README.md',
+    'docs/STABILITY.md',
+    '.github/PULL_REQUEST_TEMPLATE.md',
+    '.github/ISSUE_TEMPLATE/bug_report.yml',
+    '.github/ISSUE_TEMPLATE/feature_request.yml',
+  ] as const;
+
   it.each(sourceFiles(SRC).map((f) => [f.slice(SRC.length), f] as const))(
     'src/%s cites no foreign implementation',
     (_label, file) => {
@@ -159,13 +172,20 @@ describe('the package cites primary sources, not another implementation', () => 
     },
   );
 
-  it.each(SHIPPED)('%s cites no foreign implementation', (doc) => {
+  it.each(SHIPPED)('%s justifies nothing by a foreign implementation', (doc) => {
     const text = readFileSync(new URL(`../../${doc}`, import.meta.url), 'utf8');
-    // The changelog may record that the references were removed; it may not
-    // justify anything by them.
+    // The changelog records what past releases did, and two of them departed
+    // from that package deliberately. It may keep that history; it may not
+    // justify present behaviour by it.
     expect(text).not.toMatch(/matches the Python/i);
     expect(text).not.toMatch(/faithful port/i);
     expect(text).not.toMatch(/parity with Python/i);
+  });
+
+  it.each(GOVERNANCE)('%s names no foreign implementation at all', (doc) => {
+    const text = readFileSync(new URL(`../../${doc}`, import.meta.url), 'utf8');
+    expect(text).not.toMatch(/langchain[-_]aws/i);
+    expect(text).not.toMatch(/\bPython\b/);
   });
 });
 

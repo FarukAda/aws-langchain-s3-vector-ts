@@ -277,7 +277,7 @@ import { S3VectorsClient } from "@aws-sdk/client-s3vectors";
 
 const client = new S3VectorsClient({
   region: "eu-west-1",
-  credentials: { /* your credentials */ },
+  credentials: myCredentialProvider, // however your application resolves them
 });
 
 const store = new AmazonS3Vectors(embeddings, {
@@ -291,7 +291,7 @@ const store = new AmazonS3Vectors(embeddings, {
 
 ```typescript
 // From texts
-const store = await AmazonS3Vectors.fromTexts(
+const fromTexts = await AmazonS3Vectors.fromTexts(
   ["hello", "world"],
   [{ source: "a" }, { source: "b" }],
   new BedrockEmbeddings(),
@@ -299,7 +299,7 @@ const store = await AmazonS3Vectors.fromTexts(
 );
 
 // From documents
-const store = await AmazonS3Vectors.fromDocuments(
+const fromDocuments = await AmazonS3Vectors.fromDocuments(
   docs,
   new BedrockEmbeddings(),
   { vectorBucketName: "my-bucket", indexName: "my-index", region: "us-east-1" },
@@ -621,8 +621,9 @@ If a document's own metadata already uses the reserved `pageContentMetadataKey` 
 Absence is an ordinary answer, not a fault: `GetVectors` returns neither an entry nor an error for a key that is not stored ([`docs/evidence/get-vectors-absent-keys.md`](docs/evidence/get-vectors-absent-keys.md)), so there is nothing to report as a failure. Keeping the slot means the result can never be silently misaligned against the id list you passed in — `result[i]` is always the answer for `ids[i]`:
 
 ```typescript
-const docs = await store.getByIds(["a", "b", "c"]);
-const missing = ids.filter((id, i) => docs[i] === undefined);
+const ids = ["a", "b", "c"];
+const docs = await store.getByIds(ids);
+const missing = ids.filter((_id, i) => docs[i] === undefined);
 ```
 
 A `GetVectors` batch that genuinely *fails* still throws, and the error's `context.foundIds` lists every id already retrieved — including by a concurrent batch that succeeded alongside the one that failed — so a retry need not start from scratch. Unknown and absent stay distinguishable.
@@ -637,8 +638,10 @@ Every document this store returns carries a deep copy of its metadata (via `stru
 
 ```typescript
 const [doc] = await store.getByIds(["existing-id"]);
-doc.metadata.reviewed = true;
-await store.addDocuments([doc]); // overwrites "existing-id", doesn't create a new vector
+if (doc) {
+  doc.metadata.reviewed = true;
+  await store.addDocuments([doc]); // overwrites "existing-id", doesn't create a new vector
+}
 ```
 
 An explicit `options.ids` always takes priority over `document.id` when both are present, and a fresh UUID is minted only for a document that carries no id of its own. That is what makes a read-modify-write round trip natural: the documents `getByIds` returns already carry their ids, so writing them back updates in place instead of duplicating.

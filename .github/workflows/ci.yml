@@ -48,6 +48,11 @@ jobs:
       # without re-running `npm run docs` otherwise ships stale docs.
       - run: npm run docs
       - run: git diff --exit-code --ignore-cr-at-eol -- docs
+      # Every TypeScript sample in README, the guide, the stability policy and
+      # the changelog is compiled against src/. Names in the docs were already
+      # checked; a name is not a signature, so a snippet calling a real method
+      # the wrong way used to pass.
+      - run: npm run check:docs
       # Duplicated source. Wired up as a script long before it ran in CI.
       - run: npm run cpd
       # Workflow syntax, expression types and — through shellcheck — the
