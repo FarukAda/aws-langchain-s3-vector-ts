@@ -48,6 +48,18 @@ export interface EntryPointContract<I> {
    */
   readonly requiredContext: Partial<Record<S3VectorsErrorCode, readonly string[]>>;
   /**
+   * The codes an input outside {@link accepts} may be refused with. Defaults to
+   * `VALIDATION` alone.
+   *
+   * Most out-of-domain input is a plain caller mistake and gets `VALIDATION`.
+   * A few are refused more specifically on purpose and the narrower code is the
+   * better answer: vectors of differing dimension in one batch are
+   * `INDEX_CONFIG_MISMATCH`, because the caller's real problem is which index
+   * they are writing to, not the shape of their argument. Declaring that here
+   * keeps it a decision rather than an exception.
+   */
+  readonly outOfDomainCodes?: ReadonlySet<S3VectorsErrorCode>;
+  /**
    * Whether this input is inside the documented accepted domain.
    *
    * A declarative test — types, ranges, literal cases. It must not call the

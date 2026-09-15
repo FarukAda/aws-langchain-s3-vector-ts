@@ -1,9 +1,11 @@
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
+import { AmazonS3Vectors } from '../../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
 import { buildPutMetadata } from '../../src/shared/metadata.js';
+import { BASE_CONFIG, createMockClient, createMockEmbeddings } from '../helpers.js';
 
 /**
  * What this package counts must be what AWS receives (F-01).
@@ -126,6 +128,27 @@ describe('metadata values that would not survive serialisation are refused', () 
 });
 
 describe('page content cannot be silently discarded', () => {
+  it('refuses __proto__ as the page-content key at construction', () => {
+    // It passes the 1–63 character rule, so nothing but a name check catches
+    // it — and what follows is a store that writes successfully and loses
+    // every document's text.
+    const construct = (): AmazonS3Vectors =>
+      new AmazonS3Vectors(createMockEmbeddings(), {
+        ...BASE_CONFIG,
+        pageContentMetadataKey: '__proto__',
+        client: createMockClient().client,
+      });
+
+    expect(construct).toThrow(/__proto__/);
+    try {
+      construct();
+    } catch (error: unknown) {
+      if (!isS3VectorsError(error)) throw error;
+      expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
+      expect(error.context.operation).toBe('constructor');
+    }
+  });
+
   it('stores page content under a key that would otherwise hit a setter', () => {
     // Assigning to `__proto__` on a plain object invokes the inherited setter
     // and stores nothing. The config validator refuses that key outright now,

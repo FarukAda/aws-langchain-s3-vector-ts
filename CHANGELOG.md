@@ -23,6 +23,22 @@ identically, and the wire format is untouched.
 
 ### Breaking
 
+- **A write no longer re-reads the caller's arrays while it runs.** `ids`,
+  `documents` and `vectors` are snapshotted once, after validation, and every
+  batch is sliced from the snapshot. Previously the id list was validated up
+  front — uniqueness, length, type — and then re-read from the caller's own
+  array as each batch was dispatched, so mutating it while the promise was
+  pending wrote keys nothing had validated: duplicates, which S3 Vectors
+  resolves by silently overwriting the earlier vector, or `undefined`. Reusing
+  one buffer across batches, or handing the same array to two concurrent
+  writes, was enough to do it by accident.
+
+  `addVectors` and `addDocuments` also return **their own array** now rather
+  than the caller's instance when `ids` was supplied. The returned list is the
+  record of what was written; handing back the caller's array meant a later
+  mutation could rewrite that record, and meant two writes given the same array
+  shared one result.
+
 - **Metadata values that would not survive serialisation are refused.** A
   non-finite number (`NaN`, `Infinity`, `-Infinity`), an array with a hole
   (`[1, , 3]`) and an array holding `undefined` now raise `VALIDATION` instead

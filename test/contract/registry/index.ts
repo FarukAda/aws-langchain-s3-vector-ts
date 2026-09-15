@@ -1,3 +1,4 @@
+import { addVectorsContract } from './entries/add-vectors.js';
 import { deleteContract } from './entries/delete.js';
 import type { EntryPointContract } from './types.js';
 
@@ -37,7 +38,6 @@ export const PUBLIC_ENTRY_POINTS: readonly string[] = [
  * registered fails too. The list only shrinks.
  */
 export const PENDING_ENTRY_POINTS: readonly string[] = [
-  'AmazonS3Vectors.addVectors',
   'AmazonS3Vectors.addDocuments',
   'AmazonS3Vectors.similaritySearch',
   'AmazonS3Vectors.similaritySearchWithScore',
@@ -61,4 +61,7 @@ export const PENDING_ENTRY_POINTS: readonly string[] = [
  * exists to send values the declared parameter type forbids, so a registry
  * typed to the public signature could not express half of its own cases.
  */
-export const REGISTRY: readonly EntryPointContract<unknown>[] = [deleteContract];
+export const REGISTRY: readonly EntryPointContract<unknown>[] = [
+  deleteContract,
+  addVectorsContract as EntryPointContract<unknown>,
+];

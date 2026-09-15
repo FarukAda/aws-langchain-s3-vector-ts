@@ -59,4 +59,71 @@ export const KNOWN_GAPS: readonly KnownGap[] = [
       'Every non-signal value in the corpus is accepted. checkAborted must reject a value ' +
       'that is not AbortSignal-shaped, as rejectSignalInCallbacksSlot already recognises one.',
   },
+
+  // ── F-08 · the same signal defect on the write path, louder and costlier ──
+  //
+  // `addVectors` threads the signal into `raceAbort`, which tests `signal ===
+  // undefined` and otherwise calls `signal.addEventListener` — so a non-signal
+  // throws a raw TypeError that surfaces as `UNEXPECTED_ERROR`, and does so
+  // only *after* `GetIndex` has been spent. `null` is caught by the same branch,
+  // which is why an optional field defaulted to null breaks a write here while
+  // `delete` accepts it: the two paths disagree about what absence looks like.
+  ...(['P1', 'P2'] as const).map((property): KnownGap => ({
+    finding: 'F-08',
+    symbol: 'AmazonS3Vectors.addVectors',
+    property,
+    caseLabel: 'options.signal = ',
+    note:
+      'raceAbort must treat null as absent and refuse a non-signal with VALIDATION before ' +
+      'any AWS call, rather than throwing from addEventListener after GetIndex.',
+  })),
+
+  // ── F-08 · a null document escapes as a raw TypeError ────────────────────
+  //
+  // `resolveWriteIds` reads `doc.id` before anything has checked that the
+  // element is an object at all, so `documents: [null]` fails with
+  // "Cannot read properties of null (reading 'id')" — an un-coded escape from a
+  // package whose stated guarantee is that every failure is an S3VectorsError.
+  ...(['P1', 'P2'] as const).map((property): KnownGap => ({
+    finding: 'F-08',
+    symbol: 'AmazonS3Vectors.addVectors',
+    property,
+    caseLabel: 'documents = array of null',
+    note: 'Each document must be checked to be an object before any field of it is read.',
+  })),
+
+  // ── F-27 · a non-object options bag is ignored rather than refused ────────
+  //
+  // `addVectors(vectors, documents, 0)` reads `options?.ids` off a number,
+  // gets undefined, and writes as though no options were passed. The caller
+  // asked for something; they are told nothing.
+  {
+    finding: 'F-27',
+    symbol: 'AmazonS3Vectors.addVectors',
+    property: 'P2',
+    caseLabel: 'options = ',
+    note: 'A non-nullish options argument that is not a plain object must raise VALIDATION.',
+  },
+
+  // ── F-31 · building the error message throws, replacing the error ─────────
+  //
+  // Found by the corpus, not by the audit. `limits.ts` correctly detects a
+  // non-finite vector component and calls `fail()` — but the message
+  // interpolates `${String(component)}`, and `String()` on a null-prototype
+  // object throws "Cannot convert object to primitive value". So the
+  // TypeError from formatting *replaces* the VALIDATION being reported, and
+  // the caller is told UNEXPECTED_ERROR about a perfectly ordinary bad input.
+  //
+  // `describeValue` in shared/describe.ts already exists for exactly this and
+  // is what validation.ts uses; limits.ts should use it too. Any other site
+  // interpolating caller data with String() has the same hole.
+  ...(['P1', 'P2'] as const).map((property): KnownGap => ({
+    finding: 'F-31',
+    symbol: 'AmazonS3Vectors.addVectors',
+    property,
+    caseLabel: 'vector component = null-prototype object',
+    note:
+      'Error messages must not throw while being built: use describeValue, never String(), ' +
+      'on a value that came from the caller.',
+  })),
 ];

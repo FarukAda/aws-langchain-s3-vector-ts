@@ -104,13 +104,15 @@ export function checkRejectsOutsideDomain<I>(
       ),
     ];
   }
-  if (outcome.error.code !== S3VectorsErrorCode.VALIDATION) {
+  const allowed = contract.outOfDomainCodes ?? new Set([S3VectorsErrorCode.VALIDATION]);
+  if (!allowed.has(outcome.error.code)) {
     failures.push(
       fail(
         'P2',
         contract.symbol,
         testCase.label,
-        `refused with ${outcome.error.code}, but an out-of-domain input is VALIDATION`,
+        `refused with ${outcome.error.code}, but this contract refuses out-of-domain input ` +
+          `with ${[...allowed].join(' or ')}`,
       ),
     );
   }

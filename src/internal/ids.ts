@@ -18,26 +18,39 @@ const KEY_MAX_LENGTH = 1024;
  *
  * Accepts:
  * - `documents` — read only for `id`.
- * - `ids` — any array is returned verbatim, its length checked by the caller
+ * - `ids` — a caller's array, copied; its length is checked by the caller
  *   against the vectors or documents it accompanies. `undefined` derives one
  *   id per document.
  *
- * Returns: when deriving, each document's own `id`, or a fresh UUID where that
- * is `undefined` or `null`. An empty-string id is returned unchanged, for
- * {@link assertIdsWellFormed} to reject — it is caller data gone wrong (an
- * empty column, an unset ORM field), and minting an unrelated key for it would
- * hide that.
+ * Returns: **a fresh array, never the caller's own**. When deriving, each
+ * document's own `id`, or a fresh UUID where that is `undefined` or `null`. An
+ * empty-string id is returned unchanged, for {@link assertIdsWellFormed} to
+ * reject — it is caller data gone wrong (an empty column, an unset ORM field),
+ * and minting an unrelated key for it would hide that.
  *
  * Throws: nothing.
  *
- * Guarantees: pure, and the list the caller must attach to a failure so a retry
- * can reuse it and overwrite in place rather than duplicate under fresh UUIDs.
+ * Guarantees: the copy is what makes the validation that follows mean anything.
+ * Ids are checked once, up front, and then read again per batch as each one is
+ * dispatched; against the caller's own array those two moments can disagree,
+ * because a caller is free to mutate an array it still holds while the promise
+ * is pending. Reusing one buffer across batches, or handing the same array to
+ * two concurrent writes, is enough — and what gets written then is keys nothing
+ * validated: duplicates, which S3 Vectors resolves by silently overwriting the
+ * earlier vector, or `undefined`.
+ *
+ * It is also the list the caller must attach to a failure so a retry can reuse
+ * it and overwrite in place rather than duplicate under fresh UUIDs, and the
+ * list handed back on success — both of which have to be this package's own, or
+ * the record of what was written can be rewritten after the fact.
  */
 export function resolveWriteIds(
   documents: readonly DocumentInterface[],
   ids: string[] | undefined,
 ): string[] {
-  return ids ?? documents.map((doc) => doc.id ?? randomUUID().replace(/-/g, ''));
+  return ids === undefined
+    ? documents.map((doc) => doc.id ?? randomUUID().replace(/-/g, ''))
+    : [...ids];
 }
 
 /**

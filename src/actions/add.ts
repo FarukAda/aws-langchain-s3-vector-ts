@@ -134,6 +134,13 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
   const batchSize = opts.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
   assertBatchSize('addVectors', scope, batchSize, MAX_PUT_BATCH_SIZE);
 
+  // Each batch is sliced when it is dispatched, not now, so the array has to be
+  // this call's own by then: a caller mutating theirs while the promise is
+  // pending would otherwise change what later batches write. `chunk` already
+  // copies the vectors, and `resolveWriteIds` already copies the ids; the
+  // documents are the third input read the same way.
+  const documentSnapshot = [...documents];
+
   await runBatchesConcurrently(
     chunk(vectors, batchSize),
     ids,
@@ -144,7 +151,7 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
         'addVectors',
         offset,
         batch,
-        documents.slice(offset, offset + batch.length),
+        documentSnapshot.slice(offset, offset + batch.length),
         ids.slice(offset, offset + batch.length),
         signal,
       ),
