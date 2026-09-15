@@ -1,15 +1,16 @@
 # @farukada/aws-langchain-s3-vector-ts
 
-[![npm version](https://img.shields.io/npm/v/@farukada/aws-langchain-s3-vector-ts?color=cb3837)](https://www.npmjs.com/package/@farukada/aws-langchain-s3-vector-ts)
+[![npm version](https://img.shields.io/npm/v/%40farukada%2Faws-langchain-s3-vector-ts)](https://www.npmjs.com/package/@farukada/aws-langchain-s3-vector-ts)
 [![CI](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/codeql.yml/badge.svg)](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/FarukAda/aws-langchain-s3-vector-ts/badge)](https://scorecard.dev/viewer/?uri=github.com/FarukAda/aws-langchain-s3-vector-ts)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org/)
-[![TypeScript](https://img.shields.io/badge/typescript-6.0-blue)](https://www.typescriptlang.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![AWS SDK](https://img.shields.io/badge/AWS%20SDK-v3-orange)](https://aws.amazon.com/sdk-for-javascript/)
-[![npm provenance](https://img.shields.io/badge/npm-provenance-brightgreen)](https://docs.npmjs.com/generating-provenance-statements/)
-[![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](#-testing)
+![Node >=22](https://img.shields.io/badge/node-%3E%3D22-339933)
+![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178C6)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![AWS SDK v3](https://img.shields.io/badge/AWS%20SDK-v3-FF9900)
+[![npm provenance](https://img.shields.io/badge/npm-provenance-2ea44f?logo=npm)](https://www.npmjs.com/package/@farukada/aws-langchain-s3-vector-ts#provenance)
+[![coverage 100%](https://img.shields.io/badge/coverage-100%25-brightgreen)](#-testing)
+[![Sponsor](https://img.shields.io/badge/Sponsor-FarukAda-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/FarukAda)
 
 Built with [LangChain](https://github.com/langchain-ai/langchainjs) · [AWS SDK v3](https://aws.amazon.com/sdk-for-javascript/) · [npm](https://www.npmjs.com/package/@farukada/aws-langchain-s3-vector-ts) · [GitHub](https://github.com/FarukAda/aws-langchain-s3-vector-ts) · [Issues](https://github.com/FarukAda/aws-langchain-s3-vector-ts/issues)
 
