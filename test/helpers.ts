@@ -165,3 +165,47 @@ export function mockExistingIndex(mock: AwsClientStub<S3VectorsClient>): void {
   mock.on(GetIndexCommand).resolves({ index: indexFixture() });
   mock.on(PutVectorsCommand).resolves({});
 }
+
+/** A promise the test settles by hand, with no timer involved. */
+export interface Gate {
+  /** Awaited by the code under test. */
+  readonly promise: Promise<void>;
+  /** Lets it through. */
+  readonly open: () => void;
+}
+
+/**
+ * Create a gate: a promise this test opens when it chooses.
+ *
+ * Ordering between concurrent operations was established in several tests by
+ * giving each one a different delay — one call sleeping 5 ms and another 10 ms,
+ * so the first settles first. That is a race the test usually wins. Under a
+ * loaded CI runner, a cold JIT or a GC pause it is a race the test can lose, and
+ * the failure would look like a bug in the code rather than in the clock.
+ *
+ * A gate states the order instead of hoping for it: the code under test waits,
+ * and the test opens each gate in the sequence it wants to assert. No timers, no
+ * margins, and the intended interleaving is written down rather than implied by
+ * two numbers that have to stay in the right ratio.
+ */
+export function gate(): Gate {
+  let open: () => void = () => undefined;
+  const promise = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { promise, open };
+}
+
+/**
+ * Yield until every promise callback queued so far has run.
+ *
+ * A macrotask boundary, which `await Promise.resolve()` does not provide: it
+ * drains the microtask queue only, so work scheduled behind a `setImmediate` or
+ * an I/O callback has not necessarily started. Used to let a pipeline dispatch
+ * as far as it can before the test opens the first gate.
+ */
+export function drainTasks(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+}

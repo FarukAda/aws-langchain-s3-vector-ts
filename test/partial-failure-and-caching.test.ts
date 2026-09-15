@@ -12,6 +12,8 @@ import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import {
   BASE_CONFIG,
+  drainTasks,
+  gate,
   createMockClient,
   createMockEmbeddings,
   createTestStore,
@@ -175,21 +177,23 @@ describe('AmazonS3Vectors partial-write failure reports writtenIds', () => {
   it('addDocuments: when two in-flight puts both fail, reports the first failure and still counts every sibling that succeeded alongside them', async () => {
     const { client, mock } = createMockClient();
     mockExistingIndex(mock);
-    // Every put is slow relative to the (synchronous-mock) embedding, so
-    // all four pipelined puts are in flight together before any settles.
-    // id-2 then fails first, id-3 second; id-4 and id-5 succeed alongside.
-    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    // Every put after the first waits on one gate, so all four are in flight
+    // together before any settles — stated, rather than arranged by giving each
+    // a different delay and trusting the clock.
+    //
+    // Which failure is *reported* is not a race at all, and the delays used to
+    // imply that it was: `settleGroup` walks the settled results in group order
+    // and keeps the first rejection it finds, so id-2 wins because it is second
+    // in the batch, whenever it happens to settle.
+    const releasePuts = gate();
     mock.on(PutVectorsCommand).callsFake(async (input) => {
       const key = input.vectors?.[0]?.key;
-      if (key === 'id-2') {
-        await delay(5);
-        throw new Error('first failure');
-      }
-      if (key === 'id-3') {
-        await delay(10);
-        throw new Error('second failure');
-      }
-      await delay(15);
+      // The first batch is written alone — it is the one that may create the
+      // index — so it has to settle for the pipeline to reach the rest.
+      if (key === 'id-1') return {};
+      await releasePuts.promise;
+      if (key === 'id-2') throw new Error('first failure');
+      if (key === 'id-3') throw new Error('second failure');
       return {};
     });
 
@@ -197,7 +201,10 @@ describe('AmazonS3Vectors partial-write failure reports writtenIds', () => {
     const ids = ['id-1', 'id-2', 'id-3', 'id-4', 'id-5'];
     const docs = ids.map((id) => new Document({ pageContent: id }));
 
-    const error = await store.addDocuments(docs, { ids, batchSize: 1 }).catch((e: unknown) => e);
+    const pending = store.addDocuments(docs, { ids, batchSize: 1 });
+    await drainTasks();
+    releasePuts.open();
+    const error = await pending.catch((e: unknown) => e);
 
     expect(isS3VectorsError(error)).toBe(true);
     expect((error as Error).message).toContain('first failure');
@@ -212,20 +219,25 @@ describe('AmazonS3Vectors partial-write failure reports writtenIds', () => {
   it('addDocuments: a PutVectors failure stops later batches from being embedded or written', async () => {
     const { client, mock } = createMockClient();
     mockExistingIndex(mock);
-    // id-2's put rejects after 1ms; every embedding takes 10ms — so by the
-    // time the batch after id-2 has been embedded, the failure is known.
+    // The interleaving this asserts used to be arranged by a ratio — a put
+    // rejecting after 1 ms against embeddings taking 10 ms — which is a race the
+    // test usually wins and cannot be read off the code. Each step is gated
+    // instead, and the sequence below *is* the scenario.
+    const failPut = gate();
     mock.on(PutVectorsCommand).callsFake(async (input) => {
       if (input.vectors?.[0]?.key === 'id-2') {
-        await new Promise((resolve) => setTimeout(resolve, 1));
+        await failPut.promise;
         throw new Error('throttled');
       }
       return {};
     });
+    const embedGates = [gate(), gate(), gate(), gate(), gate(), gate()];
     let embedCalls = 0;
     const embeddings: EmbeddingsInterface = {
       embedDocuments: async (texts: string[]) => {
+        const index = embedCalls;
         embedCalls += 1;
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await embedGates[index]!.promise;
         return texts.map(() => [1, 2, 3]);
       },
       embedQuery: async () => [1, 2, 3],
@@ -234,7 +246,20 @@ describe('AmazonS3Vectors partial-write failure reports writtenIds', () => {
     const ids = ['id-1', 'id-2', 'id-3', 'id-4', 'id-5', 'id-6'];
     const docs = ids.map((id) => new Document({ pageContent: id }));
 
-    const error = await store.addDocuments(docs, { ids, batchSize: 1 }).catch((e: unknown) => e);
+    const pending = store.addDocuments(docs, { ids, batchSize: 1 });
+    // Batch 1 embeds and its put succeeds, which starts the pipeline.
+    embedGates[0]!.open();
+    await drainTasks();
+    // Batch 2 embeds; its put dispatches and waits. Batch 3's embed starts
+    // alongside it, which is what "pipelined" means.
+    embedGates[1]!.open();
+    await drainTasks();
+    // id-2 fails while batch 3 is still embedding — so the failure is known
+    // before batch 3 could ask for a put, which is the whole point.
+    failPut.open();
+    await drainTasks();
+    embedGates[2]!.open();
+    const error = await pending.catch((e: unknown) => e);
 
     expect(isS3VectorsError(error)).toBe(true);
     expect((error as Error).message).toContain('throttled');

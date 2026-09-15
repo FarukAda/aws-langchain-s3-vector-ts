@@ -63,8 +63,6 @@ describe('AmazonS3Vectors index compatibility validation', () => {
   });
 });
 
-describe('_getIndex — malformed GetIndex response', () => {});
-
 describe('_getIndex — a literal null index', () => {
   // `index === undefined` was false for a literal null, so evaluation fell
   // through to `index.dimension` and threw a TypeError that got wrapped as

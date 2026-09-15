@@ -6,6 +6,7 @@ import {
   writeFirstBatch,
 } from '../../src/internal/concurrency.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
+import { gate } from '../helpers.js';
 
 /**
  * One test per domain cell of the batch-concurrency helpers. What these own is
@@ -14,21 +15,25 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 
-const after = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
 const contextOf = (error: unknown): Record<string, unknown> =>
   (error as { context: Record<string, unknown> }).context;
 
 describe('settleGroup', () => {
   it('collects ids in group order, not completion order', async () => {
     const collected: string[] = [];
+    // The second thunk opens the gate the first is waiting on, so "second
+    // settles first" is a fact of the test rather than a 20 ms head start.
+    const releaseSlow = gate();
     await settleGroup(
       [
         async () => {
-          await after(20);
+          await releaseSlow.promise;
           return ['slow'];
         },
-        async () => ['fast'],
+        async () => {
+          releaseSlow.open();
+          return ['fast'];
+        },
       ],
       { operation: 'addVectors', key: 'writtenIds', ...SCOPE },
       collected,
@@ -40,13 +45,17 @@ describe('settleGroup', () => {
 
   it('waits for every sibling before throwing, so a late success is still reported', async () => {
     const collected: string[] = [];
+    const releaseLate = gate();
     const error = await settleGroup(
       [
         async () => {
+          // Released before throwing, so the sibling is provably still pending
+          // at the moment of the rejection — which is the thing being asserted.
+          releaseLate.open();
           throw new Error('boom');
         },
         async () => {
-          await after(20);
+          await releaseLate.promise;
           return ['late-success'];
         },
       ],
@@ -132,7 +141,9 @@ describe('runBatchesConcurrently', () => {
       async (_batch, offset) => {
         started.push(offset);
         if (offset === 0) {
-          await after(10);
+          // Asynchronous is the whole requirement: what is being asserted is
+          // that the first batch is *awaited*, not that it is slow.
+          await Promise.resolve();
           firstDone = true;
           return;
         }
@@ -155,7 +166,9 @@ describe('runBatchesConcurrently', () => {
       async () => {
         inFlight += 1;
         peak = Math.max(peak, inFlight);
-        await after(5);
+        // A group's thunks are all started before any of them yields, so the
+        // overlap is real without anything sleeping to arrange it.
+        await Promise.resolve();
         inFlight -= 1;
       },
     );

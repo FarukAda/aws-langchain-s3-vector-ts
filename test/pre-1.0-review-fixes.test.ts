@@ -28,11 +28,22 @@ import {
   indexFixture,
   mockExistingIndex,
   mockIndexAutoCreated,
+  drainTasks,
 } from './helpers.js';
 
 const SECRET = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
 const CREDENTIALS = { accessKeyId: 'AKIAIOSFODNN7EXAMPLE', secretAccessKey: SECRET };
 
+/**
+ * Give the event loop every turn it could want, without depending on a clock.
+ *
+ * Used where a test asserts that something *stopped* — that no further batch
+ * was embedded, say. A sleep asserts the same thing on the assumption that the
+ * sleep outlasts the work, which is the assumption a loaded runner breaks.
+ */
+const settle = async (): Promise<void> => {
+  for (let turn = 0; turn < 30; turn++) await drainTasks();
+};
 describe('F3 — credentials never reach lc_kwargs or any object rendering of the store', () => {
   it('keeps credentials and the embeddings models out of lc_kwargs', () => {
     // Credentials and a client are mutually exclusive now, so this is the
@@ -238,13 +249,16 @@ describe('F5 — addDocuments pipelines embedding against in-flight PutVectors c
     const ids = docs.map((_, i) => `id-${i}`);
 
     const pending = store.addDocuments(docs, { ids, batchSize: 1 });
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await settle();
 
     // Batch 0 (serial) + a full window of 2: embedding has stopped at 3 and
     // stays there while the window is full — no unbounded run-ahead.
     expect(calls()).toBe(3);
     expect(inFlightKeys).toEqual(['id-1', 'id-2']);
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    // Given every further turn it could want, it still does not run ahead. A
+    // 5 ms sleep asserted the same thing on the assumption that 5 ms is longer
+    // than the work — which is the assumption a loaded machine breaks.
+    await settle();
     expect(calls()).toBe(3);
 
     release();
@@ -257,7 +271,7 @@ describe('F5 — addDocuments pipelines embedding against in-flight PutVectors c
     const { client, mock } = createMockClient();
     mockExistingIndex(mock);
     mock.on(PutVectorsCommand).callsFake(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 3));
+      await Promise.resolve();
       return {};
     });
     let inFlight = 0;
@@ -266,7 +280,9 @@ describe('F5 — addDocuments pipelines embedding against in-flight PutVectors c
       embedDocuments: async (texts: string[]) => {
         inFlight += 1;
         maxInFlight = Math.max(maxInFlight, inFlight);
-        await new Promise((resolve) => setTimeout(resolve, 1));
+        // Asynchronous, not slow: if embedding were ever started concurrently
+        // the counter would see it on this turn, whatever the duration.
+        await Promise.resolve();
         inFlight -= 1;
         return texts.map(() => [1, 2, 3]);
       },
@@ -481,7 +497,7 @@ describe('maxConcurrentBatchCalls option', () => {
     const track = async () => {
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise((resolve) => setTimeout(resolve, 1));
+      await Promise.resolve();
       inFlight -= 1;
       return {};
     };
