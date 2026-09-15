@@ -23,6 +23,31 @@ identically, and the wire format is untouched.
 
 ### Breaking
 
+- **A write to an index that disagrees about non-filterable keys is refused
+  with `INDEX_CONFIG_MISMATCH`.** `nonFilterableMetadataKeys` decides two
+  different things — which keys a created index excludes from filters, and which
+  keys the local 2 KB filterable-metadata budget leaves out — and only the first
+  was ever checked against the index that was actually being written to.
+
+  When they disagree the budget is computed against the wrong set, and it fails
+  in both directions. Confirmed against the live service: the identical
+  3,000-byte value was rejected on an index that did not declare its key
+  non-filterable and accepted on one that did. So a store whose list ran longer
+  than the index's sent writes AWS refuses, after the embedding was paid for.
+
+  The index is now checked where this package already reads it, on the
+  `GetIndex` that precedes a first write — the same way `distanceMetric` is
+  checked against every first query page, and for the same reason. Existence is
+  still proven by the response status alone, never by the body: a response this
+  package cannot read reports an existing index with an unknown configuration
+  rather than becoming an error.
+
+  The default configuration makes the disagreement easy to hit without noticing,
+  because the store adds `pageContentMetadataKey` to its own non-filterable set.
+  Pointing a default store at an index created by the console or the CLI now
+  fails immediately and says so, instead of silently spending the filterable
+  budget on page content.
+
 - **A store-built client now has timeouts.** The AWS SDK applies none by
   default, so an endpoint that accepted a connection and then never answered
   blocked `getByIds`, `addDocuments` and every search *forever* unless the

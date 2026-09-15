@@ -88,6 +88,17 @@ export function indexFixture(overrides: Partial<Index> = {}): Index {
     dataType: 'float32',
     dimension: 3,
     distanceMetric: 'cosine',
+    // What a default store actually creates. `pageContentMetadataKey` defaults
+    // to `_page_content` and is added to the index's non-filterable keys, so an
+    // index built by this package always reports exactly this.
+    //
+    // It was omitted here, which made every mock model an index no store in
+    // this package would have produced — the very misconfiguration F-05
+    // describes, reproduced across seventeen suites. Writing to such an index
+    // spends the 2 KB filterable budget on page content, and is now refused
+    // with `INDEX_CONFIG_MISMATCH`. A test that wants that case asks for it, by
+    // passing `{ metadataConfiguration: undefined }`.
+    metadataConfiguration: { nonFilterableMetadataKeys: ['_page_content'] },
     ...overrides,
   };
 }

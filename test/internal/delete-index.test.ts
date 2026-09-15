@@ -48,7 +48,9 @@ describe('createIndexLifecycle().deleteIndex', () => {
 
   it('forgets that the index exists, so the next write re-checks', async () => {
     const { mock, lifecycle } = lifecycleWith();
-    mock.on(GetIndexCommand).resolves({ index: indexFixture() });
+    mock
+      .on(GetIndexCommand)
+      .resolves({ index: indexFixture({ metadataConfiguration: undefined }) });
     mock.on(DeleteIndexCommand).resolves({});
 
     await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
@@ -60,7 +62,9 @@ describe('createIndexLifecycle().deleteIndex', () => {
 
   it('does not forget existence when the delete fails', async () => {
     const { mock, lifecycle } = lifecycleWith();
-    mock.on(GetIndexCommand).resolves({ index: indexFixture() });
+    mock
+      .on(GetIndexCommand)
+      .resolves({ index: indexFixture({ metadataConfiguration: undefined }) });
     mock.on(DeleteIndexCommand).rejects(awsError('AccessDeniedException'));
 
     await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');

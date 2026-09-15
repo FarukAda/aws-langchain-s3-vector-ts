@@ -25,43 +25,189 @@ export interface IndexContext {
   readonly indexName: string;
 }
 
+/** What a `GetIndex` call established about the index. */
+export interface IndexDescription {
+  /** Whether the index is there, proven by the response status alone. */
+  readonly exists: boolean;
+  /**
+   * The index's own non-filterable metadata keys, when the response carried a
+   * recognisable list. `undefined` means "not stated", never "none" — a body
+   * this package cannot read must not be reported as a configuration.
+   */
+  readonly nonFilterableKeys?: readonly string[];
+}
+
 /**
- * Whether the configured index exists.
+ * The index's own non-filterable keys, if the response stated them.
+ *
+ * Accepts: a `GetIndex` response, in whatever shape it arrived.
+ *
+ * Returns: the list the index reported; `[]` when the response carried an
+ * index and simply named no keys; `undefined` only when the response is not one
+ * this package can read at all, which is "unknown", not "none".
+ *
+ * That distinction is a measured fact rather than a guess. AWS **omits**
+ * `metadataConfiguration` altogether for an index that has no non-filterable
+ * keys, and includes it when it has them — probed against the live service on
+ * an ephemeral bucket:
+ *
+ *     probe-nokeys      hasOwn(metadataConfiguration)=false  value=undefined
+ *     probe-withkeys    hasOwn(metadataConfiguration)=true   value={"nonFilterableMetadataKeys":["_page_content"]}
+ *
+ * So on a conforming response an absent configuration states that the index has
+ * none — which is exactly the case worth catching, an index created by the
+ * console or the CLI and then written to by a default store that expects its
+ * page-content key to be non-filterable. Treating absence as "unknown" would
+ * skip the check precisely where it matters most.
+ *
+ * A response with no readable `index` is different: nothing was stated, and a
+ * mocked client or an incompatible SDK version must not be able to manufacture
+ * a configuration mismatch out of a body this package cannot parse.
+ *
+ * Throws: nothing. Every read is shape-checked, because this must never be able
+ * to turn a live index into a failure: existence is the answer that matters, and
+ * it is settled before this is consulted.
+ */
+function nonFilterableKeysOf(response: unknown): readonly string[] | undefined {
+  if (typeof response !== 'object' || response === null) return undefined;
+  const index: unknown = (response as { index?: unknown }).index;
+  if (typeof index !== 'object' || index === null) return undefined;
+
+  // An absent `metadataConfiguration` is only evidence of "no keys" when the
+  // rest of the body is recognisably an index description. `indexName` is a
+  // required member of `Index`, so a body lacking it is not one this package
+  // can read a configuration out of — and a stubbed or half-built response must
+  // not be able to manufacture a mismatch out of what it failed to say.
+  if (typeof (index as { indexName?: unknown }).indexName !== 'string') return undefined;
+
+  const configuration: unknown = (index as { metadataConfiguration?: unknown })
+    .metadataConfiguration;
+  if (configuration === undefined || configuration === null) return [];
+  if (typeof configuration !== 'object') return undefined;
+
+  const keys: unknown = (configuration as { nonFilterableMetadataKeys?: unknown })
+    .nonFilterableMetadataKeys;
+  if (keys === undefined || keys === null) return [];
+  if (!Array.isArray(keys) || !keys.every((key) => typeof key === 'string')) return undefined;
+  return keys;
+}
+
+/**
+ * Whether the configured index exists, and how it is configured.
  *
  * Accepts:
  * - `ctx` — the client, bucket and index name.
  * - `signal` — absent, or an `AbortSignal`. Already fired: rejects before any
  *   request is issued. Fires in flight: the request is cancelled.
  *
- * Returns: `true` when `GetIndex` resolves, `false` when it fails
- * `NotFoundException`
- * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_GetIndex.html).
+ * Returns: `exists: true` when `GetIndex` resolves, `exists: false` when it
+ * fails `NotFoundException`
+ * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_GetIndex.html),
+ * plus the index's non-filterable keys when the response stated them.
  *
  * Throws: `ABORTED` for `signal`; otherwise the class {@link classifyAwsError}
  * assigns.
  *
- * Guarantees: reads no field of the response, so a non-conforming body cannot
- * change the answer — existence is proven by the 200, not by the body.
+ * Guarantees: **existence is still proven by the 200, never by the body.** The
+ * body is read only to add what it happens to say, through shape checks that
+ * fall back to `undefined`, so a non-conforming response reports an existing
+ * index with an unknown configuration rather than becoming an error or, worse,
+ * an index this package would try to create a second time.
  */
-export async function indexExists(ctx: IndexContext, signal?: AbortSignal): Promise<boolean> {
+export async function describeIndex(
+  ctx: IndexContext,
+  signal?: AbortSignal,
+): Promise<IndexDescription> {
   checkAborted('GetIndex', signal, ctx);
   try {
-    await ctx.client.send(
+    const response = await ctx.client.send(
       new GetIndexCommand({
         vectorBucketName: ctx.vectorBucketName,
         indexName: ctx.indexName,
       }),
       { abortSignal: signal },
     );
-    return true;
+    const keys = nonFilterableKeysOf(response);
+    return keys === undefined ? { exists: true } : { exists: true, nonFilterableKeys: keys };
   } catch (error: unknown) {
-    if (isAwsNotFoundException(error)) return false;
+    if (isAwsNotFoundException(error)) return { exists: false };
     throw wrapAwsError(error, classifyAwsError(error), {
       operation: 'GetIndex',
       vectorBucketName: ctx.vectorBucketName,
       indexName: ctx.indexName,
     });
   }
+}
+
+/**
+ * Refuse a write to an index that disagrees with this store's configuration.
+ *
+ * Accepts: the keys the index reported (`undefined` when it stated none), and
+ * the keys this store would have created it with — its
+ * `nonFilterableMetadataKeys` plus its `pageContentMetadataKey`.
+ *
+ * Returns: nothing when they agree as sets, or when the index stated nothing
+ * and there is therefore nothing to compare.
+ *
+ * Throws: {@link S3VectorsError} with code `INDEX_CONFIG_MISMATCH`, naming both
+ * sets and the difference.
+ *
+ * Guarantees: order is ignored, carrying no meaning at AWS or here.
+ *
+ * This exists because the same option decides two different things: which keys
+ * a created index excludes from filters, and which keys the local 2 KB
+ * filterable-metadata budget leaves out. Only the first was ever checked
+ * against the index. When they disagree the budget is computed against the
+ * wrong set and fails in both directions — a store whose list falls short of
+ * the index's refuses writes AWS would accept, and one whose list runs longer
+ * sends writes AWS refuses, after the embedding has been paid for. Verified
+ * live: the same 3,000-byte value was rejected on an index that did not declare
+ * its key non-filterable and accepted on one that did.
+ *
+ * It is checked here, against the response this package already asks for,
+ * exactly as `distanceMetric` is checked against every first query page — and
+ * for the same reason, that an index configured out of band should be caught
+ * rather than silently written to under the wrong assumptions.
+ */
+function assertKeysAgree(
+  reported: readonly string[] | undefined,
+  expected: readonly string[],
+  ctx: IndexContext,
+  operation: string,
+): void {
+  if (reported === undefined) return;
+
+  const onIndex = new Set(reported);
+  const onStore = new Set(expected);
+  const missing = [...onStore].filter((key) => !onIndex.has(key));
+  const extra = [...onIndex].filter((key) => !onStore.has(key));
+  if (missing.length === 0 && extra.length === 0) return;
+
+  const parts: string[] = [];
+  if (missing.length > 0) {
+    parts.push(
+      `the index does not treat ${missing.map((k) => JSON.stringify(k)).join(', ')} as ` +
+        'non-filterable, so those values count against its 2 KB filterable budget',
+    );
+  }
+  if (extra.length > 0) {
+    parts.push(
+      `the index treats ${extra.map((k) => JSON.stringify(k)).join(', ')} as non-filterable, ` +
+        'which this store does not, so it is budgeting as though they were filterable',
+    );
+  }
+
+  throw new S3VectorsError(
+    `Index "${ctx.indexName}" and this store disagree about which metadata keys are ` +
+      `non-filterable: ${parts.join('; and ')}. The index has ` +
+      `[${[...onIndex].map((k) => JSON.stringify(k)).join(', ')}] and this store is configured ` +
+      `for [${[...onStore].map((k) => JSON.stringify(k)).join(', ')}]. A non-filterable key ` +
+      'set is fixed when the index is created and cannot be changed, so align ' +
+      '`nonFilterableMetadataKeys` (and `pageContentMetadataKey`, which is added to it) with ' +
+      'the index, or write to an index created with this configuration.',
+    S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+    { operation, vectorBucketName: ctx.vectorBucketName, indexName: ctx.indexName },
+  );
 }
 
 /** The index attributes a newly created index is given. */
@@ -354,7 +500,19 @@ export function createIndexLifecycle(
 
       memo ??= (async () => {
         try {
-          if (!(await indexExists(ctx))) await createIndex(ctx, config, dimension);
+          const description = await describeIndex(ctx);
+          if (description.exists) {
+            // Only for an index this store did not create. One it creates is
+            // configured from this very list, so it agrees by construction.
+            assertKeysAgree(
+              description.nonFilterableKeys,
+              nonFilterableKeys(config),
+              ctx,
+              operation,
+            );
+          } else {
+            await createIndex(ctx, config, dimension);
+          }
           knownToExist = true;
         } finally {
           memo = null;

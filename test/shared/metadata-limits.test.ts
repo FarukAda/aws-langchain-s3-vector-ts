@@ -117,8 +117,11 @@ describe('buildPutMetadata — byte limits (docs/evidence/metadata-limits.md)', 
     // The remedy: the 40 KB budget is reachable by declaring the key
     // non-filterable, which a caller cannot guess from a byte count.
     expect((error as Error).message).toContain(
-      'Declare large fields as non-filterable metadata keys on the index',
+      'declare large fields as non-filterable metadata keys on the index',
     );
+    // And which keys were counted, since the store budgets against its own
+    // configuration while AWS measures against the index's.
+    expect((error as Error).message).toContain('no non-filterable keys');
   });
 
   it('counts key names, not just values', () => {

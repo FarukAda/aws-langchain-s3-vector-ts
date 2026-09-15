@@ -25,7 +25,9 @@ const notFound = (): void => undefined;
 describe('createIndexLifecycle().ensureExists', () => {
   it('resolves without creating anything when the index is already there', async () => {
     const { mock, lifecycle } = lifecycleWith();
-    mock.on(GetIndexCommand).resolves({ index: indexFixture() });
+    mock
+      .on(GetIndexCommand)
+      .resolves({ index: indexFixture({ metadataConfiguration: undefined }) });
     await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
     expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
@@ -67,7 +69,9 @@ describe('createIndexLifecycle().ensureExists', () => {
 
   it('issues no further request once existence is known', async () => {
     const { mock, lifecycle } = lifecycleWith();
-    mock.on(GetIndexCommand).resolves({ index: indexFixture() });
+    mock
+      .on(GetIndexCommand)
+      .resolves({ index: indexFixture({ metadataConfiguration: undefined }) });
     await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
     await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
     await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
@@ -107,7 +111,9 @@ describe('createIndexLifecycle().ensureExists', () => {
 
   it('rejects ABORTED without issuing a request when the signal has already fired', async () => {
     const { mock, lifecycle } = lifecycleWith();
-    mock.on(GetIndexCommand).resolves({ index: indexFixture() });
+    mock
+      .on(GetIndexCommand)
+      .resolves({ index: indexFixture({ metadataConfiguration: undefined }) });
     const ac = new AbortController();
     ac.abort();
     const error = await lifecycle
@@ -123,7 +129,7 @@ describe('createIndexLifecycle().ensureExists', () => {
     const gate = new Promise<void>((r) => (release = r));
     mock.on(GetIndexCommand).callsFake(async () => {
       await gate;
-      return { index: indexFixture() };
+      return { index: indexFixture({ metadataConfiguration: undefined }) };
     });
 
     const ac = new AbortController();
@@ -158,7 +164,9 @@ describe('createIndexLifecycle().ensureExists', () => {
   });
   it('re-checks after markAbsent, so a write that met NotFoundException recovers', async () => {
     const { mock, lifecycle } = lifecycleWith();
-    mock.on(GetIndexCommand).resolves({ index: indexFixture() });
+    mock
+      .on(GetIndexCommand)
+      .resolves({ index: indexFixture({ metadataConfiguration: undefined }) });
 
     await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
     await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');

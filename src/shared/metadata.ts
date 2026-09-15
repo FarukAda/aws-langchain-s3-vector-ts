@@ -110,6 +110,20 @@ function serialisedBytes(value: Record<string, unknown>): number {
 }
 
 /**
+ * Which keys the filterable budget left out, for the rejection message.
+ *
+ * A byte count alone cannot be acted on: the caller has to know which keys were
+ * counted, and that the index — not this store — is what AWS measures against.
+ */
+function describeBudgetedKeys(nonFilterableKeys: readonly string[]): string {
+  return nonFilterableKeys.length === 0
+    ? 'This store declares no non-filterable keys, so every metadata key counts toward it.'
+    : `This store treats [${[...nonFilterableKeys]
+        .map((key) => JSON.stringify(key))
+        .join(', ')}] as non-filterable, so every other key counts toward it.`;
+}
+
+/**
  * Build the metadata object to send alongside a `PutVectors` call.
  *
  * Accepts:
@@ -186,7 +200,11 @@ export function buildPutMetadata(
   if (filterableBytes > FILTERABLE_BYTE_LIMIT) {
     fail(
       `Filterable metadata is ${filterableBytes} bytes, over the ${FILTERABLE_BYTE_LIMIT}-byte ` +
-        'limit. Declare large fields as non-filterable metadata keys on the index.',
+        `limit. ${describeBudgetedKeys(nonFilterableKeys)} If the index declares a different ` +
+        "set, the index's set is the one AWS measures against and this rejection is local " +
+        'only: align `nonFilterableMetadataKeys` and `pageContentMetadataKey` with the index. ' +
+        'Otherwise, declare large fields as non-filterable metadata keys on the index — a ' +
+        'non-filterable key set is fixed when the index is created, so that means a new index.',
     );
   }
 
