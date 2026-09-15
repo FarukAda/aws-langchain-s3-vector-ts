@@ -82,9 +82,9 @@ The library supports five search methods:
 
 | Method | Input | Returns |
 |---|---|---|
-| `similaritySearch(query, k, filter?, callbacks?, signal?)` | Text string | `Document[]` |
-| `similaritySearchWithScore(query, k, filter?, callbacks?, signal?)` | Text string | `[Document, distance][]` |
-| `similaritySearchWithRelevanceScores(query, k, filter?, callbacks?, signal?)` | Text string | `[Document, score][]` |
+| `similaritySearch(query, k?, filter?, callbacks?, signal?)` | Text string | `Document[]` |
+| `similaritySearchWithScore(query, k?, filter?, callbacks?, signal?)` | Text string | `[Document, distance][]` |
+| `similaritySearchWithRelevanceScores(query, k?, filter?, callbacks?, signal?)` | Text string | `[Document, score][]` |
 | `similaritySearchVectorWithScore(vector, k, filter?, signal?)` | Raw vector | `[Document, distance][]` |
 | `maxMarginalRelevanceSearch(query, { k, fetchK, lambda }, callbacks?, signal?)` | Text string | `Document[]` |
 

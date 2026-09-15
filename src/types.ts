@@ -17,9 +17,12 @@ export type VectorDataType = 'float32';
 /**
  * Configuration options for the {@link AmazonS3Vectors} vector store.
  *
- * At minimum, `vectorBucketName` and `indexName` are required.
- * Either `embeddings` or `client` (or both) should be provided depending
- * on the intended usage pattern.
+ * `vectorBucketName` and `indexName` are required; everything else has a
+ * default or is optional. `embeddings` and `client` are not alternatives to
+ * one another: `embeddings` decides whether the text-taking methods work at
+ * all (without it they raise `EMBEDDINGS_MISSING`, while the vector-taking
+ * ones are unaffected), and `client` decides whether this store builds its own
+ * SDK client or uses yours.
  */
 export interface AmazonS3VectorsConfig {
   // ── Index / bucket ──────────────────────────────────────────────────────
@@ -57,8 +60,10 @@ export interface AmazonS3VectorsConfig {
    *
    * - When set (default `"_page_content"`), the text is stored alongside
    *   user-provided metadata and restored when reading documents back.
-   * - When `null`, page content is embedded but stored as an empty string
-   *   (useful when you want to minimise metadata size).
+   * - When `null`, page content is embedded but **not stored at all**: no key
+   *   is written for it, and a document read back has an empty `pageContent`.
+   *   Useful when you want to minimise metadata size, and the only way to keep
+   *   page content out of the 40 KB per-vector budget entirely.
    *
    * @defaultValue `"_page_content"`
    */
@@ -116,9 +121,18 @@ export interface AmazonS3VectorsConfig {
   readonly maxConcurrentBatchCalls?: number;
 
   /**
-   * Optional custom function that converts a raw distance value into a
-   * relevance score. If not provided, a built-in function is selected
-   * based on the configured {@link distanceMetric}.
+   * Converts a raw distance into a relevance score, for
+   * `similaritySearchWithRelevanceScores` and the retriever's score
+   * threshold. Nothing else uses it: `similaritySearchWithScore` returns the
+   * service's distance untouched.
+   *
+   * Omitting it is only safe on a cosine index, where the built-in
+   * `cosineRelevanceScoreFn` is the exact inverse of what the service
+   * returns. A **euclidean** index has no built-in: euclidean distance is
+   * unbounded above, so no fixed formula maps it to a comparable score
+   * without knowing the embedding's scale, which only you know. Asking for
+   * relevance scores on a euclidean index without this option raises
+   * `VALIDATION` rather than returning numbers comparable against nothing.
    */
   readonly relevanceScoreFn?: (distance: number) => number;
 
@@ -144,10 +158,11 @@ export interface AmazonS3VectorsConfig {
   /**
    * A pre-configured `S3VectorsClient` instance.
    *
-   * Exclusive with the five options that would configure one: supplying it
-   * together with `region`, `credentials`, `endpoint`, `maxAttempts` or
-   * `retryMode` is rejected with `VALIDATION` rather than silently resolved
-   * in the client's favour.
+   * Exclusive with every option that would configure one: supplying it
+   * together with `region`, `credentials`, `endpoint`, `maxAttempts`,
+   * `retryMode`, `connectionTimeout`, `socketTimeout` or `requestTimeout` is
+   * rejected with `VALIDATION` rather than silently resolved in the client's
+   * favour.
    */
   readonly client?: S3VectorsClient;
 

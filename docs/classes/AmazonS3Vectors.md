@@ -423,7 +423,7 @@ impossible to find or reconcile again.
 
 > **asRetriever**(`kOrFields?`, `filter?`, `callbacks?`, `tags?`, `metadata?`, `verbose?`): [`AmazonS3VectorsRetriever`](AmazonS3VectorsRetriever.md)\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:909](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L909)
+Defined in: [s3-vectors.ts:910](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L910)
 
 Build a retriever over this store.
 
@@ -600,7 +600,7 @@ the `DeleteIndex` failure maps to. A missing index is not a failure.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1001](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1001)
+Defined in: [s3-vectors.ts:1002](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1002)
 
 Create a store and add the given documents to it.
 
@@ -649,7 +649,7 @@ instance from the same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:935](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L935)
+Defined in: [s3-vectors.ts:936](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L936)
 
 Create a store, embed the given texts and add them to it.
 
@@ -704,7 +704,7 @@ metadata array's length disagrees with it; otherwise whatever
 
 > **getByIds**(`ids`, `options?`): `Promise`\<(`Document`\<`Record`\<`string`, `any`\>\> \| `undefined`)[]\>
 
-Defined in: [s3-vectors.ts:789](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L789)
+Defined in: [s3-vectors.ts:790](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L790)
 
 Retrieve documents by their vector IDs.
 
@@ -756,8 +756,9 @@ contract's `(Document | undefined)[]` and not a stricter one.
 
 #### Throws
 
-Error if any ID is not found in the vector store, or if a
-`GetVectors` batch call fails. Either way, the thrown
+if a `GetVectors` batch call fails — **not** if an
+id is absent, which is reported as `undefined` in that id's slot, as the
+remarks above describe. The thrown
 [S3VectorsError](S3VectorsError.md)'s `context.foundIds` lists every id already
 confirmed found before the failure — including one found by a
 concurrent batch that succeeded alongside the one that failed — so a
@@ -769,7 +770,7 @@ caller doesn't have to re-fetch everything from scratch.
 
 > **listDocuments**(`options?`): `AsyncGenerator`\<`Document`\<`Record`\<`string`, `any`\>\>\>
 
-Defined in: [s3-vectors.ts:833](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L833)
+Defined in: [s3-vectors.ts:834](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L834)
 
 Every document in the index, one at a time.
 
@@ -814,7 +815,7 @@ atomic and does not pretend to be.
 
 > **listVectors**(`options?`): `AsyncGenerator`\<[`S3VectorsRecord`](../interfaces/S3VectorsRecord.md)\>
 
-Defined in: [s3-vectors.ts:868](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L868)
+Defined in: [s3-vectors.ts:869](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L869)
 
 Every vector in the index with its embedding, one at a time.
 
@@ -1149,8 +1150,8 @@ Fewer than `k` is normal for a filtered search over a sparse index.
 
 #### Remarks
 
-Validates `k` before embedding — an invalid `k` shouldn't cost a
-billable `embedQuery` call before failing.
+Validates `k`, the filter and the callbacks slot before embedding — a
+rejected argument shouldn't cost a billable `embedQuery` call first.
 
 #### Throws
 

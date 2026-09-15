@@ -6,7 +6,7 @@
 
 # Interface: S3VectorsRecord
 
-Defined in: [types.ts:315](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L315)
+Defined in: [types.ts:330](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L330)
 
 One record yielded by [AmazonS3Vectors.listVectors](../classes/AmazonS3Vectors.md#listvectors): everything needed
 to write the same vector into a different index.
@@ -17,7 +17,7 @@ to write the same vector into a different index.
 
 > `readonly` **document**: `Document`
 
-Defined in: [types.ts:321](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L321)
+Defined in: [types.ts:336](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L336)
 
 The document, mapped exactly as the search paths and `getByIds` map it.
 
@@ -27,7 +27,7 @@ The document, mapped exactly as the search paths and `getByIds` map it.
 
 > `readonly` **id**: `string`
 
-Defined in: [types.ts:317](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L317)
+Defined in: [types.ts:332](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L332)
 
 The vector key, the same value [AmazonS3Vectors.getByIds](../classes/AmazonS3Vectors.md#getbyids) takes.
 
@@ -37,6 +37,6 @@ The vector key, the same value [AmazonS3Vectors.getByIds](../classes/AmazonS3Vec
 
 > `readonly` **vector**: `number`[]
 
-Defined in: [types.ts:319](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L319)
+Defined in: [types.ts:334](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L334)
 
 The stored embedding, ready to hand back to `addVectors`.

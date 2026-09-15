@@ -345,14 +345,64 @@ identically, and the wire format is untouched.
   `relevanceScoreFn`, or read raw distances with `similaritySearchWithScore`.
   `euclideanRelevanceScoreFn` is no longer exported.
 - **Supplying `client` together with `region`, `credentials`, `endpoint`,
-  `maxAttempts` or `retryMode` is rejected.** Those five configure the client
-  this store would otherwise build, and a supplied client carries its own — so
-  they were silently ignored, leaving a caller who passed `maxAttempts: 5` with
-  the client's retry policy and no indication. Pass one or the other.
+  `maxAttempts`, `retryMode`, `connectionTimeout`, `socketTimeout` or
+  `requestTimeout` is rejected.** Each of those configures the client this store
+  would otherwise build, and a supplied client carries its own — so they were
+  silently ignored, leaving a caller who passed `maxAttempts: 5` with the
+  client's retry policy and no indication. Pass one or the other.
 - **`S3VectorsErrorCode.NOT_IMPLEMENTED` is removed** (MMR is implemented), and
   **`context.indexCacheInvalidated` is removed** (there is no index cache to
   invalidate). A `ValidationException` from AWS is now `AWS_REJECTED` rather
   than `AWS_REQUEST_FAILED`; see *Error classes* below.
+
+- **The documented IAM policy was missing `s3vectors:TagResource`.** AWS
+  requires it in addition to `s3vectors:CreateIndex` to create an index with
+  tags (`CreateIndexInput.tags`), so a store configured with `tags` and the
+  README's policy — presented as the complete least-privilege set, "no
+  `s3vectors:*` wildcard" — failed its first write with an
+  `AccessDeniedException` naming a permission the reader had been told they did
+  not need. The action never appears in a log of its own, because tags travel
+  inside the `CreateIndex` request. `index-lifecycle.ts` had said so in a
+  comment since the option was added; the policy a reader actually pastes did
+  not.
+
+- **The `connectionTimeout`, `socketTimeout` and `requestTimeout` options were
+  absent from the README's configuration table.** They exist, are validated at
+  construction and change how a hung request behaves, and were reachable only by
+  reading the type definitions. The table also still described the constructed
+  client as built from "exactly `region`, `credentials`, `endpoint`,
+  `maxAttempts` and `retryMode`", which stopped being true when those three
+  options started setting a `requestHandler`.
+
+- **Ten further claims that the code contradicted are corrected.**
+  `pageContentMetadataKey: null` was documented as storing page content "as an
+  empty string" when no key is written at all; `nonFilterableMetadataKeys` was
+  documented with a 10-key exemption that does not exist (exceeding the cap is
+  refused, and the section two screens down said so); a lost index-creation race
+  was described as "re-validating against whichever writer actually won", when
+  nothing is re-read; `deleteIndex` was missing from the list of methods that
+  accept an `AbortSignal`; `similaritySearchVectorWithScore` was shown with an
+  optional `k` that is required, and `src/guide.md` showed the three text
+  searches with a required `k` that defaults to `4`; the `NOT_FOUND` and
+  `INDEX_CONFIG_MISMATCH` enum docs described conditions neither is raised for;
+  `getByIds`'s `@throws` contradicted its own remarks about absent ids;
+  `relevanceScoreFn` was documented as falling back to "a built-in function
+  selected based on the configured `distanceMetric`", when a euclidean index has
+  no built-in and fails closed instead; `AmazonS3VectorsConfig` presented
+  `embeddings` and `client` as alternatives to each other, which they are not;
+  and the issue template and CI workflow still referenced `addTexts` and a
+  stability policy that had both been removed.
+
+- **Two of those classes of drift now have a gate.**
+  `test/contract/documented-config.test.ts` derives the actions this package can
+  issue from the `new …Command(` sites in `src/` and asserts the README's IAM
+  policy grants exactly those, plus the permissions AWS requires without a call
+  of their own; it also asserts the configuration table has a row for every
+  field of `AmazonS3VectorsConfig`, which is what would have caught the missing
+  timeouts. `test/contract/documented-signatures.test.ts` parses each documented
+  signature and asserts its arity, and which arguments may be omitted, match the
+  method — the check that catches a `k?` that is required. Both were run against
+  the defects above and fail on each.
 
 ### Added
 
@@ -567,16 +617,16 @@ identically, and the wire format is untouched.
   in CI). The name checks above cannot see a signature: `delete` stayed a real
   method when its parameters changed, so a README snippet calling it the old way
   passed every gate there was. All 34 TypeScript samples in the README, the
-  guide, the stability policy and this changelog are now type-checked against
-  `src/` — with the context a snippet assumes (`store`, `embeddings`, …)
-  supplied as ambient declarations of the real types, so only the setup is
-  elided, never the checking. One block is marked as illustrative, with its
-  reason, and the count of such marks is asserted. Verified against a snippet
-  rewritten to call the old `delete`, which it rejects. It found four defects in
-  the documentation on its first run: a block declaring `const store` twice, a
-  filter over an `ids` array the snippet never defined, an upsert round trip
-  that dereferenced a `getByIds` result the API documents may be `undefined`,
-  and a client built with an empty object for its credentials.
+  guide, the stability policy (since removed) and this changelog are now
+  type-checked against `src/` — with the context a snippet assumes (`store`,
+  `embeddings`, …) supplied as ambient declarations of the real types, so only
+  the setup is elided, never the checking. One block is marked as illustrative,
+  with its reason, and the count of such marks is asserted. Verified against a
+  snippet rewritten to call the old `delete`, which it rejects. It found four
+  defects in the documentation on its first run: a block declaring `const store`
+  twice, a filter over an `ids` array the snippet never defined, an upsert round
+  trip that dereferenced a `getByIds` result the API documents may be
+  `undefined`, and a client built with an empty object for its credentials.
 - **The audits are gates now** (`test/contract/source-contracts.test.ts`).
   Every exported function must carry a contract naming what it returns and
   throws; every interface field must carry a doc line; no doc block may sit

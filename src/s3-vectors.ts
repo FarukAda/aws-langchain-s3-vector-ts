@@ -459,8 +459,8 @@ export class AmazonS3Vectors extends VectorStore {
    * {@link similaritySearchVectorWithScore} is called.
    *
    * @remarks
-   * Validates `k` before embedding — an invalid `k` shouldn't cost a
-   * billable `embedQuery` call before failing.
+   * Validates `k`, the filter and the callbacks slot before embedding — a
+   * rejected argument shouldn't cost a billable `embedQuery` call first.
    *
    * @param _callbacks - Accepted and ignored, per `@langchain/core`'s
    * `VectorStore` signature. Passing an `AbortSignal` here throws a coded
@@ -779,8 +779,9 @@ export class AmazonS3Vectors extends VectorStore {
    * `GetVectors` calls currently in flight and stops any further batches
    * from starting.
    * @returns Array of documents in the same order as the input IDs
-   * @throws Error if any ID is not found in the vector store, or if a
-   * `GetVectors` batch call fails. Either way, the thrown
+   * @throws {S3VectorsError} if a `GetVectors` batch call fails — **not** if an
+   * id is absent, which is reported as `undefined` in that id's slot, as the
+   * remarks above describe. The thrown
    * {@link S3VectorsError}'s `context.foundIds` lists every id already
    * confirmed found before the failure — including one found by a
    * concurrent batch that succeeded alongside the one that failed — so a

@@ -2,7 +2,13 @@
 export enum S3VectorsErrorCode {
   /** Caller-supplied arguments were invalid (counts, names, empty batch). */
   VALIDATION = 'VALIDATION',
-  /** A requested vector id or index was not found. */
+  /**
+   * The bucket or index is not there (`NotFoundException`, 404).
+   *
+   * **Not** a missing vector id. `getByIds` reports that as `undefined` in the
+   * id's slot, because `GetVectors` returns neither an entry nor an error for a
+   * key that is not stored — absence is an ordinary answer, not a failure.
+   */
   NOT_FOUND = 'NOT_FOUND',
   /** An operation needed an embedding model but none was configured. */
   EMBEDDINGS_MISSING = 'EMBEDDINGS_MISSING',
@@ -27,7 +33,19 @@ export enum S3VectorsErrorCode {
   KMS_ERROR = 'KMS_ERROR',
   /** `ValidationException` (400). AWS rejected the request; `context.fieldList` names the field. */
   AWS_REJECTED = 'AWS_REJECTED',
-  /** An existing index's dimension or distance metric doesn't match this store's configuration. */
+  /**
+   * An existing index disagrees with this store's configuration.
+   *
+   * Two cases, both checked against what AWS actually reports rather than
+   * assumed: the index's `distanceMetric`, read off the first `QueryVectors`
+   * page of every search; and its non-filterable metadata keys, read off the
+   * `GetIndex` that precedes a first write.
+   *
+   * The vector *dimension* is not among them. AWS enforces it on every write,
+   * and this package never had it to compare against — it is decided by the
+   * first vector written, not by configuration. A batch whose own vectors
+   * disagree on dimension is a different thing, and raises this code too.
+   */
   INDEX_CONFIG_MISMATCH = 'INDEX_CONFIG_MISMATCH',
   /** The caller-supplied `AbortSignal` fired before or during the operation. */
   ABORTED = 'ABORTED',

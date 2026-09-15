@@ -40,7 +40,7 @@ body:
     attributes:
       label: Operation
       options:
-        - addDocuments / addTexts / addVectors
+        - addDocuments / addVectors
         - similaritySearch* / asRetriever
         - getByIds
         - delete
