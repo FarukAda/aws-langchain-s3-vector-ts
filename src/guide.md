@@ -172,7 +172,7 @@ Every failure this library surfaces — caller mistake, not-found, malformed AWS
 | `VALIDATION` | Caller input was invalid — a mismatched count, a non-array argument, a bad batch size or page size, a malformed filter, a reserved metadata key, or a configuration option outside its documented set. Raised before any AWS call. |
 | `AWS_REJECTED` | `ValidationException` (400): AWS refused the request. `context.fieldList` carries its field-level detail. |
 | `THROTTLED` | `TooManyRequestsException` (429). Retry after a backoff. |
-| `SERVICE_UNAVAILABLE` | `InternalServerException` (500), `ServiceUnavailableException` (503) or `RequestTimeoutException` (408). A 503 from `PutVectors` also means the batch exceeded resource capacity — split it rather than retry it. |
+| `SERVICE_UNAVAILABLE` | `InternalServerException` (500), `ServiceUnavailableException` (503) or `RequestTimeoutException` (408). A 503 from `PutVectors` also means the batch exceeded resource capacity — `context.batchSize` says how large it was, so you can split rather than retry. |
 | `ACCESS_DENIED` | `AccessDeniedException` (403). An IAM problem, not a retryable one. |
 | `QUOTA_EXCEEDED` | `ServiceQuotaExceededException` (402). Needs a quota increase. |
 | `CONFLICT` | `ConflictException` (409) from `CreateIndex`: the index already exists. |

@@ -110,6 +110,28 @@ export function attachPartialIds(
 }
 
 /**
+ * Attach extra diagnostic context to a failure.
+ *
+ * Accepts: the thrown value, the operation and scope to name if it is not
+ * already one of this package's errors, and the fields to add.
+ *
+ * Returns: the error with those fields merged into its context, keeping its
+ * class, its message, its cause and — through {@link rebuildWithContext} — the
+ * stack of whatever actually failed.
+ *
+ * Throws: nothing.
+ */
+export function attachContext(
+  error: unknown,
+  operation: string,
+  scope: StoreScope,
+  extra: Partial<S3VectorsErrorContext>,
+): S3VectorsError {
+  const base = normalizeToS3VectorsError(error, operation, scope);
+  return rebuildWithContext(base, base.message, { ...base.context, ...extra });
+}
+
+/**
  * Attach the store a static factory had already constructed when it failed.
  *
  * Accepts: the thrown value, the operation, the scope, and the instance.

@@ -142,6 +142,13 @@ identically, and the wire format is untouched.
 
 ### Fixed (found by the verification work)
 
+- **A 503 did not say how big the batch was.** `docs/DESIGN.md` D-24 decided
+  that a write failure would carry the batch size, because AWS answers an
+  oversized batch with the same `ServiceUnavailableException` it uses for
+  genuine unavailability and nothing else separates them. The decision was
+  never implemented. `context.batchSize` is now set on every `PutVectors`
+  failure, through the same decorator that preserves the original stack.
+
 - **MMR did not validate its filter.** `maxMarginalRelevanceSearch` checked it
   in the store but `mmrSearch` did not, so the action was one refactor away
   from sending an invalid filter to AWS. It now validates like
@@ -206,6 +213,14 @@ identically, and the wire format is untouched.
 - **Every error names the public method that raised it**
   (`test/contract/error-operation.test.ts`), for all eleven entry points, the
   retriever, the callbacks-slot guard and an abort during a shared index wait.
+
+- **Two more gates, each verified against the defect it prevents**: an
+  unhandled promise rejection or a listener-leak warning now fails the test run
+  (this package is full of deliberately un-awaited promises — a shared index
+  memo, `allSettled` groups, a write window that settles out of order — and
+  Jest only prints those by default); and every link in the shipped
+  documentation must resolve, anchors included, which caught the badge-link
+  blind spot in the checker itself before it caught anything else.
 
 - **The audits are gates now** (`test/contract/source-contracts.test.ts`).
   Every exported function must carry a contract naming what it returns and

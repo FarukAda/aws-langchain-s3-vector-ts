@@ -6,7 +6,7 @@
 
 # Class: S3VectorsError
 
-Defined in: [shared/errors/s3-vectors-error.ts:137](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L137)
+Defined in: [shared/errors/s3-vectors-error.ts:151](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L151)
 
 The single error type this library surfaces.
 
@@ -34,7 +34,7 @@ module. `cause` is always an `Error` when present: a caller can read
 
 > **new S3VectorsError**(`message`, `code`, `context`, `cause?`): `S3VectorsError`
 
-Defined in: [shared/errors/s3-vectors-error.ts:142](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L142)
+Defined in: [shared/errors/s3-vectors-error.ts:156](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L156)
 
 #### Parameters
 
@@ -68,7 +68,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:142](https://github.com/FarukAda/
 
 > `readonly` **\[S3\_VECTORS\_ERROR\_BRAND\]**: `true` = `true`
 
-Defined in: [shared/errors/s3-vectors-error.ts:138](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L138)
+Defined in: [shared/errors/s3-vectors-error.ts:152](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L152)
 
 ***
 
@@ -76,7 +76,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:138](https://github.com/FarukAda/
 
 > `readonly` **code**: [`S3VectorsErrorCode`](../enumerations/S3VectorsErrorCode.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:139](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L139)
+Defined in: [shared/errors/s3-vectors-error.ts:153](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L153)
 
 ***
 
@@ -84,4 +84,4 @@ Defined in: [shared/errors/s3-vectors-error.ts:139](https://github.com/FarukAda/
 
 > `readonly` **context**: [`S3VectorsErrorContext`](../interfaces/S3VectorsErrorContext.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:140](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L140)
+Defined in: [shared/errors/s3-vectors-error.ts:154](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L154)

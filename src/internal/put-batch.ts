@@ -4,6 +4,7 @@ import type { DocumentType as __DocumentType } from '@smithy/types';
 
 import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
+import { attachContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
@@ -166,6 +167,9 @@ export async function putBatch(opts: PutBatchOptions): Promise<void> {
     if (isAwsNotFoundException((error as { cause?: unknown }).cause)) {
       opts.onIndexAbsent();
     }
-    throw error;
+    // The batch size travels with the failure: a 503 here may mean the batch
+    // exceeded capacity rather than that the service is unavailable, and
+    // nothing else in the error separates those.
+    throw attachContext(error, operation, scope, { batchSize: putVectors.length });
   }
 }

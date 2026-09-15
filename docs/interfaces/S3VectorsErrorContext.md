@@ -28,13 +28,32 @@ for the documents that already committed (DESIGN.md D-12).
 
 > `readonly` `optional` **awsErrorName?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:63](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L63)
+Defined in: [shared/errors/s3-vectors-error.ts:77](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L77)
 
 The AWS exception name (`"AccessDeniedException"`, `"ThrottlingException"`,
 `"ValidationException"`, …) when the failure came from an AWS SDK call.
 Lifted off `cause.name` so a log line or alert can branch on it without
 walking `cause`. Set on `AWS_REQUEST_FAILED` and `NOT_FOUND`
 errors whose cause is an SDK error; absent otherwise.
+
+***
+
+### batchSize?
+
+> `readonly` `optional` **batchSize?**: `number`
+
+Defined in: [shared/errors/s3-vectors-error.ts:61](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L61)
+
+How many vectors the failed `PutVectors` call carried.
+
+Set only on a write failure, and present because AWS answers an oversized
+batch with `ServiceUnavailableException` — the same 503 it uses for
+genuine unavailability ("The number of vectors in a single request must
+not exceed the resource capacity", `API_S3VectorBuckets_PutVectors.html`).
+The two are indistinguishable by code, and the only prose that separates
+them is AWS's own message, which is not a contract. Knowing the size of
+the batch that failed is what lets a caller decide between backing off and
+splitting.
 
 ***
 
@@ -73,7 +92,7 @@ and they are the actionable half of an otherwise opaque rejection.
 
 > `readonly` `optional` **foundIds?**: `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:90](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L90)
+Defined in: [shared/errors/s3-vectors-error.ts:104](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L104)
 
 Ids confirmed found (and already fetched) before a partial `getByIds`
 failure — either a `GetVectors` batch rejecting while sibling batches
@@ -87,7 +106,7 @@ a caller doesn't have to re-fetch everything from scratch.
 
 > `readonly` `optional` **httpStatusCode?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:65](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L65)
+Defined in: [shared/errors/s3-vectors-error.ts:79](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L79)
 
 HTTP status of the failed AWS response (`cause.$metadata.httpStatusCode`), when known.
 
@@ -107,7 +126,7 @@ The index the failed operation named. Absent only on a failure raised before one
 
 > `readonly` `optional` **instance?**: [`AmazonS3Vectors`](../classes/AmazonS3Vectors.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:115](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L115)
+Defined in: [shared/errors/s3-vectors-error.ts:129](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L129)
 
 The store constructed by a `fromDocuments`/`fromTexts` factory call that
 failed partway through writing. Only ever set on an error thrown by
@@ -163,7 +182,7 @@ is whatever the underlying call failed with, typically
 
 > `readonly` `optional` **requestId?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:70](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L70)
+Defined in: [shared/errors/s3-vectors-error.ts:84](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L84)
 
 The AWS request id (`cause.$metadata.requestId`), when known. This is the
 identifier AWS Support asks for — it also appears in the error message.
@@ -186,7 +205,7 @@ against the requested `k` to see how far short it fell. Set alongside
 
 > `readonly` `optional` **retryable?**: `boolean`
 
-Defined in: [shared/errors/s3-vectors-error.ts:82](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L82)
+Defined in: [shared/errors/s3-vectors-error.ts:96](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L96)
 
 Whether the failed AWS call is worth retrying after a backoff. `true` for
 throttling (`ThrottlingException`, `TooManyRequestsException`, HTTP 429),
@@ -227,7 +246,7 @@ can find and clean up or reconcile vectors that already landed.
 
 > `readonly` `optional` **yielded?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:55](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L55)
+Defined in: [shared/errors/s3-vectors-error.ts:69](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L69)
 
 Vectors already yielded by an enumeration (`listDocuments`/`listVectors`)
 before it failed. Those records have been consumed by the caller already,

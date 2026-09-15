@@ -143,6 +143,43 @@ describe('putBatch', () => {
     expect(absent).toHaveLength(1);
   });
 
+  it('reports how many vectors the failed call carried, so a 503 is actionable', async () => {
+    // AWS answers an oversized batch with the same 503 it uses for genuine
+    // unavailability. The batch size is the only thing that lets a caller
+    // choose between backing off and splitting.
+    const { mock, run } = setup();
+    mock.on(PutVectorsCommand).rejects(
+      Object.assign(new Error('Currently unable to handle the request'), {
+        name: 'ServiceUnavailableException',
+      }),
+    );
+    const error = await run({
+      vectors: [
+        [1, 2, 3],
+        [4, 5, 6],
+      ],
+      documents: [new Document({ pageContent: 'a' }), new Document({ pageContent: 'b' })],
+      ids: ['a', 'b'],
+    }).catch((e: unknown) => e);
+
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.SERVICE_UNAVAILABLE);
+    expect((error as { context: { batchSize?: number } }).context.batchSize).toBe(2);
+  });
+
+  it('keeps the failure class and cause while adding the batch size', async () => {
+    const { mock, run } = setup();
+    const cause = Object.assign(new Error('denied'), { name: 'AccessDeniedException' });
+    mock.on(PutVectorsCommand).rejects(cause);
+    const error = await run().catch((e: unknown) => e);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+    expect((error as Error).message).toContain('denied');
+    expect((error as { cause?: unknown }).cause).toBeDefined();
+    expect((error as { context: { batchSize?: number } }).context.batchSize).toBe(1);
+    // Adding context must not make this decorator the apparent origin.
+    expect((error as Error).stack).toContain('\n    at ');
+    expect((error as { context: { operation: string } }).context.operation).toBe('PutVectors');
+  });
+
   it('leaves the index believed to exist after an unrelated failure', async () => {
     const { mock, run, absent } = setup();
     mock

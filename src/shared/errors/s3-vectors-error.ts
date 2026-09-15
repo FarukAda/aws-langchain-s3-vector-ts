@@ -47,6 +47,20 @@ export interface S3VectorsErrorContext {
    */
   readonly resultsCollected?: number;
   /**
+   * How many vectors the failed `PutVectors` call carried.
+   *
+   * Set only on a write failure, and present because AWS answers an oversized
+   * batch with `ServiceUnavailableException` — the same 503 it uses for
+   * genuine unavailability ("The number of vectors in a single request must
+   * not exceed the resource capacity", `API_S3VectorBuckets_PutVectors.html`).
+   * The two are indistinguishable by code, and the only prose that separates
+   * them is AWS's own message, which is not a contract. Knowing the size of
+   * the batch that failed is what lets a caller decide between backing off and
+   * splitting.
+   */
+  readonly batchSize?: number;
+
+  /**
    * Vectors already yielded by an enumeration (`listDocuments`/`listVectors`)
    * before it failed. Those records have been consumed by the caller already,
    * so a listing is not atomic; this says how much of the index was covered,
