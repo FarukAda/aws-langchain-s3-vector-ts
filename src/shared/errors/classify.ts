@@ -3,7 +3,7 @@ import { S3VectorsErrorCode } from './error-code.js';
 
 /**
  * Exception name to error class. Names are literal types on every exception the
- * service declares (`@aws-sdk/client-s3vectors@3.1118.0`
+ * service declares (`@aws-sdk/client-s3vectors@3.1132.0`
  * `dist-types/models/errors.d.ts`), so this lookup is exact rather than a
  * heuristic over message text.
  */

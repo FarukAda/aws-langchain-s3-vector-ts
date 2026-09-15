@@ -5,7 +5,7 @@
  *
  * Returns: `true` only for an object whose `name` is exactly
  * `'ConflictException'` — the literal type the service model declares
- * (`@aws-sdk/client-s3vectors@3.1118.0` `dist-types/models/errors.d.ts`), so
+ * (`@aws-sdk/client-s3vectors@3.1132.0` `dist-types/models/errors.d.ts`), so
  * this is an exact test rather than a heuristic. The only operation that
  * raises it is `CreateIndex`, where it means another writer created the index
  * first: the requested state, not a failure.

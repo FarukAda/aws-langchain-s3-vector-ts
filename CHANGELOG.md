@@ -143,6 +143,18 @@ identically, and the wire format is untouched.
 - **`raceAbort` is one helper** used by both the shared index creation and the
   retriever: the caller's wait ends, the shared work continues for whoever else
   is waiting on it, and the listener is removed on both settle paths.
+- **Every dependency is at its current version**, including
+  `@aws-sdk/client-s3vectors` 3.1132.0, `@langchain/core` 1.2.11 and the whole
+  development set (jest 30.5.1, eslint 10.10.0, typescript-eslint 8.70.0, knip
+  6.35.1, jscpd 5.2.0, fast-check 4.10.0 and the rest). The published peer
+  ranges are unchanged — `^3.1117.0` and `^1.2.9` — so no consumer is forced up;
+  the floors are still what the peer-floors CI job installs and tests. Every
+  fact this package cites out of those two packages was re-read against the new
+  versions: the required `distanceMetric` on `QueryVectorsOutput`, the literal
+  exception names, `ValidationExceptionField`, the optional `vectors` on
+  `ListVectorsOutput`, core's retriever `invoke`, its MMR dispatch and its
+  `maximalMarginalRelevance` signature. All still hold, and the citations now
+  name the versions they were re-read at.
 - **The source is split by responsibility** — `actions/` (one operation each),
   `internal/` (request-shaped helpers) and `shared/` (pure helpers) — with a
   contract in the JSDoc of every exported function stating what it accepts,
@@ -236,6 +248,17 @@ identically, and the wire format is untouched.
   documentation must resolve, anchors included, which caught the badge-link
   blind spot in the checker itself before it caught anything else.
 
+- **Every dependency citation is checked against the installed package**
+  (`test/contract/dependency-citations.test.ts`). A contract cites the fact it
+  rests on as `package@version path:line`; nothing re-read those when the
+  packages moved, so a bump silently turned evidence into decoration. All 17
+  citations must now name the version that is installed, and every file and line
+  they point at must exist and carry code. The same suite reads the exception
+  names out of `@aws-sdk/client-s3vectors`'s own service model and requires
+  `classifyAwsError` to map each one to something other than the catch-all, so
+  an exception added by a future SDK fails the build instead of being reported
+  as a generic request failure. Verified against all three: a stale version, a
+  line number that has slid off the end of a file, and a removed mapping.
 - **Every sample in the documentation is compiled** (`npm run check:docs`, run
   in CI). The name checks above cannot see a signature: `delete` stayed a real
   method when its parameters changed, so a README snippet calling it the old way

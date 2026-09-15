@@ -6,7 +6,7 @@ import { S3VectorsErrorCode } from '../../../src/shared/errors/error-code.js';
 /**
  * One test per domain cell of `classifyAwsError` (docs/CONTRACTS-DRAFT.md,
  * "Error model"). Each expectation traces to a clause of that contract; the
- * exception names come from `@aws-sdk/client-s3vectors@3.1118.0`
+ * exception names come from `@aws-sdk/client-s3vectors@3.1132.0`
  * `dist-types/models/errors.d.ts`, where every class declares `name` as a
  * literal type.
  */

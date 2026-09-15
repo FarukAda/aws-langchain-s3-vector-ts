@@ -69,7 +69,7 @@ describe('listPages', () => {
 
   it('treats an absent vectors field as an empty page, which the SDK type allows', async () => {
     // `ListVectorsOutput.vectors` is declared `ListOutputVector[] | undefined`
-    // (`@aws-sdk/client-s3vectors@3.1118.0` `dist-types/models/models_0.d.ts:642`),
+    // (`@aws-sdk/client-s3vectors@3.1132.0` `dist-types/models/models_0.d.ts:642`),
     // so a response object without it is representable and must not throw.
     const { mock, collect } = setup();
     mock

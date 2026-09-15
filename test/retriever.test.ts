@@ -9,7 +9,7 @@ import { createTestStore, sendOptionsOf } from './helpers.js';
  * One test per domain cell of `AmazonS3VectorsRetriever`
  * (docs/CONTRACTS-DRAFT.md, "Cancellation"). Core's `BaseRetriever.invoke`
  * never passes the config to `_getRelevantDocuments`
- * (`@langchain/core@1.2.9` `dist/retrievers/index.js:81`, `:85`), so the two
+ * (`@langchain/core@1.2.11` `dist/retrievers/index.js:81`, `:85`), so the two
  * signals have two different jobs: a retriever **field** signal reaches
  * `QueryVectors` and cancels it; a **config** signal ends the invocation only.
  */
@@ -42,7 +42,7 @@ describe('asRetriever', () => {
 
   it('identifies itself by its own name rather than core’s, in the serialization id', () => {
     // `lc_name` is what core stamps into a serialized runnable's id
-    // (`@langchain/core@1.2.9` `dist/load/serializable.js`), so a trace shows
+    // (`@langchain/core@1.2.11` `dist/load/serializable.js`), so a trace shows
     // which retriever actually ran.
     expect(AmazonS3VectorsRetriever.lc_name()).toBe('AmazonS3VectorsRetriever');
   });

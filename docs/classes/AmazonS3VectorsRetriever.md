@@ -21,7 +21,7 @@ Two signals, two jobs, each documented for exactly what it does:
 
 The asymmetry is core's, not this package's:
 `BaseRetriever.invoke(input, options)` parses the config and then calls
-`this._getRelevantDocuments(input, runManager)` (`@langchain/core@1.2.9`
+`this._getRelevantDocuments(input, runManager)` (`@langchain/core@1.2.11`
 `dist/retrievers/index.js:81` and `:85`) — the config never reaches the
 extension point, so no subclass can read `config.signal` there. What this
 class can do, it does: an already-fired config signal rejects before any

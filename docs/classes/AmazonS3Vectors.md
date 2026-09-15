@@ -512,7 +512,7 @@ numeric `asRetriever(4)` form included.
 reaches `QueryVectors` and `GetVectors` and cancels the AWS request. A
 signal passed to `invoke(query, { signal })` ends that invocation only:
 core's `BaseRetriever.invoke` never hands the config to
-`_getRelevantDocuments` (`@langchain/core@1.2.9`
+`_getRelevantDocuments` (`@langchain/core@1.2.11`
 `dist/retrievers/index.js:81`, `:85`), so no subclass can route it to the
 request. Both may be given at once.
 
@@ -901,7 +901,7 @@ Accepts:
 - `callbacks` — core's `Callbacks` slot, accepted and ignored. A signal
   here is rejected; it belongs in the fourth argument.
 - `signal` — a fourth parameter this package adds. Core declares three
-  (`@langchain/core@1.2.9` `dist/vectorstores.d.ts:528`) and passes no
+  (`@langchain/core@1.2.11` `dist/vectorstores.d.ts:528`) and passes no
   config to `_getRelevantDocuments`, so a retriever-scoped signal has no
   other route to the underlying requests. Absent behaves exactly as core's
   three-parameter call.

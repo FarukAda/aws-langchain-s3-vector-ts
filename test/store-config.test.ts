@@ -51,7 +51,7 @@ describe('distanceMetric', () => {
 
   it('rejects anything else at construction, not on the first search', () => {
     // `DistanceMetric` is a closed set of two
-    // (`@aws-sdk/client-s3vectors@3.1118.0` `dist-types/models/enums.d.ts`).
+    // (`@aws-sdk/client-s3vectors@3.1132.0` `dist-types/models/enums.d.ts`).
     // Unchecked, this reaches CreateIndex — and assertMetricMatches then
     // compares an existing index against it and mismatches forever.
     const error = build({ distanceMetric: 'manhattan' });

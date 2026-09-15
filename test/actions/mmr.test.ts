@@ -8,7 +8,7 @@ import { createMockClient } from '../helpers.js';
 /**
  * One test per domain cell of `mmrSearch` (docs/CONTRACTS-DRAFT.md,
  * "actions/mmr"). The selection itself is core's
- * `maximalMarginalRelevance` (`@langchain/core@1.2.9` `dist/utils/math.d.ts:40`)
+ * `maximalMarginalRelevance` (`@langchain/core@1.2.11` `dist/utils/math.d.ts:40`)
  * — this package fetches the candidates and their vectors and maps the result.
  */
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;

@@ -75,7 +75,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:31](https://github.com/FarukAda/a
 
 The specific validation failures AWS reported, each naming the field that
 failed and why. A `ValidationException` carries these
-(`@aws-sdk/client-s3vectors@3.1118.0` `dist-types/models/models_0.d.ts:94`)
+(`@aws-sdk/client-s3vectors@3.1132.0` `dist-types/models/models_0.d.ts:94`)
 and they are the actionable half of an otherwise opaque rejection.
 
 #### message?

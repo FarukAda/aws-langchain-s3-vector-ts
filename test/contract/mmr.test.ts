@@ -6,7 +6,7 @@ import { createTestStore } from '../helpers.js';
 /**
  * MMR is a real capability now (DESIGN.md D-5), so core's runtime probe —
  * `typeof store.maxMarginalRelevanceSearch === 'function'`
- * (`@langchain/core@1.2.9` `dist/vectorstores.js:143`) — reports something
+ * (`@langchain/core@1.2.11` `dist/vectorstores.js:143`) — reports something
  * true rather than a method that exists only to throw.
  */
 const VECTORS: Record<string, number[]> = {
