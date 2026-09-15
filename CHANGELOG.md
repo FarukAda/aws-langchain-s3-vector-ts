@@ -23,6 +23,44 @@ identically, and the wire format is untouched.
 
 ### Breaking
 
+- **Every failure a read raises is now an `S3VectorsError`.** An embeddings
+  model that throws — a provider rate-limiting or falling over, the most likely
+  failure a read has — escaped unwrapped from `similaritySearch`,
+  `similaritySearchWithScore`, `similaritySearchWithRelevanceScores`,
+  `maxMarginalRelevanceSearch` and `retriever.invoke`, while the write path
+  wrapped the identical failure as `UNEXPECTED_ERROR`. A `catch` branching on
+  `isS3VectorsError`, as the documentation instructs, therefore missed exactly
+  the case it most needed to catch. A `relevanceScoreFn` that throws is wrapped
+  the same way; it is caller-supplied code called once per result.
+
+- **A value that is not an `AbortSignal` is refused.** It used to be read for
+  `.aborted`, found wanting, and ignored — so the operation ran, uncancellable,
+  while the caller believed otherwise — or, on the paths that reach `raceAbort`,
+  throw a raw `TypeError` from `addEventListener` after the AWS calls before it
+  had already been paid for. `null` now means "not provided" everywhere, as it
+  already did for `client` and `filter`.
+
+- **A nullish `config` or MMR `options` raises `VALIDATION`.** Both were
+  dereferenced by the first check that read them.
+
+- **A response entry that is not an object raises `AWS_INVALID_RESPONSE`.** The
+  three read paths cast `response.vectors` rather than checking it, so a
+  response carrying `[null]` passed through and failed later as a raw
+  `TypeError` from inside a `map`.
+
+- **A document that is not an object raises `VALIDATION`,** naming its position,
+  rather than escaping as "Cannot read properties of null (reading 'id')".
+
+- **`error.cause` is always an `Error`.** A client rejecting with a string, a
+  number or `null` is legal JavaScript and made the class's own documented
+  guarantee false.
+
+- **An error message can no longer throw while being built.** `String()` on an
+  object with a null prototype raises "Cannot convert object to primitive
+  value", so reporting a bad vector component could fail *while reporting it* —
+  and the caller was handed `UNEXPECTED_ERROR` about the formatting failure
+  instead of `VALIDATION` about their input.
+
 - **A write no longer re-reads the caller's arrays while it runs.** `ids`,
   `documents` and `vectors` are snapshotted once, after validation, and every
   batch is sliced from the snapshot. Previously the id list was validated up

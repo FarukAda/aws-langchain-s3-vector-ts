@@ -8,6 +8,7 @@ import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { S3OutputVector } from '../types.js';
 import { assertBatchSize } from './guards.js';
 import type { AwsOperation } from './operation.js';
+import { outputVectorsOf } from './output-vectors.js';
 import { checkAborted, type StoreScope } from './signals.js';
 
 /**
@@ -61,7 +62,7 @@ async function fetchOneBatch(
       { operation: opts.operation, ...scope },
     );
   }
-  return (response.vectors ?? []) as S3OutputVector[];
+  return outputVectorsOf(response.vectors, 'GetVectors', opts.operation, scope);
 }
 
 /**

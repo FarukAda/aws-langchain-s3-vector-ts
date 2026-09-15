@@ -1,3 +1,4 @@
+import { describeValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { toError } from '../shared/errors/wrap-error.js';
@@ -11,18 +12,78 @@ export interface StoreScope {
 }
 
 /**
+ * Whether a value is `AbortSignal`-shaped.
+ *
+ * Accepts: anything, including `null` and a value from another realm.
+ *
+ * Returns: `true` when the value carries a boolean `aborted` and an
+ * `addEventListener` — duck-typed rather than `instanceof`, which is unreliable
+ * across realms and banned here. The pair of checks is exact for the population
+ * it guards: a `CallbackManager`, a handler array and a `CallbackHandlerMethods`
+ * object carry no boolean `aborted`; an `EventTarget` has `addEventListener` but
+ * no `aborted`; an `AbortController` has `signal` and `abort`, not `aborted`.
+ *
+ * Throws: nothing.
+ */
+export function isAbortSignalLike(value: unknown): value is AbortSignal {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { aborted?: unknown; addEventListener?: unknown };
+  return typeof candidate.aborted === 'boolean' && typeof candidate.addEventListener === 'function';
+}
+
+/**
+ * The signal to use, or `undefined` when none was provided.
+ *
+ * Accepts: anything. A typed caller can only pass a signal, but this is reached
+ * from untyped JavaScript, from a cast, and from config assembled at runtime.
+ *
+ * Returns: the signal when one was given; `undefined` for `undefined` and for
+ * `null`, which means "not provided" throughout this package — the store reads
+ * a `null` client and a `null` filter the same way.
+ *
+ * Throws: {@link S3VectorsError} with code `VALIDATION` for a value that is
+ * neither, naming what arrived.
+ *
+ * Guarantees: refused **before** the call it guards, and refused rather than
+ * ignored. Both halves matter, and both were wrong in different directions: a
+ * non-signal reaching `checkAborted` read `signal?.aborted`, found `undefined`,
+ * and carried on — so the request ran uncancellable while the caller believed
+ * otherwise — while the same value reaching `raceAbort` got as far as
+ * `addEventListener` and threw a raw `TypeError`, after the AWS calls before it
+ * had already been paid for. Silently uncancellable is the worse of the two:
+ * dropping a cancellation is the one outcome this package refuses to do
+ * quietly.
+ */
+function assertSignal(
+  operation: string,
+  signal: unknown,
+  scope: StoreScope,
+): AbortSignal | undefined {
+  if (signal === undefined || signal === null) return undefined;
+  if (isAbortSignalLike(signal)) return signal;
+  throw new S3VectorsError(
+    `${operation} was given a \`signal\` that is not an AbortSignal (received ` +
+      `${describeValue(signal)}). The operation would have run without being cancellable. ` +
+      'Pass an AbortSignal, or omit the option.',
+    S3VectorsErrorCode.VALIDATION,
+    { operation, ...scope },
+  );
+}
+
+/**
  * Throw `ABORTED` if `signal` has already fired.
  *
  * Accepts:
  * - `operation` — named in the message, so a caller can tell which call was
  *   cancelled.
- * - `signal` — `undefined` or a signal that has not fired returns; a signal that
- *   has fired throws.
+ * - `signal` — `undefined`, `null` or a signal that has not fired returns; a
+ *   signal that has fired throws; anything else is refused.
  * - `scope` — the bucket and index named in the error's context.
  *
  * Returns: nothing.
  *
- * Throws: {@link S3VectorsError} with code `ABORTED`. The cause is
+ * Throws: {@link S3VectorsError} with code `ABORTED`, or `VALIDATION` for a
+ * value that is not a signal (see {@link assertSignal}). The abort cause is
  * `signal.reason` normalised through `toError`, so it is always an `Error` —
  * `AbortController.abort()` defaults the reason to a `DOMException`, which
  * passes through unchanged, but `abort(anything)` may set it to a string or a
@@ -33,8 +94,9 @@ export function checkAborted(
   signal: AbortSignal | undefined,
   scope: StoreScope,
 ): void {
-  if (!signal?.aborted) return;
-  throw abortError(operation, signal, scope);
+  const validated = assertSignal(operation, signal, scope);
+  if (validated?.aborted !== true) return;
+  throw abortError(operation, validated, scope);
 }
 
 /** The one place an `ABORTED` error is built, so both entry points agree. */
@@ -55,8 +117,9 @@ function abortError(operation: string, signal: AbortSignal, scope: StoreScope): 
  *   already fired. A factory rather than a promise is what makes that
  *   possible: a promise argument would already have dispatched its billable
  *   call before this function could refuse it.
- * - `signal` — `undefined` returns `factory()` directly, with no listener and
- *   no wrapper.
+ * - `signal` — `undefined` or `null` returns `factory()` directly, with no
+ *   listener and no wrapper. Anything that is not a signal is refused before
+ *   the factory runs, so a mistyped signal costs nothing.
  * - `operation`, `scope` — named in the `ABORTED` error.
  *
  * Returns: whatever the factory's promise resolves to, if it settles first.
@@ -77,8 +140,9 @@ export async function raceAbort<T>(
   operation: string,
   scope: StoreScope,
 ): Promise<T> {
-  if (signal === undefined) return await factory();
-  checkAborted(operation, signal, scope);
+  const validated = assertSignal(operation, signal, scope);
+  if (validated === undefined) return await factory();
+  checkAborted(operation, validated, scope);
 
   // Wrapped so a factory that throws synchronously fails the same way one
   // returning a rejected promise does.
@@ -86,16 +150,16 @@ export async function raceAbort<T>(
 
   return await new Promise<T>((resolve, reject) => {
     const onAbort = (): void => {
-      reject(abortError(operation, signal, scope));
+      reject(abortError(operation, validated, scope));
     };
-    signal.addEventListener('abort', onAbort, { once: true });
+    validated.addEventListener('abort', onAbort, { once: true });
     work.then(
       (value) => {
-        signal.removeEventListener('abort', onAbort);
+        validated.removeEventListener('abort', onAbort);
         resolve(value);
       },
       (error: unknown) => {
-        signal.removeEventListener('abort', onAbort);
+        validated.removeEventListener('abort', onAbort);
         reject(toError(error));
       },
     );

@@ -7,6 +7,7 @@ import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { DistanceMetric, S3OutputVector } from '../types.js';
 import type { AwsOperation } from './operation.js';
+import { outputVectorsOf } from './output-vectors.js';
 import { checkAborted, type StoreScope } from './signals.js';
 
 /**
@@ -187,7 +188,7 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
       assertMetricMatches(response.distanceMetric, distanceMetric, operation, scope);
     }
 
-    results.push(...((response.vectors ?? []) as S3OutputVector[]));
+    results.push(...outputVectorsOf(response.vectors, 'QueryVectors', operation, scope));
     nextToken = response.nextToken;
     pageCount++;
   } while (nextToken && results.length < k && pageCount < MAX_QUERY_PAGES);

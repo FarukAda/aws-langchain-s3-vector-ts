@@ -42,3 +42,32 @@ export function describeValue(value: unknown, objectFallback = 'an object'): str
     ? `${articleFor(name)} ${name} instance`
     : objectFallback;
 }
+
+/**
+ * Render a value for a message: a number, boolean or bigint as itself,
+ * anything else by kind.
+ *
+ * Accepts: anything, including a null-prototype object and a value from another
+ * realm.
+ *
+ * Returns: `'0'`, `'NaN'`, `'true'` — the value itself where seeing it is what
+ * makes the message useful and where it cannot be a secret — and otherwise
+ * whatever {@link describeValue} says. "Vector dimension must be an integer
+ * between 1 and 4096 (received 0)" tells a caller what to change; "(received a
+ * number)" does not.
+ *
+ * Throws: nothing, which is the whole point of it existing. `String()` on an
+ * object with a null prototype raises "Cannot convert object to primitive
+ * value", so a message built that way can throw *while reporting another
+ * error* and replace it — a plain `VALIDATION` about a bad vector component
+ * reached the caller as `UNEXPECTED_ERROR` describing the formatting failure
+ * instead of their input.
+ *
+ * Use this where the value is numeric and worth showing; use
+ * {@link describeValue} where it might be a credential.
+ */
+export function renderValue(value: unknown): string {
+  const type = typeof value;
+  if (type === 'number' || type === 'boolean' || type === 'bigint') return String(value);
+  return describeValue(value);
+}

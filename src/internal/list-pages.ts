@@ -6,6 +6,7 @@ import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { S3OutputVector } from '../types.js';
 import type { AwsOperation } from './operation.js';
+import { outputVectorsOf } from './output-vectors.js';
 import { checkAborted, type StoreScope } from './signals.js';
 
 /**
@@ -142,7 +143,7 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
     }
 
     pagesScanned++;
-    for (const vector of (response.vectors ?? []) as S3OutputVector[]) {
+    for (const vector of outputVectorsOf(response.vectors, 'ListVectors', operation, scope)) {
       yielded++;
       yield vector;
     }

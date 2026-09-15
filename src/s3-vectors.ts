@@ -28,6 +28,7 @@ import {
 import { attachInstance } from './shared/errors/decorate.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
+import { wrapAwsError } from './shared/errors/wrap-error.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
 import { assertValidConfig, assertValidIndexConfig, resolveClient } from './shared/validation.js';
 import type {
@@ -516,7 +517,7 @@ export class AmazonS3Vectors extends VectorStore {
     // check explicitly. Only the QueryVectors call after it can be cancelled
     // mid-flight.
     this._checkAborted(operation, signal);
-    const queryVector = await this._getQueryEmbeddings().embedQuery(query);
+    const queryVector = await this._embedQuery(operation, query);
     return await searchByVector({
       client: this._client,
       operation,
@@ -607,7 +608,7 @@ export class AmazonS3Vectors extends VectorStore {
       filter,
       signal,
     );
-    return results.map(([doc, distance]) => [doc, scoreFn(distance)]);
+    return results.map(([doc, distance]) => [doc, this._score(scoreFn, distance)]);
   }
 
   /**
@@ -639,6 +640,14 @@ export class AmazonS3Vectors extends VectorStore {
     signal?: AbortSignal,
   ): Promise<Document[]> {
     rejectSignalInCallbacksSlot('maxMarginalRelevanceSearch', this._scope, callbacks);
+    if (options === undefined || options === null) {
+      throw validationError(
+        'maxMarginalRelevanceSearch',
+        this._scope,
+        'maxMarginalRelevanceSearch requires an options object; `k`, `fetchK` and `lambda` ' +
+          'each have a default, but the argument itself is not optional.',
+      );
+    }
     const k = options.k ?? 4;
     const fetchK = options.fetchK ?? 20;
     const lambda = options.lambda ?? 0.5;
@@ -646,7 +655,7 @@ export class AmazonS3Vectors extends VectorStore {
     // embedQuery has no signal support, so it cannot self-cancel — check
     // before spending a billable, uncancellable call.
     this._checkAborted('maxMarginalRelevanceSearch', signal);
-    const queryVector = await this._getQueryEmbeddings().embedQuery(query);
+    const queryVector = await this._embedQuery('maxMarginalRelevanceSearch', query);
 
     return mmrSearch({
       client: this._client,
@@ -1018,6 +1027,46 @@ export class AmazonS3Vectors extends VectorStore {
       signal,
       ...this._scope,
     });
+  }
+
+  /**
+   * Embed a query, surfacing a provider failure as a coded error.
+   *
+   * The write path has always done this: an `embedDocuments` that throws comes
+   * back as `UNEXPECTED_ERROR`. Every read path let the same failure through
+   * untouched, so the most likely production failure on a read — the embeddings
+   * provider rate-limiting or falling over — was the one a `catch` branching on
+   * `isS3VectorsError` would miss.
+   *
+   * An `EMBEDDINGS_MISSING` raised by the lookup passes through unchanged:
+   * `wrapAwsError` returns an error that is already ours.
+   */
+  private async _embedQuery(operation: string, query: string): Promise<number[]> {
+    try {
+      return await this._getQueryEmbeddings().embedQuery(query);
+    } catch (error: unknown) {
+      throw wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, {
+        operation,
+        ...this._scope,
+      });
+    }
+  }
+
+  /**
+   * Apply the relevance-score conversion, surfacing a failure as a coded error.
+   *
+   * `relevanceScoreFn` is caller-supplied code called once per result, so it
+   * fails the same way any other caller code does and is wrapped the same way.
+   */
+  private _score(scoreFn: (distance: number) => number, distance: number): number {
+    try {
+      return scoreFn(distance);
+    } catch (error: unknown) {
+      throw wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, {
+        operation: 'similaritySearchWithRelevanceScores',
+        ...this._scope,
+      });
+    }
   }
 
   /** Return the query-embedding model, falling back to the indexing model. */

@@ -1,3 +1,4 @@
+import { renderValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import type { DistanceMetric } from '../types.js';
@@ -33,7 +34,7 @@ export function assertVectorDimension(
   if (!Number.isInteger(dimension) || dimension < MIN_DIMENSION || dimension > MAX_DIMENSION) {
     fail(
       `Vector dimension must be an integer between ${MIN_DIMENSION} and ${MAX_DIMENSION} ` +
-        `(received ${String(dimension)}).`,
+        `(received ${renderValue(dimension)}).`,
       operation,
       scope,
     );
@@ -77,7 +78,7 @@ export function assertVectorsWritable(
       if (!Number.isFinite(component)) {
         fail(
           `Vector at index ${i} has a non-finite component at position ${j} ` +
-            `(${String(component)}). S3 Vectors rejects NaN and Infinity.`,
+            `(${renderValue(component)}). S3 Vectors rejects NaN and Infinity.`,
           operation,
           scope,
         );

@@ -5,6 +5,7 @@ import { runBatchesConcurrently } from '../internal/concurrency.js';
 import { embedAndWrite } from '../internal/embed-pipeline.js';
 import {
   assertBatchSize,
+  assertDocumentObjects,
   assertIdsOption,
   assertIsArray,
   validationError,
@@ -82,6 +83,7 @@ function resolveIds(
   count: number,
 ): string[] {
   assertIdsOption(operation, scope, ids);
+  assertDocumentObjects(operation, scope, documents);
   const resolved = resolveWriteIds(documents, ids);
   if (resolved.length !== count) {
     throw validationError(

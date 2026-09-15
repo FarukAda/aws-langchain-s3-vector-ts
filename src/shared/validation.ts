@@ -269,6 +269,16 @@ function assertClientExclusivity(config: AmazonS3VectorsConfig): void {
  * fixing one error does not have to guess which check will fire next.
  */
 export function assertValidConfig(config: AmazonS3VectorsConfig): void {
+  // Before any property of it is read. Every check below dereferences `config`,
+  // and a store assembled at runtime from an empty environment hands us
+  // `undefined` — which surfaced as a raw TypeError from the first check rather
+  // than as this package's own error.
+  if (!isPlainObject(config)) {
+    fail(
+      `The store configuration must be an object (received ${describeValue(config)}). ` +
+        'It must name at least `vectorBucketName` and `indexName`.',
+    );
+  }
   assertEnumMember(config.distanceMetric, Object.values(DistanceMetric), 'distanceMetric');
   assertEnumMember(config.dataType, Object.values(DataType), 'dataType');
   assertPageContentKey(config.pageContentMetadataKey);

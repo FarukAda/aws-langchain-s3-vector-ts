@@ -189,5 +189,9 @@ export function wrapAwsError(
   if (isS3VectorsError(cause)) return cause;
   const diagnostics = awsDiagnostics(cause);
   const message = `${context.operation} failed${describeDiagnostics(diagnostics)}: ${toError(cause).message}`;
-  return new S3VectorsError(message, code, { ...context, ...diagnostics }, cause);
+  // `toError`, not the raw value: the class documents that `cause` is always
+  // an Error when present, so a caller may read `error.cause.message` without
+  // first checking what was actually thrown. A client rejecting with a string,
+  // a number or null is legal JavaScript and made that false.
+  return new S3VectorsError(message, code, { ...context, ...diagnostics }, toError(cause));
 }

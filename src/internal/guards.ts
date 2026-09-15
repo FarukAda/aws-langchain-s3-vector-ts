@@ -1,6 +1,7 @@
+import { describeValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
-import type { StoreScope } from './signals.js';
+import { isAbortSignalLike, type StoreScope } from './signals.js';
 
 /** "Top-K results per QueryVectors request: Up to 10,000" (limits page). */
 const MAX_TOP_K = 10_000;
@@ -50,6 +51,39 @@ export function assertIsArray(
 }
 
 /**
+ * Reject a document that is not an object before any field of it is read.
+ *
+ * Accepts: the resolved document list, already known to be an array.
+ *
+ * Returns: nothing.
+ *
+ * Throws: `VALIDATION`, naming the position.
+ *
+ * Guarantees: runs before `resolveWriteIds`, which reads `doc.id`. A `null` in
+ * the list surfaced there as "Cannot read properties of null (reading 'id')" —
+ * a raw, uncoded escape from a package whose stated guarantee is that every
+ * failure is an `S3VectorsError`.
+ */
+export function assertDocumentObjects(
+  operation: string,
+  scope: StoreScope,
+  documents: readonly unknown[],
+): void {
+  for (let index = 0; index < documents.length; index++) {
+    const document: unknown = documents[index];
+    if (typeof document !== 'object' || document === null) {
+      throw validationError(
+        operation,
+        scope,
+        `Document at index ${index} is not an object (received ${describeValue(document)}). ` +
+          'Every entry must be a Document, or an object with `pageContent` and optional ' +
+          '`metadata`.',
+      );
+    }
+  }
+}
+
+/**
  * Reject a non-array `ids` option before it is ever used as one.
  *
  * Accepts: `undefined` (no ids supplied; accepted) or an array.
@@ -72,21 +106,6 @@ export function assertIdsOption(
   if (ids !== undefined) {
     assertIsArray(operation, scope, 'ids', ids);
   }
-}
-
-/**
- * True for an `AbortSignal`-shaped value.
- *
- * Duck-typed rather than `instanceof`, which is unreliable across realms and
- * banned here. The pair of checks is exact for the population it guards: a
- * `CallbackManager`, a handler array and a `CallbackHandlerMethods` object
- * carry no boolean `aborted`; an `EventTarget` has `addEventListener` but no
- * `aborted`; an `AbortController` has `signal` and `abort`, not `aborted`.
- */
-function isAbortSignalLike(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as { aborted?: unknown; addEventListener?: unknown };
-  return typeof candidate.aborted === 'boolean' && typeof candidate.addEventListener === 'function';
 }
 
 /**

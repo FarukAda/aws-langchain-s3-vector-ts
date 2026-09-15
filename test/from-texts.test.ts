@@ -179,37 +179,30 @@ describe('fromDocuments — partial-write failure', () => {
     expect(instance!.vectorBucketName).toBe(BASE_CONFIG.vectorBucketName);
   });
 
-  it('still attaches the instance when addDocuments throws something this package never wrapped', async () => {
-    // addDocuments validates `documents` is an array up front, and its own
-    // error-wrapping (_checkAborted, the try/catch around embedBatch+putBatch,
-    // _attachPartialIds) starts a few lines later — but `documents.map(...)`
-    // on the very first line after that array check runs before any of the
-    // latter, so an array containing a non-Document element (a realistic
-    // mistake for an untyped JS caller, or a TS caller that casts past the
-    // type system) still throws a raw, un-wrapped TypeError straight into
-    // fromDocuments's catch. This is a genuine, organic trigger for
-    // _attachInstance's UNEXPECTED_ERROR fallback (via
-    // _normalizeToS3VectorsError) — not just a defensive branch for a
-    // hypothetical future regression.
+  it('attaches the instance when a malformed document is refused', async () => {
+    // A non-Document element is a realistic mistake for an untyped caller, or
+    // for a TypeScript caller that casts past the type system. It used to
+    // escape as a raw TypeError from `doc.id`, straight through
+    // `fromDocuments`'s catch and out to the caller as `UNEXPECTED_ERROR`
+    // carrying V8's own wording — which is the defect F-08 records: the
+    // package's stated guarantee is that every failure is coded.
+    //
+    // It is now refused up front, by name and position. What this test still
+    // pins is the part that was always right: the constructed store is
+    // attached either way, so a caller can act on `context.writtenIds` against
+    // the instance the ids were written to.
     const { client } = createMockClient();
 
     const error = await AmazonS3Vectors.fromDocuments(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed element to trigger addDocuments' per-element pre-validation throw
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed element
       [null] as any,
       createMockEmbeddings(),
       { ...BASE_CONFIG, client },
     ).catch((e: unknown) => e);
 
     expect(isS3VectorsError(error)).toBe(true);
-    // UNEXPECTED_ERROR, not AWS_REQUEST_FAILED: nothing about AWS failed
-    // here — documents.map(...) threw before any AWS call was ever made.
-    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
-    // Substring, not an exact match: the tail is V8's own TypeError wording
-    // for the failed `documents.map(...)` call, not this library's text.
-    expect((error as S3VectorsError).message).toContain('fromDocuments failed:');
-    // The real cause must still be attached (not just a generic message
-    // prefix with the original TypeError silently dropped).
-    expect((error as S3VectorsError).cause).toBeInstanceOf(TypeError);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as S3VectorsError).message).toContain('Document at index 0');
     const instance = (error as S3VectorsError).context.instance;
     expect(instance).toBeInstanceOf(AmazonS3Vectors);
   });
