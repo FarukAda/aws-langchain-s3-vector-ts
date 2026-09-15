@@ -6,7 +6,7 @@
 
 # Class: S3VectorsError
 
-Defined in: [shared/errors/s3-vectors-error.ts:169](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L169)
+Defined in: [shared/errors/s3-vectors-error.ts:179](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L179)
 
 The single error type this library surfaces.
 
@@ -24,6 +24,16 @@ recognises them across realms and across the ESM and CommonJS copies of this
 module. `cause` is always an `Error` when present: a caller can read
 `error.cause.message` without checking what was actually thrown.
 
+`code` and `context` are readonly at runtime, not only to TypeScript — defined
+non-writable, with `context` frozen. Both were reassignable, and `context` was
+stored as the caller's own object, so whoever built an error could still
+rewrite what it reported afterwards. An error is a record of something that
+already happened; it is not a place to keep mutable state.
+
+The frozen copy is made from property descriptors rather than by spreading,
+because `context.instance` is deliberately non-enumerable and a spread would
+drop it.
+
 ## Extends
 
 - `Error`
@@ -34,7 +44,7 @@ module. `cause` is always an `Error` when present: a caller can read
 
 > **new S3VectorsError**(`message`, `code`, `context`, `cause?`): `S3VectorsError`
 
-Defined in: [shared/errors/s3-vectors-error.ts:174](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L174)
+Defined in: [shared/errors/s3-vectors-error.ts:184](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L184)
 
 #### Parameters
 
@@ -68,7 +78,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:174](https://github.com/FarukAda/
 
 > `readonly` **\[S3\_VECTORS\_ERROR\_BRAND\]**: `true` = `true`
 
-Defined in: [shared/errors/s3-vectors-error.ts:170](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L170)
+Defined in: [shared/errors/s3-vectors-error.ts:180](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L180)
 
 ***
 
@@ -76,7 +86,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:170](https://github.com/FarukAda/
 
 > `readonly` **code**: [`S3VectorsErrorCode`](../enumerations/S3VectorsErrorCode.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:171](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L171)
+Defined in: [shared/errors/s3-vectors-error.ts:181](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L181)
 
 ***
 
@@ -84,4 +94,4 @@ Defined in: [shared/errors/s3-vectors-error.ts:171](https://github.com/FarukAda/
 
 > `readonly` **context**: [`S3VectorsErrorContext`](../interfaces/S3VectorsErrorContext.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:172](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L172)
+Defined in: [shared/errors/s3-vectors-error.ts:182](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L182)

@@ -185,7 +185,7 @@ export function createHarness(
     indexName: 'test-index',
     ...ambient.config,
     ...overrides,
-    client: client as unknown as AmazonS3VectorsConfig['client'],
+    client: client as unknown as NonNullable<AmazonS3VectorsConfig['client']>,
   });
 
   return {

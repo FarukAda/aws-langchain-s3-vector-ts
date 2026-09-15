@@ -220,34 +220,6 @@ Defined in: [s3-vectors.ts:132](https://github.com/FarukAda/aws-langchain-s3-vec
 
 ## Methods
 
-### \_selectRelevanceScoreFn()
-
-> **\_selectRelevanceScoreFn**(): (`distance`) => `number`
-
-Defined in: [s3-vectors.ts:1042](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1042)
-
-**`Internal`**
-
-The distance-to-relevance conversion this store uses.
-
- Called by `@langchain/core`'s
-`similaritySearchWithRelevanceScores`, not by application code.
-
-#### Returns
-
-The configured `relevanceScoreFn`, else `cosineRelevanceScoreFn`
-for a cosine index
-
-(`distance`) => `number`
-
-#### Throws
-
-`VALIDATION` for a euclidean index with no
-`relevanceScoreFn`: euclidean distance is unbounded above, so there is no
-correct fixed conversion to fall back to.
-
-***
-
 ### \_vectorstoreType()
 
 > **\_vectorstoreType**(): `string`

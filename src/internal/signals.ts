@@ -71,6 +71,27 @@ function assertSignal(
 }
 
 /**
+ * The per-request options to hand `client.send`.
+ *
+ * Accepts: the signal this operation was given, or `undefined`.
+ *
+ * Returns: `{ abortSignal: signal }` when there is one, and an empty object when
+ * there is not — rather than `{ abortSignal: undefined }`.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: the property is absent rather than present-and-undefined. The
+ * SDK's `HttpHandlerOptions` declares `abortSignal` as optional but not
+ * `undefined`-valued, so handing it an explicit `undefined` is a type error under
+ * `exactOptionalPropertyTypes` — a flag this package claimed to build under and
+ * did not. Stating the distinction once here is better than seven conditional
+ * spreads at the call sites, all of which would have to agree.
+ */
+export function sendOptions(signal: AbortSignal | undefined): { abortSignal?: AbortSignal } {
+  return signal === undefined ? {} : { abortSignal: signal };
+}
+
+/**
  * Throw `ABORTED` if `signal` has already fired.
  *
  * Accepts:

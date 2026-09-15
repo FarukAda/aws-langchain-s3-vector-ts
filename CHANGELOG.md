@@ -23,6 +23,37 @@ identically, and the wire format is untouched.
 
 ### Breaking
 
+- **Every internal is a `#private` field or method.** TypeScript's `private` is
+  erased, so `_client`, `_lifecycle`, `_queryEmbeddings`, `_nonFilterableKeys`,
+  `_relevanceScoreFn` and the private methods were all ordinary runtime members:
+  enumerable own properties or prototype entries, reachable by anyone who
+  looked. README claimed the store "never keeps `credentials` or the SDK
+  `client` in any enumerable field", which was not true of `_client`. It is now,
+  by construction rather than by care.
+
+- **`_selectRelevanceScoreFn` is gone from the runtime surface.** It carried
+  `@internal` and `stripInternal`, so it was absent from the published `.d.ts`
+  while remaining callable — and its own comment said `@langchain/core` calls it,
+  which core does not: this package's own `similaritySearchWithRelevanceScores`
+  does. It is `#private`, and typedoc no longer documents a method consumers
+  cannot see in the types.
+
+- **`error.code` and `error.context` are readonly at runtime,** which the class
+  has always documented and did not enforce. Both were reassignable, and
+  `context` was stored as the caller's own object, so whoever built an error
+  could rewrite what it reported afterwards. The context is now a frozen copy,
+  made from property descriptors so the deliberately non-enumerable
+  `context.instance` survives it.
+
+- **`exactOptionalPropertyTypes` and `noImplicitOverride` are on.** The README
+  described this package as built under strict TypeScript; `tsconfig.json`
+  explicitly disabled the first. Turning them on surfaced sixteen places handing
+  an explicit `undefined` to a property typed as optional-but-not-undefined —
+  every AWS `send` call's `abortSignal` among them — which is now a `sendOptions`
+  helper that omits the property instead. Consumer-visible only in that the
+  published types are stricter, and a consumer building under the same flag no
+  longer has to work around them.
+
 - **`delete` validates its ids the way a write does,** locally, before any
   request: a `null`, an empty string, a number, an over-long key or a repeated
   key is now refused rather than forwarded. All of them are refused by AWS too,

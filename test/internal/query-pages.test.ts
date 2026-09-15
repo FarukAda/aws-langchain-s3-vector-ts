@@ -208,7 +208,7 @@ describe('queryPages', () => {
       const odd = new S3VectorsError('boom', S3VectorsErrorCode.AWS_REQUEST_FAILED, {
         operation: 'similaritySearch',
       });
-      odd.stack = stack;
+      (odd as { stack: string | undefined }).stack = stack;
       mock.on(QueryVectorsCommand).resolvesOnce(page(1, 't1')).rejects(odd);
 
       const error = await run().catch((e: unknown) => e);

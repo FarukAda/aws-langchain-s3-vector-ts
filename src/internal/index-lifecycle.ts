@@ -14,7 +14,7 @@ import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { DistanceMetric, VectorDataType } from '../types.js';
-import { checkAborted, raceAbort } from './signals.js';
+import { checkAborted, raceAbort, sendOptions } from './signals.js';
 
 /** The client and the index a lifecycle call acts on. */
 export interface IndexContext {
@@ -126,7 +126,7 @@ export async function describeIndex(
         vectorBucketName: ctx.vectorBucketName,
         indexName: ctx.indexName,
       }),
-      { abortSignal: signal },
+      sendOptions(signal),
     );
     const keys = nonFilterableKeysOf(response);
     return keys === undefined ? { exists: true } : { exists: true, nonFilterableKeys: keys };
@@ -555,7 +555,7 @@ export function createIndexLifecycle(
             vectorBucketName: ctx.vectorBucketName,
             indexName: ctx.indexName,
           }),
-          { abortSignal: signal },
+          sendOptions(signal),
         );
       } catch (error: unknown) {
         if (!isAwsNotFoundException(error)) {

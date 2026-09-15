@@ -165,11 +165,21 @@ const S3_VECTORS_ERROR_BRAND = Symbol.for('@farukada/aws-langchain-s3-vector-ts:
  * recognises them across realms and across the ESM and CommonJS copies of this
  * module. `cause` is always an `Error` when present: a caller can read
  * `error.cause.message` without checking what was actually thrown.
+ *
+ * `code` and `context` are readonly at runtime, not only to TypeScript — defined
+ * non-writable, with `context` frozen. Both were reassignable, and `context` was
+ * stored as the caller's own object, so whoever built an error could still
+ * rewrite what it reported afterwards. An error is a record of something that
+ * already happened; it is not a place to keep mutable state.
+ *
+ * The frozen copy is made from property descriptors rather than by spreading,
+ * because `context.instance` is deliberately non-enumerable and a spread would
+ * drop it.
  */
 export class S3VectorsError extends Error {
   readonly [S3_VECTORS_ERROR_BRAND] = true;
-  readonly code: S3VectorsErrorCode;
-  readonly context: S3VectorsErrorContext;
+  declare readonly code: S3VectorsErrorCode;
+  declare readonly context: S3VectorsErrorContext;
 
   constructor(
     message: string,
@@ -179,8 +189,30 @@ export class S3VectorsError extends Error {
   ) {
     super(message, cause === undefined ? undefined : { cause });
     this.name = 'S3VectorsError';
-    this.code = code;
-    this.context = context;
+
+    // Descriptors, not a spread: `context.instance` is non-enumerable on purpose
+    // so it stays out of logs, and spreading would drop it. `?? {}` guards only
+    // against a nullish context, which would make `getOwnPropertyDescriptors`
+    // throw from inside a constructor that is itself reporting a failure.
+    const frozen = Object.freeze(
+      Object.defineProperties({}, Object.getOwnPropertyDescriptors(context ?? {})),
+    ) as S3VectorsErrorContext;
+
+    // Enumerable, as class fields were, so `{ ...error }` and a structured
+    // logger still see them — but not writable, which is what the contract above
+    // has always said.
+    Object.defineProperty(this, 'code', {
+      value: code,
+      enumerable: true,
+      writable: false,
+      configurable: false,
+    });
+    Object.defineProperty(this, 'context', {
+      value: frozen,
+      enumerable: true,
+      writable: false,
+      configurable: false,
+    });
   }
 }
 

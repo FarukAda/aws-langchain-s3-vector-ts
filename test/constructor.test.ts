@@ -3,7 +3,11 @@ import { describe, it, expect, jest } from '@jest/globals';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
+import { resolveClient } from '../src/shared/validation.js';
 import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+
+/** The bucket and index any error from `resolveClient` should name. */
+const SCOPE = { vectorBucketName: BASE_CONFIG.vectorBucketName, indexName: BASE_CONFIG.indexName };
 
 describe('AmazonS3Vectors constructor', () => {
   it('stores config properties with defaults', () => {
@@ -151,15 +155,22 @@ describe('AmazonS3Vectors constructor — client validation', () => {
     });
 
     expect(store).toBeInstanceOf(AmazonS3Vectors);
-    expect((store as unknown as { _client: unknown })._client).toBeInstanceOf(S3VectorsClient);
+    // Asked of `resolveClient`, which is the function that decides it. The store
+    // keeps its client in a `#private` field, so there is nothing to reach into —
+    // which is the point of F-21, and means this has to be tested where the
+    // decision is made.
+    expect(
+      resolveClient({ ...BASE_CONFIG, client: null as never, region: 'us-east-1' }, SCOPE),
+    ).toBeInstanceOf(S3VectorsClient);
   });
 
   it('adopts a real S3VectorsClient unchanged', () => {
     const { client } = createMockClient();
 
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
-
-    expect((store as unknown as { _client: unknown })._client).toBe(client);
+    expect(new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client })).toBeInstanceOf(
+      AmazonS3Vectors,
+    );
+    expect(resolveClient({ ...BASE_CONFIG, client }, SCOPE)).toBe(client);
   });
 
   it('accepts a subclass of S3VectorsClient', () => {
@@ -169,9 +180,10 @@ describe('AmazonS3Vectors constructor — client validation', () => {
     class TracingS3VectorsClient extends S3VectorsClient {}
     const client = new TracingS3VectorsClient({ region: 'us-east-1' });
 
-    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
-
-    expect((store as unknown as { _client: unknown })._client).toBe(client);
+    expect(new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client })).toBeInstanceOf(
+      AmazonS3Vectors,
+    );
+    expect(resolveClient({ ...BASE_CONFIG, client }, SCOPE)).toBe(client);
   });
 
   it('emits no log output during construction', () => {

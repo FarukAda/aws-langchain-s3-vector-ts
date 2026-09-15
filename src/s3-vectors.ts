@@ -125,7 +125,7 @@ export class AmazonS3Vectors extends VectorStore {
    * it explicitly keeps that true even if the upstream default ever
    * changes; a regression test asserts no client internals serialize.
    */
-  lc_serializable = false;
+  override lc_serializable = false;
 
   // ── Config ────────────────────────────────────────────────────────────
 
@@ -140,9 +140,9 @@ export class AmazonS3Vectors extends VectorStore {
   readonly tags: Record<string, string> | undefined;
   readonly maxConcurrentBatchCalls: number;
 
-  private readonly _relevanceScoreFn: ((distance: number) => number) | undefined;
-  private readonly _queryEmbeddings: EmbeddingsInterface | undefined;
-  private readonly _client: S3VectorsClient;
+  readonly #relevanceScoreFn: ((distance: number) => number) | undefined;
+  readonly #queryEmbeddings: EmbeddingsInterface | undefined;
+  readonly #client: S3VectorsClient;
 
   /**
    * Existence tracking for this store's index. Owns the shared
@@ -150,17 +150,17 @@ export class AmazonS3Vectors extends VectorStore {
    * never its dimension or metric, because nothing asks: AWS enforces the
    * dimension on every write and the metric is checked on every read.
    */
-  private readonly _lifecycle: IndexLifecycle;
+  readonly #lifecycle: IndexLifecycle;
 
   /**
    * The index's non-filterable keys, merged with the page-content key exactly
    * as index creation merges them, so the filterable-byte budget is measured
    * against the same set the index was built with.
    */
-  private readonly _nonFilterableKeys: readonly string[];
+  readonly #nonFilterableKeys: readonly string[];
 
   /** The bucket and index every error names. */
-  private get _scope(): { vectorBucketName: string; indexName: string } {
+  get #scope(): { vectorBucketName: string; indexName: string } {
     return { vectorBucketName: this.vectorBucketName, indexName: this.indexName };
   }
 
@@ -237,12 +237,12 @@ export class AmazonS3Vectors extends VectorStore {
     if (!Number.isInteger(this.maxConcurrentBatchCalls) || this.maxConcurrentBatchCalls <= 0) {
       throw validationError(
         'constructor',
-        this._scope,
+        this.#scope,
         `config.maxConcurrentBatchCalls must be a positive integer (received ${renderValue(config.maxConcurrentBatchCalls)}).`,
       );
     }
-    this._relevanceScoreFn = config.relevanceScoreFn;
-    this._queryEmbeddings = config.queryEmbeddings;
+    this.#relevanceScoreFn = config.relevanceScoreFn;
+    this.#queryEmbeddings = config.queryEmbeddings;
 
     // A value check on config.serviceId, not a prototype-chain check —
     // survives a bundler duplicating @aws-sdk/client-s3vectors across a
@@ -264,18 +264,18 @@ export class AmazonS3Vectors extends VectorStore {
     // credential chain and default region — so a caller who passed an
     // explicit but wrong client could silently read and write against a
     // different AWS account or region than they intended.
-    this._client = resolveClient(config, this._scope);
+    this.#client = resolveClient(config, this.#scope);
 
-    this._nonFilterableKeys = nonFilterableKeys({
+    this.#nonFilterableKeys = nonFilterableKeys({
       dataType: this.dataType,
       distanceMetric: this.distanceMetric,
       pageContentMetadataKey: this.pageContentMetadataKey,
       nonFilterableMetadataKeys: this.nonFilterableMetadataKeys,
     });
 
-    this._lifecycle = createIndexLifecycle(
+    this.#lifecycle = createIndexLifecycle(
       {
-        client: this._client,
+        client: this.#client,
         vectorBucketName: this.vectorBucketName,
         indexName: this.indexName,
       },
@@ -341,8 +341,8 @@ export class AmazonS3Vectors extends VectorStore {
     documents: DocumentInterface[],
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
-    assertOptionsBag('addVectors', this._scope, options);
-    this._checkAborted('addVectors', options?.signal);
+    assertOptionsBag('addVectors', this.#scope, options);
+    this.#checkAborted('addVectors', options?.signal);
     return await addVectors({
       vectors,
       documents,
@@ -350,8 +350,8 @@ export class AmazonS3Vectors extends VectorStore {
       batchSize: options?.batchSize,
       maxConcurrent: this.maxConcurrentBatchCalls,
       signal: options?.signal,
-      putBatch: this._putBatch.bind(this),
-      ...this._scope,
+      putBatch: this.#putBatch.bind(this),
+      ...this.#scope,
     });
   }
 
@@ -415,9 +415,9 @@ export class AmazonS3Vectors extends VectorStore {
       batchSize: options?.batchSize,
       maxConcurrent: this.maxConcurrentBatchCalls,
       signal: options?.signal,
-      embeddings: this._getIndexEmbeddings(),
-      putBatch: this._putBatch.bind(this),
-      ...this._scope,
+      embeddings: this.#getIndexEmbeddings(),
+      putBatch: this.#putBatch.bind(this),
+      ...this.#scope,
     });
   }
 
@@ -447,7 +447,7 @@ export class AmazonS3Vectors extends VectorStore {
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
     return await searchByVector({
-      client: this._client,
+      client: this.#client,
       operation: 'similaritySearchVectorWithScore',
       distanceMetric: this.distanceMetric,
       queryVector: query,
@@ -455,7 +455,7 @@ export class AmazonS3Vectors extends VectorStore {
       filter,
       pageContentMetadataKey: this.pageContentMetadataKey,
       signal,
-      ...this._scope,
+      ...this.#scope,
     });
   }
 
@@ -483,7 +483,7 @@ export class AmazonS3Vectors extends VectorStore {
    * callbacks slot — all before the billable `embedQuery`; otherwise whatever
    * {@link similaritySearchVectorWithScore} raises.
    */
-  async similaritySearchWithScore(
+  override async similaritySearchWithScore(
     query: string,
     k = 4,
     filter?: this['FilterType'],
@@ -496,8 +496,8 @@ export class AmazonS3Vectors extends VectorStore {
     // not cost an embedding round trip before failing. _validateFilter runs
     // again inside _queryVectors for the direct-vector entry points;
     // running it twice here is free.
-    rejectSignalInCallbacksSlot('similaritySearchWithScore', this._scope, _callbacks);
-    return await this._textSearch('similaritySearchWithScore', query, k, filter, signal);
+    rejectSignalInCallbacksSlot('similaritySearchWithScore', this.#scope, _callbacks);
+    return await this.#textSearch('similaritySearchWithScore', query, k, filter, signal);
   }
 
   /**
@@ -516,7 +516,7 @@ export class AmazonS3Vectors extends VectorStore {
    * for an already-fired signal — all before `embedQuery`, which is billable
    * and cannot be cancelled; otherwise whatever the vector search raises.
    */
-  private async _textSearch(
+  async #textSearch(
     operation: string,
     query: string,
     k: number,
@@ -527,16 +527,16 @@ export class AmazonS3Vectors extends VectorStore {
     // uncancellable — embedQuery call: an invalid k, an invalid filter, or a
     // signal that already fired should not cost an embedding round trip
     // before failing.
-    assertK(operation, this._scope, k);
-    validateFilter(filter, operation, this._scope);
+    assertK(operation, this.#scope, k);
+    validateFilter(filter, operation, this.#scope);
     // embedQuery has no signal support (LangChain's EmbeddingsInterface
     // doesn't accept one), so it can't self-cancel the way an AWS call does —
     // check explicitly. Only the QueryVectors call after it can be cancelled
     // mid-flight.
-    this._checkAborted(operation, signal);
-    const queryVector = await this._embedQuery(operation, query);
+    this.#checkAborted(operation, signal);
+    const queryVector = await this.#embedQuery(operation, query);
     return await searchByVector({
-      client: this._client,
+      client: this.#client,
       operation,
       distanceMetric: this.distanceMetric,
       queryVector,
@@ -544,7 +544,7 @@ export class AmazonS3Vectors extends VectorStore {
       filter,
       pageContentMetadataKey: this.pageContentMetadataKey,
       signal,
-      ...this._scope,
+      ...this.#scope,
     });
   }
 
@@ -567,7 +567,7 @@ export class AmazonS3Vectors extends VectorStore {
    * raises; this adds no failure of its own beyond rejecting a signal in the
    * callbacks slot.
    */
-  async similaritySearch(
+  override async similaritySearch(
     query: string,
     k = 4,
     filter?: this['FilterType'],
@@ -577,8 +577,8 @@ export class AmazonS3Vectors extends VectorStore {
     // Checked here as well as in the delegate: this forwards `undefined`
     // into that slot, so the delegate's own check can never see what this
     // caller actually passed.
-    rejectSignalInCallbacksSlot('similaritySearch', this._scope, _callbacks);
-    return (await this._textSearch('similaritySearch', query, k, filter, signal)).map(
+    rejectSignalInCallbacksSlot('similaritySearch', this.#scope, _callbacks);
+    return (await this.#textSearch('similaritySearch', query, k, filter, signal)).map(
       ([doc]) => doc,
     );
   }
@@ -616,16 +616,16 @@ export class AmazonS3Vectors extends VectorStore {
     callbacks?: Callbacks,
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
-    rejectSignalInCallbacksSlot('similaritySearchWithRelevanceScores', this._scope, callbacks);
-    const scoreFn = this._selectRelevanceScoreFn();
-    const results = await this._textSearch(
+    rejectSignalInCallbacksSlot('similaritySearchWithRelevanceScores', this.#scope, callbacks);
+    const scoreFn = this.#selectRelevanceScoreFn();
+    const results = await this.#textSearch(
       'similaritySearchWithRelevanceScores',
       query,
       k,
       filter,
       signal,
     );
-    return results.map(([doc, distance]) => [doc, this._score(scoreFn, distance)]);
+    return results.map(([doc, distance]) => [doc, this.#score(scoreFn, distance)]);
   }
 
   /**
@@ -650,17 +650,17 @@ export class AmazonS3Vectors extends VectorStore {
    * @throws {S3VectorsError} `VALIDATION` for `k`, `fetchK` or `lambda`, before
    * the billable `embedQuery`; otherwise whatever the search and fetch raise.
    */
-  async maxMarginalRelevanceSearch(
+  override async maxMarginalRelevanceSearch(
     query: string,
     options: MaxMarginalRelevanceSearchOptions<this['FilterType']>,
     callbacks?: Callbacks,
     signal?: AbortSignal,
   ): Promise<Document[]> {
-    rejectSignalInCallbacksSlot('maxMarginalRelevanceSearch', this._scope, callbacks);
+    rejectSignalInCallbacksSlot('maxMarginalRelevanceSearch', this.#scope, callbacks);
     if (options === undefined || options === null) {
       throw validationError(
         'maxMarginalRelevanceSearch',
-        this._scope,
+        this.#scope,
         'maxMarginalRelevanceSearch requires an options object; `k`, `fetchK` and `lambda` ' +
           'each have a default, but the argument itself is not optional.',
       );
@@ -673,16 +673,16 @@ export class AmazonS3Vectors extends VectorStore {
     // them first, but the store calls it *after* embedding — so an impossible
     // `k` cost a billable, uncancellable round trip before failing, which is
     // exactly what this method's own documentation promised it would not.
-    assertMmrParameters(k, fetchK, lambda, 'maxMarginalRelevanceSearch', this._scope);
-    validateFilter(options.filter, 'maxMarginalRelevanceSearch', this._scope);
+    assertMmrParameters(k, fetchK, lambda, 'maxMarginalRelevanceSearch', this.#scope);
+    validateFilter(options.filter, 'maxMarginalRelevanceSearch', this.#scope);
 
     // embedQuery has no signal support, so it cannot self-cancel — check
     // before spending a billable, uncancellable call.
-    this._checkAborted('maxMarginalRelevanceSearch', signal);
-    const queryVector = await this._embedQuery('maxMarginalRelevanceSearch', query);
+    this.#checkAborted('maxMarginalRelevanceSearch', signal);
+    const queryVector = await this.#embedQuery('maxMarginalRelevanceSearch', query);
 
     return mmrSearch({
-      client: this._client,
+      client: this.#client,
       operation: 'maxMarginalRelevanceSearch',
       distanceMetric: this.distanceMetric,
       queryVector,
@@ -693,7 +693,7 @@ export class AmazonS3Vectors extends VectorStore {
       pageContentMetadataKey: this.pageContentMetadataKey,
       maxConcurrent: this.maxConcurrentBatchCalls,
       signal,
-      ...this._scope,
+      ...this.#scope,
     });
   }
 
@@ -724,12 +724,12 @@ export class AmazonS3Vectors extends VectorStore {
    * outside 1–500; `ABORTED` for a fired signal; otherwise the class the
    * `DeleteVectors` failure maps to, carrying `context.deletedIds`.
    */
-  async delete(params: S3VectorsDeleteParams): Promise<void> {
+  override async delete(params: S3VectorsDeleteParams): Promise<void> {
     await deleteVectors({
-      client: this._client,
+      client: this.#client,
       ...(params as { ids: string[] }),
       maxConcurrent: this.maxConcurrentBatchCalls,
-      ...this._scope,
+      ...this.#scope,
     });
   }
 
@@ -762,7 +762,7 @@ export class AmazonS3Vectors extends VectorStore {
    * the `DeleteIndex` failure maps to. A missing index is not a failure.
    */
   async deleteIndex(options?: S3VectorsDeleteIndexParams): Promise<void> {
-    await this._lifecycle.deleteIndex(options?.signal, 'deleteIndex');
+    await this.#lifecycle.deleteIndex(options?.signal, 'deleteIndex');
   }
 
   /**
@@ -800,13 +800,13 @@ export class AmazonS3Vectors extends VectorStore {
     options?: { batchSize?: number; signal?: AbortSignal },
   ): Promise<(Document | undefined)[]> {
     return await getByIds({
-      client: this._client,
+      client: this.#client,
       ids,
       batchSize: options?.batchSize,
       maxConcurrent: this.maxConcurrentBatchCalls,
       pageContentMetadataKey: this.pageContentMetadataKey,
       signal: options?.signal,
-      ...this._scope,
+      ...this.#scope,
     });
   }
 
@@ -841,12 +841,12 @@ export class AmazonS3Vectors extends VectorStore {
    */
   listDocuments(options?: S3VectorsListParams): AsyncGenerator<Document> {
     return listDocuments({
-      client: this._client,
+      client: this.#client,
       operation: 'listDocuments',
       pageContentMetadataKey: this.pageContentMetadataKey,
       pageSize: options?.pageSize,
       signal: options?.signal,
-      ...this._scope,
+      ...this.#scope,
     });
   }
 
@@ -876,12 +876,12 @@ export class AmazonS3Vectors extends VectorStore {
    */
   listVectors(options?: S3VectorsListParams): AsyncGenerator<S3VectorsRecord> {
     return listVectors({
-      client: this._client,
+      client: this.#client,
       operation: 'listVectors',
       pageContentMetadataKey: this.pageContentMetadataKey,
       pageSize: options?.pageSize,
       signal: options?.signal,
-      ...this._scope,
+      ...this.#scope,
     });
   }
 
@@ -941,7 +941,7 @@ export class AmazonS3Vectors extends VectorStore {
    * {@link fromDocuments} raises, including the constructed instance on
    * `context.instance`.
    */
-  static async fromTexts(
+  static override async fromTexts(
     texts: string[],
     metadatas: Record<string, unknown>[] | Record<string, unknown>,
     embeddings: EmbeddingsInterface,
@@ -1007,7 +1007,7 @@ export class AmazonS3Vectors extends VectorStore {
    * can act on `context.writtenIds` without reconstructing an equivalent
    * instance from the same embeddings/config.
    */
-  static async fromDocuments(
+  static override async fromDocuments(
     docs: DocumentInterface[],
     embeddings: EmbeddingsInterface,
     config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number; signal?: AbortSignal },
@@ -1015,12 +1015,14 @@ export class AmazonS3Vectors extends VectorStore {
     const instance = new AmazonS3Vectors(embeddings, config);
     try {
       await instance.addDocuments(docs, {
-        ids: config.ids,
-        batchSize: config.batchSize,
-        signal: config.signal,
+        // Omitted rather than passed as `undefined`, so the options bag says
+        // "not given" the way an absent property does.
+        ...(config.ids === undefined ? {} : { ids: config.ids }),
+        ...(config.batchSize === undefined ? {} : { batchSize: config.batchSize }),
+        ...(config.signal === undefined ? {} : { signal: config.signal }),
       });
     } catch (error: unknown) {
-      throw attachInstance(error, 'fromDocuments', instance._scope, instance);
+      throw attachInstance(error, 'fromDocuments', instance.#scope, instance);
     }
     return instance;
   }
@@ -1039,14 +1041,14 @@ export class AmazonS3Vectors extends VectorStore {
    * `relevanceScoreFn`: euclidean distance is unbounded above, so there is no
    * correct fixed conversion to fall back to.
    */
-  _selectRelevanceScoreFn(): (distance: number) => number {
-    return selectRelevanceScoreFn(this.distanceMetric, this._scope, this._relevanceScoreFn);
+  #selectRelevanceScoreFn(): (distance: number) => number {
+    return selectRelevanceScoreFn(this.distanceMetric, this.#scope, this.#relevanceScoreFn);
   }
 
   // ── Private helpers ───────────────────────────────────────────────────
 
   /** Bind this store's configuration to one {@link putBatch} call. */
-  private _putBatch(
+  #putBatch(
     operation: string,
     batchOffset: number,
     vectors: number[][],
@@ -1055,7 +1057,7 @@ export class AmazonS3Vectors extends VectorStore {
     signal?: AbortSignal,
   ): Promise<void> {
     return putBatch({
-      client: this._client,
+      client: this.#client,
       operation,
       batchOffset,
       vectors,
@@ -1063,15 +1065,15 @@ export class AmazonS3Vectors extends VectorStore {
       ids,
       distanceMetric: this.distanceMetric,
       pageContentMetadataKey: this.pageContentMetadataKey,
-      nonFilterableKeys: this._nonFilterableKeys,
+      nonFilterableKeys: this.#nonFilterableKeys,
       ensureIndex: this.createIndexIfNotExist
-        ? (dimension, abort) => this._lifecycle.ensureExists(dimension, abort, operation)
+        ? (dimension, abort) => this.#lifecycle.ensureExists(dimension, abort, operation)
         : undefined,
       onIndexAbsent: () => {
-        this._lifecycle.markAbsent();
+        this.#lifecycle.markAbsent();
       },
       signal,
-      ...this._scope,
+      ...this.#scope,
     });
   }
 
@@ -1087,13 +1089,13 @@ export class AmazonS3Vectors extends VectorStore {
    * An `EMBEDDINGS_MISSING` raised by the lookup passes through unchanged:
    * `wrapAwsError` returns an error that is already ours.
    */
-  private async _embedQuery(operation: string, query: string): Promise<number[]> {
+  async #embedQuery(operation: string, query: string): Promise<number[]> {
     try {
-      return await this._getQueryEmbeddings().embedQuery(query);
+      return await this.#getQueryEmbeddings().embedQuery(query);
     } catch (error: unknown) {
       throw wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, {
         operation,
-        ...this._scope,
+        ...this.#scope,
       });
     }
   }
@@ -1104,20 +1106,20 @@ export class AmazonS3Vectors extends VectorStore {
    * `relevanceScoreFn` is caller-supplied code called once per result, so it
    * fails the same way any other caller code does and is wrapped the same way.
    */
-  private _score(scoreFn: (distance: number) => number, distance: number): number {
+  #score(scoreFn: (distance: number) => number, distance: number): number {
     try {
       return scoreFn(distance);
     } catch (error: unknown) {
       throw wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, {
         operation: 'similaritySearchWithRelevanceScores',
-        ...this._scope,
+        ...this.#scope,
       });
     }
   }
 
   /** Return the query-embedding model, falling back to the indexing model. */
-  private _getQueryEmbeddings(): EmbeddingsInterface {
-    const emb = this._queryEmbeddings ?? this.embeddings;
+  #getQueryEmbeddings(): EmbeddingsInterface {
+    const emb = this.#queryEmbeddings ?? this.embeddings;
     if (isStubEmbeddings(emb)) {
       throw new S3VectorsError(
         'No embedding model available for queries. ' +
@@ -1130,7 +1132,7 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /** Return the indexing-embedding model, throwing a coded error if none is configured. */
-  private _getIndexEmbeddings(): EmbeddingsInterface {
+  #getIndexEmbeddings(): EmbeddingsInterface {
     if (isStubEmbeddings(this.embeddings)) {
       throw new S3VectorsError(
         'No embedding model configured for indexing. Provide `embeddings` in the config.',
@@ -1151,7 +1153,7 @@ export class AmazonS3Vectors extends VectorStore {
    * documents), so an aborted operation doesn't pay for one more expensive,
    * uncancellable call it no longer needs.
    */
-  private _checkAborted(operation: string, signal: AbortSignal | undefined): void {
+  #checkAborted(operation: string, signal: AbortSignal | undefined): void {
     checkAborted(operation, signal, {
       vectorBucketName: this.vectorBucketName,
       indexName: this.indexName,

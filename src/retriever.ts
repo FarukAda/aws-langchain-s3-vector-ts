@@ -75,8 +75,14 @@ export class AmazonS3VectorsRetriever<
     return 'AmazonS3VectorsRetriever';
   }
 
-  /** The field signal: threaded into every AWS request this retriever makes. */
-  readonly signal?: AbortSignal;
+  /**
+   * The field signal: threaded into every AWS request this retriever makes.
+   *
+   * Explicitly `| undefined`, not merely optional: a retriever built without one
+   * assigns `undefined` here, which `exactOptionalPropertyTypes` distinguishes
+   * from the property being absent.
+   */
+  readonly signal?: AbortSignal | undefined;
 
   /**
    * @param fields - Everything core's `VectorStoreRetriever` takes, plus
@@ -92,7 +98,7 @@ export class AmazonS3VectorsRetriever<
   }
 
   /** The bucket and index this retriever's errors name. */
-  private get _scope(): StoreScope {
+  get #scope(): StoreScope {
     return {
       vectorBucketName: this.vectorStore.vectorBucketName,
       indexName: this.vectorStore.indexName,
@@ -120,7 +126,7 @@ export class AmazonS3VectorsRetriever<
       async () => await super.invoke(input, options),
       options?.signal,
       'retriever.invoke',
-      this._scope,
+      this.#scope,
     );
   }
 
@@ -143,7 +149,15 @@ export class AmazonS3VectorsRetriever<
     if (this.searchType === 'mmr') {
       return await this.vectorStore.maxMarginalRelevanceSearch(
         query,
-        { k: this.k, filter: this.filter, ...this.searchKwargs },
+        {
+          k: this.k,
+          // Omitted rather than passed as `undefined`: core types `filter` as
+          // optional but not `undefined`-valued, so handing it one is a type
+          // error under `exactOptionalPropertyTypes` — and "no filter" is what
+          // absence already means.
+          ...(this.filter === undefined ? {} : { filter: this.filter }),
+          ...this.searchKwargs,
+        },
         child,
         this.signal,
       );
@@ -176,25 +190,37 @@ export function createRetriever<V extends AmazonS3Vectors>(
 ): AmazonS3VectorsRetriever<V> {
   const fields: AmazonS3VectorsRetrieverFields<V> =
     typeof kOrFields === 'number' || kOrFields === undefined ? {} : kOrFields;
+  // Resolved first, so the object below reads as one rule per option rather than
+  // a ternary per line.
+  const k = typeof kOrFields === 'number' ? kOrFields : fields.k;
+  const resolvedFilter: V['FilterType'] | undefined = fields.filter ?? filter;
+  const resolvedCallbacks = fields.callbacks ?? callbacks;
+  const resolvedMetadata = fields.metadata ?? metadata;
+  const resolvedVerbose = fields.verbose ?? verbose;
+
   const common = {
     vectorStore: store,
-    k: typeof kOrFields === 'number' ? kOrFields : fields.k,
-    filter: fields.filter ?? filter,
     // The store type is appended rather than replacing the caller's tags,
     // matching core (`@langchain/core@1.2.11` `dist/vectorstores.js`
     // `asRetriever`), so tracing keeps identifying the backend.
     tags: [...(fields.tags ?? tags ?? []), store._vectorstoreType()],
-    metadata: fields.metadata ?? metadata,
-    verbose: fields.verbose ?? verbose,
-    callbacks: fields.callbacks ?? callbacks,
-    signal: fields.signal,
+    // Each option is omitted rather than set to `undefined`. Core declares them
+    // optional but not `undefined`-valued, so handing one an explicit undefined
+    // is a type error under `exactOptionalPropertyTypes` — and absence is what
+    // passing undefined was trying to say anyway.
+    ...(k === undefined ? {} : { k }),
+    ...(resolvedFilter === undefined ? {} : { filter: resolvedFilter }),
+    ...(resolvedCallbacks === undefined ? {} : { callbacks: resolvedCallbacks }),
+    ...(resolvedMetadata === undefined ? {} : { metadata: resolvedMetadata }),
+    ...(resolvedVerbose === undefined ? {} : { verbose: resolvedVerbose }),
+    ...(fields.signal === undefined ? {} : { signal: fields.signal }),
   };
 
   return fields.searchType === 'mmr'
     ? new AmazonS3VectorsRetriever<V>({
         ...common,
         searchType: 'mmr',
-        searchKwargs: fields.searchKwargs,
+        ...(fields.searchKwargs === undefined ? {} : { searchKwargs: fields.searchKwargs }),
       })
     : new AmazonS3VectorsRetriever<V>({ ...common, searchType: 'similarity' });
 }

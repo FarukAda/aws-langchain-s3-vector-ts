@@ -6,6 +6,7 @@ import { cosineRelevanceScoreFn } from '../src/relevance-scores.js';
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
+import type { AmazonS3VectorsConfig } from '../src/types.js';
 import { BASE_CONFIG, createMockClient, createMockEmbeddings, createTestStore } from './helpers.js';
 
 /**
@@ -306,33 +307,47 @@ describe('AmazonS3Vectors.similaritySearchWithRelevanceScores', () => {
     expectDefaultsTopKTo4((store) => store.similaritySearchWithRelevanceScores('q')));
 });
 
-describe('AmazonS3Vectors._selectRelevanceScoreFn', () => {
-  it('returns cosine fn by default', () => {
-    const { client } = createMockClient();
-    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
-    const fn = store._selectRelevanceScoreFn();
-    expect(fn(0.3)).toBe(cosineRelevanceScoreFn(0.3));
+/**
+ * The relevance conversion, observed through the search that applies it.
+ *
+ * These used to call `_selectRelevanceScoreFn()` directly, which was possible
+ * only because TypeScript's `private` is erased: the method was absent from the
+ * published `.d.ts` and callable at runtime, and its own comment claimed
+ * `@langchain/core` called it, which core does not — this package's own
+ * `similaritySearchWithRelevanceScores` does. It is `#private` now, so the
+ * conversion is checked where a caller actually meets it.
+ */
+describe('AmazonS3Vectors relevance-score conversion', () => {
+  function storeReturning(
+    distance: number,
+    config: Partial<AmazonS3VectorsConfig> = {},
+  ): AmazonS3Vectors {
+    const { client, mock } = createMockClient();
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'id-1', metadata: { _page_content: 'p' }, distance }],
+      // The response reports whichever metric the store was configured for, so
+      // the metric check passes and the scoring is what is under test.
+      distanceMetric: config.distanceMetric ?? 'cosine',
+    });
+    return new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, ...config, client });
+  }
+
+  it('uses the cosine conversion by default', async () => {
+    const scored = await storeReturning(0.3).similaritySearchWithRelevanceScores('q', 1);
+    expect(scored[0]?.[1]).toBe(cosineRelevanceScoreFn(0.3));
   });
 
-  it('refuses to invent a conversion for euclidean, which has no principled one', () => {
-    const { client } = createMockClient();
-    const store = new AmazonS3Vectors(undefined, {
-      ...BASE_CONFIG,
-      client,
-      distanceMetric: 'euclidean',
-    });
-    expect(() => store._selectRelevanceScoreFn()).toThrow('relevanceScoreFn');
+  it('refuses to invent a conversion for euclidean, which has no principled one', async () => {
+    const store = storeReturning(0.3, { distanceMetric: 'euclidean' });
+    await expect(store.similaritySearchWithRelevanceScores('q', 1)).rejects.toThrow(
+      'relevanceScoreFn',
+    );
   });
 
-  it('returns custom fn when provided', () => {
-    const { client } = createMockClient();
-    const customFn = (d: number) => 42 - d;
-    const store = new AmazonS3Vectors(undefined, {
-      ...BASE_CONFIG,
-      client,
-      relevanceScoreFn: customFn,
-    });
-    expect(store._selectRelevanceScoreFn()(1)).toBe(41);
+  it('uses a custom conversion when one is configured', async () => {
+    const store = storeReturning(1, { relevanceScoreFn: (d: number) => 42 - d });
+    const scored = await store.similaritySearchWithRelevanceScores('q', 1);
+    expect(scored[0]?.[1]).toBe(41);
   });
 });
 

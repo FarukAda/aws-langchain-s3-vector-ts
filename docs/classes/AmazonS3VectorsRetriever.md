@@ -46,7 +46,7 @@ Both may be supplied at once; they are independent.
 
 > **new AmazonS3VectorsRetriever**\<`V`\>(`fields`): `AmazonS3VectorsRetriever`\<`V`\>
 
-Defined in: [retriever.ts:89](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L89)
+Defined in: [retriever.ts:95](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L95)
 
 #### Parameters
 
@@ -79,9 +79,13 @@ search runs, by the same guards a direct call goes through.
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [retriever.ts:79](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L79)
+Defined in: [retriever.ts:85](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L85)
 
 The field signal: threaded into every AWS request this retriever makes.
+
+Explicitly `| undefined`, not merely optional: a retriever built without one
+assigns `undefined` here, which `exactOptionalPropertyTypes` distinguishes
+from the property being absent.
 
 ## Methods
 
@@ -89,7 +93,7 @@ The field signal: threaded into every AWS request this retriever makes.
 
 > **\_getRelevantDocuments**(`query`, `runManager?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: [retriever.ts:138](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L138)
+Defined in: [retriever.ts:144](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L144)
 
 Core's extension point, overridden only to thread the field signal.
 
@@ -130,7 +134,7 @@ or `searchKwargs`, or the class an AWS failure maps to.
 
 > **invoke**(`input`, `options?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: [retriever.ts:115](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L115)
+Defined in: [retriever.ts:121](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L121)
 
 Run the retriever, honouring a config signal as far as core allows.
 

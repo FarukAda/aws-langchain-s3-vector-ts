@@ -8,7 +8,7 @@
 
 > **isS3VectorsError**(`value`): `value is S3VectorsError`
 
-Defined in: [shared/errors/s3-vectors-error.ts:202](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L202)
+Defined in: [shared/errors/s3-vectors-error.ts:234](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L234)
 
 Whether `value` is one of this library's errors.
 

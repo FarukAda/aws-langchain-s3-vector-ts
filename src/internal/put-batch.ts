@@ -13,6 +13,7 @@ import type { DistanceMetric } from '../types.js';
 import { assertVectorDimension, assertVectorsWritable } from './limits.js';
 import type { AwsOperation } from './operation.js';
 import type { StoreScope } from './signals.js';
+import { sendOptions } from './signals.js';
 
 export interface PutBatchOptions extends AwsOperation {
   /** This batch's offset into the flat input; batch 0 is the one that may create the index. */
@@ -160,7 +161,7 @@ export async function putBatch(opts: PutBatchOptions): Promise<void> {
           indexName: opts.indexName,
           vectors: putVectors,
         }),
-        { abortSignal: signal },
+        sendOptions(signal),
       ),
     );
   } catch (error: unknown) {

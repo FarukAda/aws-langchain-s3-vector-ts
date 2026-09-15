@@ -5,7 +5,7 @@ import { assertBatchSize, assertIsArray, validationError } from '../internal/gua
 import { assertIdsWellFormed } from '../internal/ids.js';
 import type { BatchedOperation } from '../internal/operation.js';
 import { sendAws } from '../internal/put-batch.js';
-import { checkAborted } from '../internal/signals.js';
+import { checkAborted, sendOptions } from '../internal/signals.js';
 import type { StoreScope } from '../internal/signals.js';
 import { chunk } from '../shared/batching.js';
 
@@ -93,7 +93,7 @@ export async function deleteVectors(opts: DeleteOptions): Promise<void> {
                 indexName: opts.indexName,
                 keys: batchIds,
               }),
-              { abortSignal: signal },
+              sendOptions(signal),
             ),
           ).then(() => batchIds),
       ),

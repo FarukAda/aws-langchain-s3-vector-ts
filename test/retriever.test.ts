@@ -191,3 +191,62 @@ describe('the config signal — invoke(query, { signal })', () => {
     );
   });
 });
+
+/**
+ * Every option a retriever can be built with reaches the search.
+ *
+ * Each one is now spread in conditionally — present when given, absent rather
+ * than `undefined` when not — because `@langchain/core` types them as optional
+ * but not `undefined`-valued, so an explicit undefined is a type error under
+ * `exactOptionalPropertyTypes`. That is two branches per option, and a test that
+ * only ever omits them checks half of it.
+ */
+describe('a retriever carries the options it was built with', () => {
+  it('threads the fields form through to the search, MMR included', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'k1', metadata: { _page_content: 'p' } }],
+      distanceMetric: 'cosine',
+    });
+    mock.on(GetVectorsCommand).resolves({
+      vectors: [
+        { key: 'k1', data: { float32: [0.1, 0.2, 0.3] }, metadata: { _page_content: 'p' } },
+      ],
+    });
+
+    const retriever = store.asRetriever({
+      searchType: 'mmr',
+      k: 1,
+      filter: { topic: 'a' },
+      searchKwargs: { fetchK: 5 },
+      metadata: { tenant: 'acme' },
+      verbose: false,
+      callbacks: [],
+      tags: ['mine'],
+    });
+
+    await retriever.invoke('q');
+
+    const query = mock.commandCalls(QueryVectorsCommand)[0]?.args[0].input;
+    expect(query?.filter).toEqual({ topic: 'a' });
+    expect(query?.topK).toBe(5);
+    expect(retriever.tags).toEqual(['mine', 'amazonS3Vectors']);
+    expect(retriever.metadata).toEqual({ tenant: 'acme' });
+  });
+
+  it('threads the positional form through to the search', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({
+      vectors: [{ key: 'k1', metadata: { _page_content: 'p' }, distance: 0.2 }],
+      distanceMetric: 'cosine',
+    });
+
+    const retriever = store.asRetriever(3, { topic: 'b' }, [], ['mine'], { tenant: 'acme' }, true);
+    await retriever.invoke('q');
+
+    const query = mock.commandCalls(QueryVectorsCommand)[0]?.args[0].input;
+    expect(query?.filter).toEqual({ topic: 'b' });
+    expect(query?.topK).toBe(3);
+    expect(retriever.verbose).toBe(true);
+  });
+});

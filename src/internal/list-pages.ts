@@ -8,7 +8,7 @@ import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { S3OutputVector } from '../types.js';
 import type { AwsOperation } from './operation.js';
 import { outputVectorsOf } from './output-vectors.js';
-import { checkAborted, type StoreScope } from './signals.js';
+import { checkAborted, type StoreScope, sendOptions } from './signals.js';
 
 /**
  * "maxResults … Valid Range: Minimum value of 1. Maximum value of 1000"
@@ -170,7 +170,7 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
           returnData: opts.returnData,
           returnMetadata: opts.returnMetadata,
         }),
-        { abortSignal: signal },
+        sendOptions(signal),
       );
     } catch (error: unknown) {
       throw explainListing(error, { operation, ...scope }, pagesScanned, yielded);

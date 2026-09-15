@@ -113,7 +113,7 @@ function scriptedStore(
     vectorBucketName: 'test-bucket',
     indexName: 'test-index',
     ...config,
-    client: client as unknown as AmazonS3VectorsConfig['client'],
+    client: client as unknown as NonNullable<AmazonS3VectorsConfig['client']>,
   });
 
   return { store, recorder, releaseIndex: release };

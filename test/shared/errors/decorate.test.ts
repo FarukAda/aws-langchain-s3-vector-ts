@@ -92,7 +92,10 @@ describe('attachPartialIds', () => {
 
   it('falls back to its own stack when the original has none', () => {
     const base = coded();
-    base.stack = undefined;
+    // Deliberately removing the stack, which `Error` declares as `string |
+    // undefined` but `exactOptionalPropertyTypes` will not let be assigned
+    // `undefined` through the optional property.
+    delete (base as { stack?: string }).stack;
     const decorated = attachPartialIds(base, 'addVectors', SCOPE, 'writtenIds', ['a']);
     expect(typeof decorated.stack).toBe('string');
   });

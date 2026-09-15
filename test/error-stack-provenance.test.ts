@@ -105,7 +105,7 @@ describe('AmazonS3Vectors — a rebuilt error keeps the original throw site', ()
         const err = new S3VectorsError('boom', S3VectorsErrorCode.VALIDATION, {
           operation: 'addDocuments',
         });
-        err.stack = stack;
+        (err as { stack: string | undefined }).stack = stack;
         throw err;
       },
       embedQuery: async () => [1, 2, 3],

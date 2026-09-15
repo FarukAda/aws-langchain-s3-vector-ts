@@ -9,7 +9,7 @@ import type { S3OutputVector } from '../types.js';
 import { assertBatchSize } from './guards.js';
 import type { AwsOperation } from './operation.js';
 import { outputVectorsOf } from './output-vectors.js';
-import { checkAborted, type StoreScope } from './signals.js';
+import { checkAborted, type StoreScope, sendOptions } from './signals.js';
 
 /**
  * "Vectors per GetVectors API call: Up to 100"
@@ -51,7 +51,7 @@ async function fetchOneBatch(
       returnData: opts.returnData,
       returnMetadata: opts.returnMetadata,
     }),
-    { abortSignal: opts.signal },
+    sendOptions(opts.signal),
   );
   if (typeof response !== 'object' || response === null) {
     throw new S3VectorsError(

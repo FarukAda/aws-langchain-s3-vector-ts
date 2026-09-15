@@ -467,11 +467,14 @@ export function resolveClient(config: AmazonS3VectorsConfig, scope: StoreScope):
   return (
     supplied ??
     new S3VectorsClient({
-      region: config.region,
-      credentials: config.credentials,
-      endpoint: config.endpoint,
-      maxAttempts: config.maxAttempts,
-      retryMode: config.retryMode,
+      // Each omitted when absent rather than handed an explicit `undefined`: the
+      // SDK's own config types these as optional but not `undefined`-valued, and
+      // passing undefined is not the same as letting the SDK apply its default.
+      ...(config.region === undefined ? {} : { region: config.region }),
+      ...(config.credentials === undefined ? {} : { credentials: config.credentials }),
+      ...(config.endpoint === undefined ? {} : { endpoint: config.endpoint }),
+      ...(config.maxAttempts === undefined ? {} : { maxAttempts: config.maxAttempts }),
+      ...(config.retryMode === undefined ? {} : { retryMode: config.retryMode }),
       // A plain options object rather than a constructed handler: the SDK
       // accepts `NodeHttpHandlerOptions` here and builds the handler itself, so
       // this package keeps its zero runtime dependencies instead of taking one
