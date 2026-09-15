@@ -143,14 +143,18 @@ identically, and the wire format is untouched.
 - **`raceAbort` is one helper** used by both the shared index creation and the
   retriever: the caller's wait ends, the shared work continues for whoever else
   is waiting on it, and the listener is removed on both settle paths.
+- **Both peer floors are raised**: `@aws-sdk/client-s3vectors` to `^3.1132.0`
+  and `@langchain/core` to `^1.2.11`, from `^3.1117.0` and `^1.2.9`. A consumer
+  on an older minor of either must update. Raising a floor is a documented
+  change of support, not a silent one ([`docs/STABILITY.md`](./docs/STABILITY.md)
+  §4), and the floors are what the peer-floors CI job installs and runs the type
+  checks and the unit tier against — so the range this package promises is the
+  range it is tested at, rather than a wider one nothing exercises.
 - **Every dependency is at its current version**, including
   `@aws-sdk/client-s3vectors` 3.1132.0, `@langchain/core` 1.2.11 and the whole
   development set (jest 30.5.1, eslint 10.10.0, typescript-eslint 8.70.0, knip
-  6.35.1, jscpd 5.2.0, fast-check 4.10.0 and the rest). The published peer
-  ranges are unchanged — `^3.1117.0` and `^1.2.9` — so no consumer is forced up;
-  the floors are still what the peer-floors CI job installs and tests. Every
-  fact this package cites out of those two packages was re-read against the new
-  versions: the required `distanceMetric` on `QueryVectorsOutput`, the literal
+  6.35.1, jscpd 5.2.0, fast-check 4.10.0 and the rest). Every fact this package
+  cites out of the two peers was re-read against the new versions: the required `distanceMetric` on `QueryVectorsOutput`, the literal
   exception names, `ValidationExceptionField`, the optional `vectors` on
   `ListVectorsOutput`, core's retriever `invoke`, its MMR dispatch and its
   `maximalMarginalRelevance` signature. All still hold, and the citations now

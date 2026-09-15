@@ -41,8 +41,8 @@ Index configuration is fixed at creation and is not part of a stored vector. `di
 | Node.js | 22 and 24 | the unit tier on Linux, macOS and Windows, on every push |
 | Module format | ESM (`import`) and CommonJS (`require`) | publint and arethetypeswrong over the packed tarball, and the package smoke that installs the tarball and uses it from both |
 | TypeScript (consumers) | 5.x and later | the package smoke type-checks an ESM and a CommonJS consumer against the shipped declarations with TypeScript 5 and `skipLibCheck` off |
-| `@aws-sdk/client-s3vectors` | `^3.1117.0` | the peer-floors CI job at the floor, the unit tier at the lockfile version, and the nightly live-AWS suite against the real service |
-| `@langchain/core` | `^1.2.9` | the peer-floors CI job at the floor and the `VectorStore` contract suite |
+| `@aws-sdk/client-s3vectors` | `^3.1132.0` | the peer-floors CI job at the floor, the unit tier at the lockfile version, and the nightly live-AWS suite against the real service |
+| `@langchain/core` | `^1.2.11` | the peer-floors CI job at the floor and the `VectorStore` contract suite |
 
 Raising a floor (dropping a Node major after its end of life, requiring a newer peer minor) is a **minor** release and is announced in the CHANGELOG. A peer range is never narrowed in a patch.
 
