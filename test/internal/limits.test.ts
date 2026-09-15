@@ -29,6 +29,15 @@ describe('assertVectorDimension', () => {
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
   });
 
+  it('names the range and what it got', () => {
+    const error = thrownBy(() => {
+      assertVectorDimension(0, 'addVectors', SCOPE);
+    });
+    expect((error as Error).message).toBe(
+      'Vector dimension must be an integer between 1 and 4096 (received 0).',
+    );
+  });
+
   it.each([1, 384, 1536, 4096])('accepts %p', (dimension) => {
     expect(() => {
       assertVectorDimension(dimension, 'addVectors', SCOPE);
@@ -66,6 +75,7 @@ describe('assertVectorsWritable', () => {
       assertVectorsWritable([[1, 0, bad]], opts);
     });
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain('S3 Vectors rejects NaN and Infinity');
   });
 
   it('names the vector and the component so the caller can find it', () => {
@@ -103,6 +113,11 @@ describe('assertVectorsWritable', () => {
     });
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).toContain('norm');
+    // Names the two ways this actually happens, because the vector itself
+    // tells the caller nothing about where it came from.
+    expect((error as Error).message).toContain('empty string');
+    expect((error as Error).message).toContain('dividing by a zero norm');
+    expect((error as Error).message).toContain('produces this.');
   });
 
   it('accepts a zero vector on a euclidean index, because the evidence covers cosine only', () => {

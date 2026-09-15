@@ -7,6 +7,28 @@ import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import { BASE_CONFIG, createMockClient, createTestStore, mockExistingIndex } from './helpers.js';
 
+describe('AmazonS3Vectors.addDocuments — id count', () => {
+  it('names documents, not vectors, when the id count disagrees', async () => {
+    const { store } = createTestStore();
+    const error = await store
+      .addDocuments([new Document({ pageContent: 'x' })], { ids: ['a', 'b'] })
+      .catch((e: unknown) => e);
+    expect((error as Error).message).toBe('Number of IDs (2) must match number of documents (1)');
+    expect((error as { context: { operation: string } }).context.operation).toBe('addDocuments');
+  });
+
+  it('names addDocuments on an id-shape rejection too, not the helper that resolves ids', async () => {
+    const { store } = createTestStore();
+    const error = await store
+      .addDocuments([new Document({ pageContent: 'x' }), new Document({ pageContent: 'y' })], {
+        ids: ['same', 'same'],
+      })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as { context: { operation: string } }).context.operation).toBe('addDocuments');
+  });
+});
+
 describe('AmazonS3Vectors.addDocuments', () => {
   it('embeds documents and calls addVectors', async () => {
     const { store, mock, embeddings } = createTestStore();
@@ -93,6 +115,12 @@ describe('AmazonS3Vectors.addDocuments without embeddings', () => {
       expect(isS3VectorsError(error)).toBe(true);
       expect((error as { code: S3VectorsErrorCode }).code).toBe(
         S3VectorsErrorCode.EMBEDDINGS_MISSING,
+      );
+      // Names the write, and the option that fixes it — `queryEmbeddings`
+      // would not, which is the distinction worth making.
+      expect((error as { context: { operation: string } }).context.operation).toBe('addDocuments');
+      expect((error as Error).message).toBe(
+        'No embedding model configured for indexing. Provide `embeddings` in the config.',
       );
     }
   });

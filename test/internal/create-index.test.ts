@@ -39,6 +39,16 @@ const inputOf = (mock: ReturnType<typeof lifecycleWith>['mock']): Record<string,
 
 describe('createIndexLifecycle — index creation rules', () => {
   describe('dimension', () => {
+    it('names the dimension range and what it got', async () => {
+      const { lifecycle } = lifecycleWith();
+      const error = await lifecycle
+        .ensureExists(0, undefined, 'ensureIndexExists')
+        .catch((e: unknown) => e);
+      expect((error as Error).message).toBe(
+        'dimension must be an integer between 1 and 4096 (received 0).',
+      );
+    });
+
     it.each([0, -1, 4097, 1.5])('rejects %p before issuing CreateIndex', async (dimension) => {
       const { mock, lifecycle } = lifecycleWith();
       const error = await lifecycle
@@ -128,6 +138,20 @@ describe('createIndexLifecycle — index creation rules', () => {
       const { mock, lifecycle } = lifecycleWith({ tags: { team: 'search' } });
       await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
       expect(inputOf(mock)['tags']).toEqual({ team: 'search' });
+    });
+
+    it.each([
+      ['a key over 128 characters', { ['t'.repeat(129)]: 'v' }, 'Tag key'],
+      ['a value over 256 characters', { t: 'v'.repeat(257) }, 'Tag value for "t"'],
+    ])('rejects %s before CreateIndex, naming it', async (_label, tags, fragment) => {
+      const { mock, lifecycle } = lifecycleWith({ tags: tags });
+      const error = await lifecycle
+        .ensureExists(3, undefined, 'ensureIndexExists')
+        .catch((e: unknown) => e);
+      expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+      expect((error as Error).message).toContain(fragment);
+      expect((error as Error).message).toContain('characters.');
+      expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
     });
 
     it('omits tags when not configured', async () => {

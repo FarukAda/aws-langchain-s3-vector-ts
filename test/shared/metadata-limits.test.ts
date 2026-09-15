@@ -38,7 +38,13 @@ describe('buildPutMetadata — value types (docs/evidence/metadata-value-types.m
   });
 
   it('rejects a nested object, which AWS refuses', () => {
-    expect(codeOf(build({ k: { nested: 1 } }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ k: { nested: 1 } });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    // The message lists the accepted set, because the user guide's own list
+    // is looser than what the service actually takes.
+    expect((error as Error).message).toContain(
+      'string, number, boolean, or an array of strings or numbers',
+    );
   });
 
   it('rejects an array containing an object, because arrays hold only strings or numbers', () => {
@@ -56,6 +62,7 @@ describe('buildPutMetadata — value types (docs/evidence/metadata-value-types.m
   it('names the offending key', () => {
     const error = build({ good: 1, bad: { nested: true } });
     expect((error as Error).message).toContain('bad');
+    expect((error as Error).message).not.toContain("'good'");
   });
 });
 
@@ -70,7 +77,10 @@ describe('buildPutMetadata — key count', () => {
   it('rejects 50 caller keys, because the key this package adds makes 51', () => {
     const error = build(keys(50));
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('50');
+    expect((error as Error).message).toContain('A vector may have at most 50 metadata keys');
+    expect((error as Error).message).toContain(
+      'this document needs 51, including the page-content key this package adds.',
+    );
   });
 
   it('rejects 51 caller keys even when no page-content key is added', () => {
@@ -104,6 +114,11 @@ describe('buildPutMetadata — byte limits (docs/evidence/metadata-limits.md)', 
     );
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).toContain('2048');
+    // The remedy: the 40 KB budget is reachable by declaring the key
+    // non-filterable, which a caller cannot guess from a byte count.
+    expect((error as Error).message).toContain(
+      'Declare large fields as non-filterable metadata keys on the index',
+    );
   });
 
   it('counts key names, not just values', () => {

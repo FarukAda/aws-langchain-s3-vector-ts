@@ -102,6 +102,29 @@ describe('AmazonS3Vectors rejects an invalid batchSize', () => {
       'batchSize must be a positive integer',
     );
   });
+
+  it.each([
+    [
+      'addVectors',
+      (store: AmazonS3Vectors) =>
+        store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { batchSize: 0 }),
+    ],
+    [
+      'addDocuments',
+      (store: AmazonS3Vectors) =>
+        store.addDocuments([new Document({ pageContent: 'x' })], { batchSize: 0 }),
+    ],
+    ['delete', (store: AmazonS3Vectors) => store.delete({ ids: ['a'], batchSize: 0 })],
+    ['getByIds', (store: AmazonS3Vectors) => store.getByIds(['a'], { batchSize: 0 })],
+  ])(
+    '%s names itself on a bad batch size, not the helper that checks it',
+    async (operation, run) => {
+      const { client } = createMockClient();
+      const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+      const error = await run(store).catch((e: unknown) => e);
+      expect((error as { context: { operation: string } }).context.operation).toBe(operation);
+    },
+  );
 });
 
 describe("AmazonS3Vectors rejects a batchSize above AWS's per-call ceiling", () => {

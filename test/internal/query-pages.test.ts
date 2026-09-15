@@ -82,6 +82,13 @@ describe('queryPages', () => {
     mock.on(QueryVectorsCommand).callsFake(() => page(0, 'always-more'));
     const error = await run().catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED);
+    // Says how short it fell and why it stopped, so the caller can tell this
+    // from a search that simply ran out of matches.
+    expect((error as Error).message).toContain('requested result(s), with more pages still');
+    expect((error as Error).message).toContain('1000');
+    // The remedy, which is the only actionable part: this is not a retryable
+    // failure, it is a query that asked for more than the index can serve.
+    expect((error as Error).message).toContain('Narrow the metadata filter or lower k');
   });
 
   it('truncates to k when a page overshoots', async () => {
@@ -102,6 +109,11 @@ describe('queryPages', () => {
     mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: null as never });
     const error = await run().catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+    expect((error as Error).message).toContain('did not include a recognisable distanceMetric');
+    // Why it matters, rather than only that it happened.
+    expect((error as Error).message).toContain(
+      'Relevance scores would be computed against an unverified metric',
+    );
   });
 
   it('checks the metric on the first page only, since an index cannot change it', async () => {
@@ -136,6 +148,12 @@ describe('queryPages', () => {
     const error = await run().catch((e: unknown) => e);
     expect((error as Error).message).toContain('page 2 of a paginated');
     expect((error as { context: { pagesScanned: number } }).context.pagesScanned).toBe(1);
+    // The one piece of advice that is specific to a mid-pagination failure:
+    // the token is probably expired, so resuming is not an option.
+    expect((error as Error).message).toContain(
+      'Pagination tokens stay valid for only a few minutes',
+    );
+    expect((error as Error).message).toContain('re-issue the original query');
   });
 
   it('leaves a first-page failure unexplained, since no token can have expired yet', async () => {
@@ -202,5 +220,10 @@ describe('queryPages', () => {
     mock.on(QueryVectorsCommand).resolves(undefined as never);
     const error = await run().catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+    // Names the three things that actually produce this, none of which is a
+    // fault in the caller's own code.
+    expect((error as Error).message).toContain(
+      'malformed, or come from an incompatible SDK version or a mocked/stubbed client',
+    );
   });
 });

@@ -142,6 +142,17 @@ identically, and the wire format is untouched.
 
 ### Fixed (found by the verification work)
 
+- **MMR did not validate its filter.** `maxMarginalRelevanceSearch` checked it
+  in the store but `mmrSearch` did not, so the action was one refactor away
+  from sending an invalid filter to AWS. It now validates like
+  `searchByVector`, and the store no longer duplicates the check.
+- **A filter rejection told only half the callers what to do.** An array got
+  "Omit the filter argument entirely to search without filtering"; a `Map`, a
+  `Date` or a string got nothing. Same mistake, same remedy — now both say it.
+- **An unobservable abort check was removed** from `mmrSearch`: `queryPages`
+  checks before its first request and nothing billable happens in between, so
+  a second check there could not change any outcome.
+
 - **An error could name an internal step instead of the call the caller made.**
   `addVectors` aborted with `operation: 'ensureIndexExists'`, and
   `similaritySearch` and `similaritySearchWithRelevanceScores` both reported
@@ -158,19 +169,26 @@ identically, and the wire format is untouched.
 
 ### Verification
 
-- **Mutation-sampled, not just covered.** 389 mutations were applied across
-  every module in nine rounds and the suite re-run for each — comparison and
-  logical flips, numeric and boundary changes, removed `await`s, **deleted
-  statements** and **altered string literals**. Every statement deletion was
-  caught, which is what says there is no code here that does nothing. Fifteen
-  survived in total; each was a real gap — an asserted branch whose *output* nothing
-  checked, a `&&` that could move a metadata field named `"null"` into page
-  content, two stack-provenance tests that checked the old stack was gone
-  rather than that the new one had frames, a non-object `$metadata` that let a
-  non-AWS error be reported with an `awsErrorName` and a retryability verdict,
-  and the cause-walk depth bound, which no test pinned at its boundary. All
-  eight now fail the suite when reintroduced, and the only survivors that remain are message prose, which
-  `docs/STABILITY.md` §3 explicitly excludes from the contract.
+- **Mutation-sampled, not just covered.** Over 1,100 mutations were applied
+  across every module in twenty-four rounds and the suite re-run for each —
+  comparison and logical flips, numeric and boundary changes, removed
+  `await`s, **deleted statements** and **altered string literals**. Every
+  survivor was a real gap and every one is fixed: an asserted branch whose
+  *output* nothing checked, a `&&` that could move a metadata field named
+  `"null"` into page content, stack-provenance tests that checked the old
+  stack was gone rather than that the new one had frames, a non-object
+  `$metadata` that let a non-AWS error be reported as a retryable AWS one, an
+  unpinned cause-walk depth bound, an abort check whose deletion would have
+  cost a billable embed, and an MMR filter that was validated only by its
+  caller. The last five rounds — roughly 275 mutants — produced no
+  behavioural survivor at all; the one mutant that still survives the unit
+  suite is type-level, and `tsc` rejects it.
+- **Every error message is read by a test.** 78 error-construction sites; an
+  audit found 61 whose message no assertion touched, so a refactor could have
+  swapped two messages — or dropped the half that says what to do — without
+  anything failing. The actionable half is now asserted wherever it exists:
+  the option to set, the limit exceeded, the permission missing, the field
+  holding the ids already written.
 - **Properties over whole domains** (`test/property/pure-functions.property.test.ts`):
   `chunk` round-trips and never yields an empty or oversized batch; every
   offset indexes back into the array it came from; `resolveWriteIds` returns

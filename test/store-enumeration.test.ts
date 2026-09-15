@@ -139,6 +139,13 @@ describe('listVectors', () => {
       }
     })();
     expect((error as { code?: string }).code).toBe('AWS_INVALID_RESPONSE');
+    // Names the record and says the request did ask for data, so the caller
+    // can tell this from having forgotten to.
+    expect((error as Error).message).toContain(
+      "ListVectors returned vector 'a' without data, even though this call requested " +
+        'returnData: true. The response may be malformed, or come from an incompatible SDK ' +
+        'version or a mocked/stubbed client.',
+    );
   });
 
   it('honours a caller page size', async () => {

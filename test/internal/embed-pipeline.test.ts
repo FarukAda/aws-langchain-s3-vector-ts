@@ -148,7 +148,11 @@ describe('embedAndWrite', () => {
     });
     const error = await run().catch((e: unknown) => e);
     expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
-    expect(state.embedCalls).toBeLessThan(6);
+    // Exactly one embed: the first batch's. The signal fired during its write,
+    // so the *next* batch must not be embedded at all — an embed call is
+    // billable and cannot be cancelled once started, which is why the check
+    // sits before it as well as after.
+    expect(state.embedCalls).toBe(1);
     // The first batch did land, and says so.
     expect(contextOf(error)['writtenIds']).toEqual(['id-0']);
   });

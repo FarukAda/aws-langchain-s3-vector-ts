@@ -14,6 +14,10 @@ import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.j
  * round trip, or surfaces as an uncoded `TypeError` from inside a later search.
  */
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
+/** The message a caller actually reads. Asserted per cell: a code says what
+ *  class of thing went wrong, the message is the only thing that says which
+ *  option and what to do about it. */
+const messageOf = (e: unknown): string => String((e as Error).message);
 
 function build(overrides: Record<string, unknown>): unknown {
   const { client } = createMockClient();
@@ -58,7 +62,9 @@ describe('distanceMetric', () => {
 
 describe('dataType', () => {
   it('rejects a non-string, which an untyped caller can still supply', () => {
-    expect(codeOf(build({ dataType: 42 }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ dataType: 42 });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe('config.dataType must be one of "float32" (received a number).');
   });
 
   it('accepts float32, the only member the service defines', () => {
@@ -66,7 +72,9 @@ describe('dataType', () => {
   });
 
   it('rejects anything else', () => {
-    expect(codeOf(build({ dataType: 'float64' }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ dataType: 'float64' });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe('config.dataType must be one of "float32" (received "float64").');
   });
 });
 
@@ -77,17 +85,29 @@ describe('pageContentMetadataKey', () => {
 
   it('rejects the empty string rather than creating a zero-length metadata key', () => {
     // Only `undefined` triggers the default, so `''` survives into CreateIndex.
-    expect(codeOf(build({ pageContentMetadataKey: '' }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ pageContentMetadataKey: '' });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe(
+      'config.pageContentMetadataKey must be 1–63 characters (received 0).',
+    );
   });
 
   it('rejects a key longer than the documented 63 characters', () => {
-    expect(codeOf(build({ pageContentMetadataKey: 'k'.repeat(64) }))).toBe(
-      S3VectorsErrorCode.VALIDATION,
+    const error = build({ pageContentMetadataKey: 'k'.repeat(64) });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe(
+      'config.pageContentMetadataKey must be 1–63 characters (received 64).',
     );
   });
 
   it('rejects a non-string, non-null value', () => {
-    expect(codeOf(build({ pageContentMetadataKey: 42 }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ pageContentMetadataKey: 42 });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    // The remedy is in the message: `null` is the way to store no page content.
+    expect(messageOf(error)).toBe(
+      'config.pageContentMetadataKey must be a string or null (received a number). ' +
+        'Use null to keep page content out of metadata.',
+    );
   });
 });
 
@@ -97,14 +117,18 @@ describe('nonFilterableMetadataKeys', () => {
   });
 
   it('rejects a non-array instead of throwing a raw TypeError from the spread', () => {
-    expect(codeOf(build({ nonFilterableMetadataKeys: 'blob' }))).toBe(
-      S3VectorsErrorCode.VALIDATION,
+    const error = build({ nonFilterableMetadataKeys: 'blob' });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe(
+      'config.nonFilterableMetadataKeys must be an array of strings (received a string).',
     );
   });
 
   it('rejects an entry that is not a string', () => {
-    expect(codeOf(build({ nonFilterableMetadataKeys: ['ok', 7] }))).toBe(
-      S3VectorsErrorCode.VALIDATION,
+    const error = build({ nonFilterableMetadataKeys: ['ok', 7] });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe(
+      'config.nonFilterableMetadataKeys must contain only strings (received a number).',
     );
   });
 });
@@ -115,7 +139,13 @@ describe('relevanceScoreFn', () => {
   });
 
   it('rejects a non-function, which would otherwise fail inside a search', () => {
-    expect(codeOf(build({ relevanceScoreFn: 'nope' }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ relevanceScoreFn: 'nope' });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe(
+      'config.relevanceScoreFn must be a function (received a string). It is called for every ' +
+        'search result, so a wrong shape here fails inside a search rather than at ' +
+        'construction.',
+    );
   });
 });
 
@@ -125,19 +155,32 @@ describe('tags', () => {
   });
 
   it('rejects a non-object', () => {
-    expect(codeOf(build({ tags: ['env', 'prod'] }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ tags: ['env', 'prod'] });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe(
+      'config.tags must be an object of string keys and values (received an array).',
+    );
   });
 
   it('rejects a key longer than 128 characters', () => {
-    expect(codeOf(build({ tags: { ['k'.repeat(129)]: 'v' } }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ tags: { ['k'.repeat(129)]: 'v' } });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe('config.tags keys must be 1–128 characters (received 129).');
   });
 
   it('rejects a value longer than 256 characters', () => {
-    expect(codeOf(build({ tags: { k: 'v'.repeat(257) } }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ tags: { k: 'v'.repeat(257) } });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe(
+      'config.tags["k"] must be at most 256 characters (received 257).',
+    );
   });
 
   it('rejects a non-string value', () => {
-    expect(codeOf(build({ tags: { k: 7 } }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ tags: { k: 7 } });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    // The key is named, so a caller with fifty tags knows which one.
+    expect(messageOf(error)).toBe('config.tags["k"] must be a string (received a number).');
   });
 });
 
@@ -147,14 +190,19 @@ describe('encryptionConfiguration', () => {
   });
 
   it('rejects any other sseType', () => {
-    expect(codeOf(build({ encryptionConfiguration: { sseType: 'aws:kms:v2' } }))).toBe(
-      S3VectorsErrorCode.VALIDATION,
+    const error = build({ encryptionConfiguration: { sseType: 'aws:kms:v2' } });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe(
+      'config.encryptionConfiguration.sseType must be one of "AES256", "aws:kms" ' +
+        '(received "aws:kms:v2").',
     );
   });
 
   it('rejects a non-object encryptionConfiguration', () => {
-    expect(codeOf(build({ encryptionConfiguration: 'AES256' }))).toBe(
-      S3VectorsErrorCode.VALIDATION,
+    const error = build({ encryptionConfiguration: 'AES256' });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe(
+      'config.encryptionConfiguration must be an object (received a string).',
     );
   });
 });
@@ -176,9 +224,12 @@ describe('client together with the options it would silently override', () => {
   );
 
   it('rejects client alongside credentials', () => {
-    expect(codeOf(build({ credentials: { accessKeyId: 'AKIA', secretAccessKey: 'secret' } }))).toBe(
-      S3VectorsErrorCode.VALIDATION,
+    const error = build({ credentials: { accessKeyId: 'AKIA', secretAccessKey: 'secret' } });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toContain(
+      'config.client was supplied together with config.credentials',
     );
+    expect(messageOf(error)).toContain('Pass one or the other');
   });
 
   it('never names the credential material it rejects', () => {
@@ -204,11 +255,15 @@ describe('client together with the options it would silently override', () => {
 
 describe('bucket and index names', () => {
   it('rejects a non-string bucket name instead of reading .length off it', () => {
-    expect(codeOf(build({ vectorBucketName: 42 }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ vectorBucketName: 42 });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe('vectorBucketName must be a string (received a number).');
   });
 
   it('rejects a non-string index name', () => {
-    expect(codeOf(build({ indexName: null }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = build({ indexName: null });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe('indexName must be a string (received null).');
   });
 
   it.each([

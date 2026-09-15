@@ -128,6 +128,26 @@ describe('AmazonS3Vectors page_content handling', () => {
   });
 });
 
+describe('the text searches reject before spending anything', () => {
+  it.each([
+    ['similaritySearch', (store: AmazonS3Vectors) => store.similaritySearch('q', 0)],
+    [
+      'similaritySearchWithScore',
+      (store: AmazonS3Vectors) => store.similaritySearchWithScore('q', 0),
+    ],
+    [
+      'similaritySearchWithRelevanceScores',
+      (store: AmazonS3Vectors) => store.similaritySearchWithRelevanceScores('q', 0),
+    ],
+  ])('%s rejects an invalid k before embedQuery, which is billable', async (_label, run) => {
+    const { store, mock, embeddings } = createTestStore();
+    const error = await run(store).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(embeddings.embedQuery).not.toHaveBeenCalled();
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+});
+
 describe('AmazonS3Vectors — which embedding model answers which call', () => {
   it('raises EMBEDDINGS_MISSING for a text query when neither model is configured', async () => {
     const { client } = createMockClient();
@@ -135,7 +155,10 @@ describe('AmazonS3Vectors — which embedding model answers which call', () => {
 
     const error = await store.similaritySearchWithScore('query', 1).catch((e: unknown) => e);
     expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.EMBEDDINGS_MISSING);
-    expect((error as Error).message).toContain('No embedding model available for queries');
+    expect((error as Error).message).toBe(
+      'No embedding model available for queries. Provide `embeddings` or `queryEmbeddings` ' +
+        'in the config.',
+    );
   });
 
   it('answers text queries from queryEmbeddings alone, with no indexing model at all', async () => {

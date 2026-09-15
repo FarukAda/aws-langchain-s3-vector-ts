@@ -1,10 +1,11 @@
 import type { Document } from '@langchain/core/documents';
 import { maximalMarginalRelevance } from '@langchain/core/utils/math';
 
+import { validateFilter } from '../internal/filter.js';
 import { fetchVectorsByKey } from '../internal/get-vectors.js';
 import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
-import { checkAborted, type StoreScope } from '../internal/signals.js';
+import type { StoreScope } from '../internal/signals.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { createDocument } from '../shared/metadata.js';
@@ -117,9 +118,13 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
   };
 
   assertMmrParameters(k, fetchK, lambda, operation, scope);
+  validateFilter(opts.filter, operation, scope);
 
-  checkAborted(operation, signal, scope);
-
+  // No abort check of its own: `queryPages` below checks before its first
+  // request, and nothing billable happens in between. A second check here
+  // could not change any observable outcome — a statement that cannot be
+  // observed is one more thing to keep true for no reason.
+  //
   // Candidates: keys and metadata, no scores — MMR ranks by vector, not by the
   // service's distance.
   const candidates = await queryPages({

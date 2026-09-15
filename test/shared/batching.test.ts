@@ -16,6 +16,16 @@ describe('chunk', () => {
     expect(chunk([], 5)).toEqual([]);
   });
 
+  it('names the rule and what it got', () => {
+    let message = '';
+    try {
+      chunk([1], 0);
+    } catch (error: unknown) {
+      message = (error as Error).message;
+    }
+    expect(message).toBe('Batch size must be an integer of 1 or more (received 0).');
+  });
+
   it.each([0, -1, 0.5])('rejects a size of %p rather than looping forever', (size) => {
     // `for (i = 0; i < len; i += size)` never terminates at 0 and never
     // advances at a negative size: a pure exported helper whose domain

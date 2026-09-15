@@ -75,23 +75,37 @@ describe('assertIdsWellFormed', () => {
   it('rejects an id over 1024 characters, the documented key maximum', () => {
     const error = check(['x'.repeat(1025)]);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('1024');
+    expect((error as Error).message).toContain('1025 characters');
+    expect((error as Error).message).toContain('1024-character maximum for a vector key');
   });
 
   it('rejects an empty-string id', () => {
-    expect(codeOf(check([''])))?.toBe(S3VectorsErrorCode.VALIDATION);
-    expect(codeOf(check(['']))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = check(['']);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain(
+      'is an empty string, but every id must be a non-empty string',
+    );
   });
 
   it('rejects a non-string id that slipped past the type system', () => {
     const error = check([42]);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain('is not a string (received number)');
+    // And says where the ids came from, which decides who has to fix it: the
+    // caller's own list, or the documents they passed.
+    expect((error as Error).message).toContain('Ids were taken from options.ids');
   });
 
   it('rejects a duplicate within one call, which AWS would silently collapse', () => {
     const error = check(['a', 'b', 'a']);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).toContain('Duplicate');
+    // The message says what AWS would have done and what to do instead — the
+    // failure it prevents is silent, so the explanation has to be explicit.
+    expect((error as Error).message).toContain(
+      'silently overwrite the earlier vector with the later one',
+    );
+    expect((error as Error).message).toContain('write it in a separate call');
   });
 
   it('names the offending index so a caller can find it in a large batch', () => {

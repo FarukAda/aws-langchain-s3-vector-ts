@@ -639,7 +639,6 @@ export class AmazonS3Vectors extends VectorStore {
     const k = options.k ?? 4;
     const fetchK = options.fetchK ?? 20;
     const lambda = options.lambda ?? 0.5;
-    validateFilter(options.filter, 'maxMarginalRelevanceSearch', this._scope);
 
     // embedQuery has no signal support, so it cannot self-cancel — check
     // before spending a billable, uncancellable call.

@@ -112,6 +112,10 @@ describe('fetchVectorsByKey', () => {
     expect(codeOf(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
     // The sibling batch succeeded and must not be lost from the report.
     expect((error as { context: { foundIds?: string[] } }).context.foundIds).toHaveLength(100);
+    // And the message points at the field that holds them.
+    expect((error as Error).message).toContain(
+      'vector(s) were already retrieved before this failure — see error.context.foundIds.',
+    );
   });
 
   it('rejects ABORTED without issuing a request when the signal has already fired', async () => {
@@ -143,5 +147,8 @@ describe('fetchVectorsByKey', () => {
     mock.on(GetVectorsCommand).resolves(undefined as never);
     const error = await run(['a']).catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+    expect((error as Error).message).toContain(
+      'malformed, or come from an incompatible SDK version or a mocked/stubbed client',
+    );
   });
 });

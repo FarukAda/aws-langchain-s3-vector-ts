@@ -26,7 +26,14 @@ describe('relevance score selection', () => {
     const error = await store.similaritySearchWithRelevanceScores('q', 1).catch((e: unknown) => e);
 
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('relevanceScoreFn');
+    // Refusing is only half of it: the message has to say why no default is
+    // possible, and give the caller both ways forward.
+    expect((error as Error).message).toBe(
+      'A euclidean index has no built-in relevance-score conversion: no fixed formula can map ' +
+        'an unbounded euclidean distance to a comparable score without knowing your ' +
+        "embedding's scale, which only you know. Supply `relevanceScoreFn` in the store " +
+        'config, or use similaritySearchWithScore for raw distances.',
+    );
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
   });
 

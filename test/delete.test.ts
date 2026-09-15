@@ -23,6 +23,25 @@ describe('AmazonS3Vectors.delete', () => {
     expect(mock.commandCalls(DeleteVectorsCommand)).toHaveLength(0);
   });
 
+  it('names the AWS command on a DeleteVectors failure, since that is what failed', async () => {
+    const { store, mock } = createTestStore();
+    mock
+      .on(DeleteVectorsCommand)
+      .rejects(Object.assign(new Error('denied'), { name: 'AccessDeniedException' }));
+    const error = await store.delete({ ids: ['a'] }).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+    expect((error as { context: { operation: string } }).context.operation).toBe('DeleteVectors');
+  });
+
+  it('says how to confirm the destructive reading, and how to avoid it', async () => {
+    const { store } = createTestStore();
+    const error = await store.delete().catch((e: unknown) => e);
+    expect((error as Error).message).toBe(
+      'delete() with no `ids` would delete the entire index. Pass `{ deleteAll: true }` ' +
+        'to confirm, or pass `ids` to delete specific vectors.',
+    );
+  });
+
   it('throws instead of deleting the index when neither ids nor deleteAll are given', async () => {
     const { client } = createMockClient();
     const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });

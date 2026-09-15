@@ -102,7 +102,12 @@ describe('AmazonS3Vectors constructor — client validation', () => {
 
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as { context: { operation: string } }).context.operation).toBe('constructor');
-    expect((error as Error).message).toContain('is not an S3VectorsClient');
+    expect((error as Error).message).toBe(
+      'config.client is not an S3VectorsClient from "@aws-sdk/client-s3vectors" (its ' +
+        'config.serviceId is not "S3Vectors"). Pass a real S3VectorsClient, or omit `client` ' +
+        'entirely and supply `region`/`credentials`/`endpoint` instead — falling back ' +
+        'silently could point this store at a different AWS account or region.',
+    );
   });
 
   it('throws for a duck-typed object with .send from a different client class', () => {

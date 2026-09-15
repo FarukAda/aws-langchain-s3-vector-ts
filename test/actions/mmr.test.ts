@@ -122,6 +122,30 @@ describe('mmrSearch', () => {
     expect(mock.commandCalls(GetVectorsCommand)).toHaveLength(0);
   });
 
+  it('rejects a malformed filter locally, before the billable embed or any request', async () => {
+    const { mock, run } = setup();
+    const error = await run({ filter: { genre: { $eg: 'scifi' } } }).catch((e: unknown) => e);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain("unknown operator '$eg'");
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
+  it('names the parameter, the range and what it got', async () => {
+    const { mock, run } = setup();
+    const error = await run({ k: 0 }).catch((e: unknown) => e);
+    expect((error as Error).message).toBe('k must be an integer between 1 and 10000 (received 0).');
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
+  it('says why a lambda outside the range is refused rather than clamped', async () => {
+    const { run } = setup();
+    const error = await run({ lambda: 1.5 }).catch((e: unknown) => e);
+    expect((error as Error).message).toBe(
+      'lambda must be between 0 and 1 (received 1.5). Outside that range the selection is ' +
+        'not a trade-off between relevance and diversity.',
+    );
+  });
+
   it.each([0, -1, 10_001, 1.5])('rejects k of %p before any request', async (k) => {
     const { mock, run } = setup();
     expect(codeOf(await run({ k }).catch((e: unknown) => e))).toBe(S3VectorsErrorCode.VALIDATION);
@@ -171,6 +195,14 @@ describe('mmrSearch', () => {
       pageContentMetadataKey: null,
     }).catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+    // Names the command and the key, so a caller can tell which of the two
+    // requests MMR makes came back wrong, and for which candidate.
+    expect((error as Error).message).toContain(
+      "GetVectors returned vector 'same' without data, even though this call requested",
+    );
+    expect((error as Error).message).toContain(
+      'incompatible SDK version or a mocked/stubbed client',
+    );
   });
 
   it('rejects ABORTED without issuing a request when the signal has already fired', async () => {

@@ -51,6 +51,17 @@ describe('buildPutMetadata', () => {
         indexName: 'i',
       }),
     ).toThrow(`reserved key '${PAGE_CONTENT_KEY}'`);
+    // The remedy matters more than the diagnosis: a caller whose documents
+    // already carry that field has two ways out, and neither is obvious.
+    expect(() =>
+      buildPutMetadata(new Document({ pageContent: 'x', metadata: { [PAGE_CONTENT_KEY]: 'y' } }), {
+        pageContentMetadataKey: PAGE_CONTENT_KEY,
+        nonFilterableKeys: [],
+        operation: 'addVectors',
+        vectorBucketName: 'b',
+        indexName: 'i',
+      }),
+    ).toThrow('Rename this metadata field or configure a different `pageContentMetadataKey`');
   });
 });
 
@@ -141,6 +152,14 @@ describe('createDocument — structuredClone safety', () => {
     expect(isS3VectorsError(thrown)).toBe(true);
     expect((thrown as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect((thrown as S3VectorsError).message).toContain("vector 'v1'");
+    // Says what kind of value broke it and what the caller must do, since a
+    // structuredClone failure names nothing on its own.
+    expect((thrown as S3VectorsError).message).toContain(
+      'structured-cloned (e.g. a function or symbol)',
+    );
+    expect((thrown as S3VectorsError).message).toContain(
+      'Ensure vector metadata contains only structured-cloneable values',
+    );
   });
 
   it('still deep-copies cloneable metadata correctly (regression, unaffected by the try/catch)', () => {
@@ -167,6 +186,19 @@ describe('createDocument — a null page-content key reads no metadata at all', 
     const doc = createDocument({ key: 'k', metadata: { _page_content: 'stored', tag: 'a' } }, null);
     expect(doc.pageContent).toBe('');
     expect(doc.metadata).toEqual({ _page_content: 'stored', tag: 'a' });
+  });
+});
+
+describe('createDocument — the operation it names when the caller supplies none', () => {
+  it('defaults to its own name, so the error still says what was running', () => {
+    const uncloneable = { fn: () => undefined } as unknown as Record<string, unknown>;
+    let thrown: unknown;
+    try {
+      createDocument({ key: 'v1', metadata: uncloneable }, null);
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect((thrown as S3VectorsError).context.operation).toBe('createDocument');
   });
 });
 

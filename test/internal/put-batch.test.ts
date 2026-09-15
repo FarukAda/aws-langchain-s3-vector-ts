@@ -105,7 +105,10 @@ describe('putBatch', () => {
       ids: ['a', 'b'],
     }).catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
-    expect((error as Error).message).toContain('index 1');
+    expect((error as Error).message).toBe(
+      "Vector at index 1 in this batch has dimension 2, but this batch's first vector has " +
+        'dimension 3. All vectors in the same batch must share the same dimension.',
+    );
   });
 
   it('checks every vector for writability, not only the first', async () => {

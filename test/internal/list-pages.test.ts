@@ -104,6 +104,14 @@ describe('listPages', () => {
     });
   });
 
+  it('names the page-size range and what it got', async () => {
+    const { collect } = setup();
+    const error = await collect({ pageSize: 0 }).catch((e: unknown) => e);
+    expect((error as Error).message).toBe(
+      'pageSize must be an integer between 1 and 1000 (received 0).',
+    );
+  });
+
   it.each([0, -1, 1001, 1.5])('rejects a page size of %p before any request', async (pageSize) => {
     const { mock, collect } = setup();
     mock.on(ListVectorsCommand).resolves(page(['a']));
@@ -150,7 +158,10 @@ describe('listPages', () => {
       .rejects(Object.assign(new Error('denied'), { name: 'AccessDeniedException' }));
     const error = await collect().catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
-    expect((error as Error).message).toContain('s3vectors:GetVectors');
+    expect((error as Error).message).toContain(
+      'Listing with metadata or data requires the s3vectors:GetVectors permission in ' +
+        'addition to s3vectors:ListVectors.',
+    );
   });
 
   it('reports how far it got when a later page fails, since yielded items are already consumed', async () => {
@@ -168,8 +179,10 @@ describe('listPages', () => {
   it('rejects a nullish response from a non-conforming client', async () => {
     const { mock, collect } = setup();
     mock.on(ListVectorsCommand).resolves(undefined as never);
-    expect(codeOf(await collect().catch((e: unknown) => e))).toBe(
-      S3VectorsErrorCode.AWS_INVALID_RESPONSE,
+    const error = await collect().catch((e: unknown) => e);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+    expect((error as Error).message).toContain(
+      'malformed, or come from an incompatible SDK version or a mocked/stubbed client',
     );
   });
 });

@@ -16,7 +16,7 @@ const VECTORS: Record<string, number[]> = {
 };
 
 function mmrStore() {
-  const { store, mock } = createTestStore();
+  const { store, mock, embeddings } = createTestStore();
   mock.on(QueryVectorsCommand).resolves({
     distanceMetric: 'cosine',
     vectors: Object.keys(VECTORS).map((key) => ({ key, metadata: { _page_content: key } })),
@@ -28,7 +28,7 @@ function mmrStore() {
       metadata: { _page_content: k },
     })),
   }));
-  return { store, mock };
+  return { store, mock, embeddings };
 }
 
 describe('maxMarginalRelevanceSearch', () => {
@@ -70,6 +70,15 @@ describe('maxMarginalRelevanceSearch', () => {
     expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input).toMatchObject({ topK: 20 });
   });
 
+  it('rejects a malformed filter before the billable embed, as its siblings do', async () => {
+    const { store, mock } = mmrStore();
+    const error = await store
+      .maxMarginalRelevanceSearch('q', { k: 1, filter: { genre: { $eg: 'scifi' } } })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe('VALIDATION');
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
   it('rejects an AbortSignal handed to the Callbacks slot, as its siblings do', async () => {
     const { store } = mmrStore();
     const ac = new AbortController();
@@ -80,7 +89,7 @@ describe('maxMarginalRelevanceSearch', () => {
   });
 
   it('accepts a signal in the fourth slot and rejects when it has already fired', async () => {
-    const { store, mock } = mmrStore();
+    const { store, mock, embeddings } = mmrStore();
     const ac = new AbortController();
     ac.abort();
     const error = await store
@@ -88,5 +97,8 @@ describe('maxMarginalRelevanceSearch', () => {
       .catch((e: unknown) => e);
     expect((error as { code?: string }).code).toBe('ABORTED');
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+    // And before the billable, uncancellable embedQuery — the reason the
+    // check sits in the store rather than only in the pagination below it.
+    expect(embeddings.embedQuery).not.toHaveBeenCalled();
   });
 });

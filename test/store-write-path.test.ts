@@ -3,7 +3,7 @@ import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
-import { createTestStore, indexFixture } from './helpers.js';
+import { createTestStore, indexFixture, mockExistingIndex } from './helpers.js';
 
 /**
  * The write path's local checks and failure reporting (docs/CONTRACTS-DRAFT.md,
@@ -14,6 +14,30 @@ const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code
 const ctxOf = (e: unknown): Record<string, unknown> =>
   (e as { context: Record<string, unknown> }).context;
 const doc = (t: string): Document => new Document({ pageContent: t });
+
+describe('the write path names the method the caller invoked, on a rejected batch', () => {
+  it.each([
+    [
+      'addVectors',
+      (store: ReturnType<typeof createTestStore>['store']) =>
+        store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x', metadata: { bad: {} } })]),
+    ],
+    [
+      'addDocuments',
+      (store: ReturnType<typeof createTestStore>['store']) =>
+        store.addDocuments([new Document({ pageContent: 'x', metadata: { bad: {} } })]),
+    ],
+  ])('%s', async (operation, run) => {
+    // The rejection comes from metadata validation inside the batch write,
+    // which both paths reach through the same helper — so the operation name
+    // is the only thing that says which one the caller called.
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+    const error = await run(store).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as { context: { operation: string } }).context.operation).toBe(operation);
+  });
+});
 
 describe('store — write-path local checks', () => {
   it('rejects a NaN component before any request, naming the vector and position', async () => {

@@ -136,7 +136,8 @@ function assertConditions(
       operation,
       scope,
       `filter${path} must be a plain object of metadata conditions (e.g. { genre: "scifi" }) — ` +
-        `received ${describeValue(value, 'a non-plain object')}, which AWS's filter syntax does not accept.`,
+        `received ${describeValue(value, 'a non-plain object')}, which AWS's filter syntax does ` +
+        'not accept. Omit the filter argument entirely to search without filtering.',
     );
   }
   const keys = Object.keys(value);

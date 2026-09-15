@@ -29,6 +29,26 @@ describe('AmazonS3Vectors — a nullish AWS response is a coded error, not a Typ
     expect((error as Error).name).toBe('S3VectorsError');
   });
 
+  it('explains a result with no usable distance, and why it will not guess', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({
+      distanceMetric: 'cosine',
+      vectors: [{ key: 'k', metadata: {}, distance: null as unknown as number }],
+    });
+    const error = await store
+      .similaritySearchVectorWithScore([1, 2, 3], 1)
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+    expect((error as Error).message).toContain(
+      'returned a result without a usable numeric distance, even though this call requested ' +
+        'returnDistance: true',
+    );
+    expect((error as Error).message).toContain(
+      'Cannot compute a reliable relevance score for it — the response may be malformed, ' +
+        'come from an incompatible SDK version, or a non-conforming custom client.',
+    );
+  });
+
   it('rejects a null QueryVectors response the same way', async () => {
     const { store, mock } = createTestStore();
     mock.on(QueryVectorsCommand).resolves(null as never);

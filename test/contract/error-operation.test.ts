@@ -129,6 +129,37 @@ describe('every error names the public method that raised it', () => {
     expect((error as { context: { operation: string } }).context.operation).toBe(operation);
   });
 
+  it('addVectors names itself even with no index step to raise the abort', async () => {
+    // With createIndexIfNotExist off there is no ensureExists to catch the
+    // signal, so without the store's own check the SDK would reject the
+    // PutVectors and the error would name that command instead.
+    const { store, mock } = createTestStore({ createIndexIfNotExist: false });
+    const error = await store
+      .addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { signal: fired() })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
+    expect((error as { context: { operation: string } }).context.operation).toBe('addVectors');
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
+  });
+
+  it('an MMR parameter rejection names the search, not the helper that validates it', async () => {
+    const { store } = createTestStore();
+    const error = await store.maxMarginalRelevanceSearch('q', { k: 0 }).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as { context: { operation: string } }).context.operation).toBe(
+      'maxMarginalRelevanceSearch',
+    );
+  });
+
+  it('the euclidean relevance refusal names the method that has no conversion', async () => {
+    const { store } = createTestStore({ distanceMetric: 'euclidean' });
+    const error = await store.similaritySearchWithRelevanceScores('q', 1).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as { context: { operation: string } }).context.operation).toBe(
+      'similaritySearchWithRelevanceScores',
+    );
+  });
+
   it('a retriever invocation names itself rather than the search underneath', async () => {
     const { store } = createTestStore();
     const error = await store

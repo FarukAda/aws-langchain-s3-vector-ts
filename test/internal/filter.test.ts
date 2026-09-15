@@ -37,11 +37,23 @@ describe('validateFilter — shape', () => {
     ['a Date', new Date()],
     ['a string', 'genre'],
   ])('rejects %s', (_label, filter) => {
-    expect(codeOf(check(filter))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = check(filter);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    // Each rejection names the shape a filter must have and the way to ask
+    // for no filter at all — a caller who built one dynamically needs both.
+    expect((error as Error).message).toContain('must be a plain object of metadata conditions');
+    expect((error as Error).message).toContain(
+      'Omit the filter argument entirely to search without filtering.',
+    );
   });
 
   it('rejects an empty object, which AWS refuses as an invalid filter', () => {
-    expect(codeOf(check({}))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = check({});
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe(
+      'filter cannot be an empty object ({}) — AWS rejects this as an invalid filter. ' +
+        'Omit the filter argument entirely to search without filtering.',
+    );
   });
 
   it('accepts a prototype-less object, which is a plain filter from another realm', () => {
@@ -99,19 +111,29 @@ describe('validateFilter — operators', () => {
     ['$and', { $and: 'not-an-array' }],
     ['$or', { $or: { a: 1 } }],
   ])('rejects %s whose value is not an array', (_label, filter) => {
-    expect(codeOf(check(filter))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = check(filter);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain('must be a non-empty array');
   });
 
   it('rejects an unknown $-key at the top level', () => {
     const error = check({ $eg: 'x' });
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('unknown operator');
+    // Naming the valid set is the whole point: AWS answers every bad filter
+    // with the string "Invalid filter" and nothing else.
+    expect((error as Error).message).toContain("uses unknown operator '$eg'");
+    expect((error as Error).message).toContain(
+      '$eq, $ne, $gt, $gte, $lt, $lte, $in, $nin, $exists',
+    );
   });
 
   it('explains a comparison operator used where a field name belongs', () => {
     const error = check({ $eq: 'scifi' });
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('where a field name belongs');
+    expect((error as Error).message).toContain("filter uses '$eq' where a field name belongs");
+    // And shows the shape that would have been right.
+    expect((error as Error).message).toContain('{ year: { $eq: … } }');
+    expect((error as Error).message).toContain('only $and and $or may appear on their own');
   });
 
   it('validates inside $and, so a mistyped operator nested one level is still caught', () => {
@@ -123,7 +145,8 @@ describe('validateFilter — operators', () => {
   it('rejects a null nested inside $and, naming it', () => {
     const error = check({ $and: [null] });
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('null');
+    expect((error as Error).message).toContain('filter.$and[0] must be a plain object');
+    expect((error as Error).message).toContain('received null');
   });
 
   it('passes a nested plain object with no operator keys through as a literal value', () => {
@@ -137,6 +160,9 @@ describe('validateFilter — operators', () => {
   });
 
   it('validates inside $or too', () => {
-    expect(codeOf(check({ $or: [{ b: { $nin: [] } }] }))).toBe(S3VectorsErrorCode.VALIDATION);
+    const error = check({ $or: [{ b: { $nin: [] } }] });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    // The path is in the message, so a caller with a deep filter knows where.
+    expect((error as Error).message).toBe('filter.$or[0].b.$nin must be a non-empty array.');
   });
 });
