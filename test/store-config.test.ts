@@ -226,10 +226,11 @@ describe('client together with the options it would silently override', () => {
   it('rejects client alongside credentials', () => {
     const error = build({ credentials: { accessKeyId: 'AKIA', secretAccessKey: 'secret' } });
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect(messageOf(error)).toContain(
-      'config.client was supplied together with config.credentials',
+    expect(messageOf(error)).toBe(
+      'config.client was supplied together with config.credentials, which configure the ' +
+        'client this store would otherwise build. A supplied client carries its own, so those ' +
+        'settings would be silently ignored. Pass one or the other.',
     );
-    expect(messageOf(error)).toContain('Pass one or the other');
   });
 
   it('never names the credential material it rejects', () => {

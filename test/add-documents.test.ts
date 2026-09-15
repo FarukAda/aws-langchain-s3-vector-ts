@@ -17,6 +17,14 @@ describe('AmazonS3Vectors.addDocuments — id count', () => {
     expect((error as { context: { operation: string } }).context.operation).toBe('addDocuments');
   });
 
+  it('names addDocuments when the documents argument is not an array', async () => {
+    const { store } = createTestStore();
+    const error = await store.addDocuments(null as unknown as Document[]).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe('documents must be an array.');
+    expect((error as { context: { operation: string } }).context.operation).toBe('addDocuments');
+  });
+
   it('names addDocuments on an id-shape rejection too, not the helper that resolves ids', async () => {
     const { store } = createTestStore();
     const error = await store

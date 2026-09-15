@@ -102,6 +102,12 @@ describe('queryPages', () => {
     mock.on(QueryVectorsCommand).resolves(page(1, undefined, 'euclidean'));
     const error = await run().catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
+    // The consequence, not just the mismatch: this is why the search stops
+    // rather than returning scores computed against the wrong metric.
+    expect((error as Error).message).toBe(
+      'Index "i" uses distance metric "euclidean", but this store is configured for ' +
+        '"cosine". Relevance scores would be computed against the wrong metric.',
+    );
   });
 
   it('rejects an unrecognisable distance metric as a non-conforming response', async () => {

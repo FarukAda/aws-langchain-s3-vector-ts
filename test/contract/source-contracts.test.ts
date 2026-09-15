@@ -142,6 +142,33 @@ describe('every field of an options type is documented', () => {
   );
 });
 
+describe('the package cites primary sources, not another implementation', () => {
+  // DESIGN.md D-1: the Python package is an example, not an authority. Every
+  // behaviour here is justified on its own merits and cited to an AWS
+  // reference, the SDK model or `@langchain/core`. A claim of the form
+  // "matches langchain-aws" is not a justification, and it drifted into
+  // fourteen places before this rework removed them.
+  const SHIPPED = ['README.md', 'CHANGELOG.md', 'docs/STABILITY.md'] as const;
+
+  it.each(sourceFiles(SRC).map((f) => [f.slice(SRC.length), f] as const))(
+    'src/%s cites no foreign implementation',
+    (_label, file) => {
+      const text = readFileSync(file, 'utf8');
+      expect(text).not.toMatch(/langchain[-_]aws/i);
+      expect(text).not.toMatch(/\bPython\b/);
+    },
+  );
+
+  it.each(SHIPPED)('%s cites no foreign implementation', (doc) => {
+    const text = readFileSync(new URL(`../../${doc}`, import.meta.url), 'utf8');
+    // The changelog may record that the references were removed; it may not
+    // justify anything by them.
+    expect(text).not.toMatch(/matches the Python/i);
+    expect(text).not.toMatch(/faithful port/i);
+    expect(text).not.toMatch(/parity with Python/i);
+  });
+});
+
 describe('the source keeps the constraints the design fixed', () => {
   const banned: [string, RegExp][] = [
     ['a TODO or FIXME', /\b(TODO|FIXME|XXX)\b/],

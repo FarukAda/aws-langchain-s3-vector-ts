@@ -129,3 +129,16 @@ void records;
 void byIds;
 void retriever;
 void mmr;
+
+// `delete` removes vectors and requires the ids to remove; destroying the
+// index is a separate, named method (DESIGN.md D-10).
+const deleteByIds: Promise<void> = store.delete({ ids: ['a'] });
+// @ts-expect-error -- ids is required: delete is not a way to destroy an index
+const deleteWithoutIds: Promise<void> = store.delete({});
+// @ts-expect-error -- the flag that used to destroy the index is gone
+const deleteAllFlag: Promise<void> = store.delete({ ids: ['a'], deleteAll: true });
+const dropIndex: Promise<void> = store.deleteIndex({ signal: new AbortController().signal });
+void deleteByIds;
+void deleteWithoutIds;
+void deleteAllFlag;
+void dropIndex;

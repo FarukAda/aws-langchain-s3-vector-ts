@@ -58,8 +58,11 @@ describe('AmazonS3Vectors.delete', () => {
       .delete({ ids: ['a'], deleteAll: true } as unknown as { ids: string[] })
       .catch((e: unknown) => e);
     expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('delete() no longer takes `deleteAll`');
-    expect((error as Error).message).toContain('call deleteIndex() instead');
+    expect((error as Error).message).toBe(
+      'delete() no longer takes `deleteAll`: it removes vectors by id and nothing else. ' +
+        'To destroy the index — and with it its encryption configuration, tags and ' +
+        'non-filterable-metadata configuration — call deleteIndex() instead.',
+    );
     expect(mock.commandCalls(DeleteIndexCommand)).toHaveLength(0);
     expect(mock.commandCalls(DeleteVectorsCommand)).toHaveLength(0);
   });
