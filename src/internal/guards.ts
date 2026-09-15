@@ -1,10 +1,9 @@
+import { MAX_TOP_K } from '../shared/aws-limits.js';
 import { describeValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
+import { isObjectLike } from '../shared/objects.js';
 import { isAbortSignalLike, type StoreScope } from './signals.js';
-
-/** "Top-K results per QueryVectors request: Up to 10,000" (limits page). */
-const MAX_TOP_K = 10_000;
 
 /**
  * Build a `VALIDATION` error for a caller-input failure.
@@ -98,7 +97,7 @@ export function assertDocumentObjects(
           'given and read back as an empty string, with the original left behind in metadata.',
       );
     }
-    if (metadata !== undefined && metadata !== null && !isPlainObject(metadata)) {
+    if (metadata !== undefined && metadata !== null && !isObjectLike(metadata)) {
       throw validationError(
         operation,
         scope,
@@ -108,11 +107,6 @@ export function assertDocumentObjects(
       );
     }
   }
-}
-
-/** A plain object, not an array and not null — the shape metadata must have. */
-function isPlainObject(value: unknown): boolean {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -131,7 +125,7 @@ function isPlainObject(value: unknown): boolean {
  */
 export function assertOptionsBag(operation: string, scope: StoreScope, options: unknown): void {
   if (options === undefined || options === null) return;
-  if (typeof options !== 'object' || Array.isArray(options)) {
+  if (!isObjectLike(options)) {
     throw validationError(
       operation,
       scope,

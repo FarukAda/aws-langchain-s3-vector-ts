@@ -1,6 +1,7 @@
 import { describeValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
+import { isPlainObject } from '../shared/objects.js';
 import type { StoreScope } from './signals.js';
 
 /**
@@ -32,11 +33,6 @@ const NON_EMPTY_ARRAY_OPERATORS = new Set(['$in', '$nin']);
  * carries that realm's `Object.prototype`, so an identity check rejects
  * perfectly valid filters. A plain object is recognised structurally instead.
  */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const proto: unknown = Object.getPrototypeOf(value);
-  return proto === null || Object.getPrototypeOf(proto) === null;
-}
 
 /** Raise a `VALIDATION` naming the filter path that broke a rule. */
 function failFilter(operation: string, scope: StoreScope, message: string): never {

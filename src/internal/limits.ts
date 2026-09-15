@@ -1,12 +1,9 @@
+import { MAX_DIMENSION, MIN_DIMENSION } from '../shared/aws-limits.js';
 import { renderValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import type { DistanceMetric } from '../types.js';
 import type { StoreScope } from './signals.js';
-
-/** Documented at https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html */
-const MIN_DIMENSION = 1;
-const MAX_DIMENSION = 4096;
 
 /** Raise a `VALIDATION` naming the operation and index. */
 function fail(message: string, operation: string, scope: StoreScope): never {

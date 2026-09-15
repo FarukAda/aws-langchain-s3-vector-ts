@@ -23,6 +23,10 @@ identically, and the wire format is untouched.
 
 ### Breaking
 
+- **`isAwsValidationException` is removed.** It had no caller in `src` — only a
+  test — and `classify.ts` already maps `ValidationException` by name, so it was
+  a second way to ask a question that already had one answer.
+
 - **Every internal is a `#private` field or method.** TypeScript's `private` is
   erased, so `_client`, `_lifecycle`, `_queryEmbeddings`, `_nonFilterableKeys`,
   `_relevanceScoreFn` and the private methods were all ordinary runtime members:
@@ -112,6 +116,28 @@ identically, and the wire format is untouched.
   `RequestTimeoutException`, and all three were already there. A new contract
   test reads the thirteen names out of the SDK and fails on any the code acts on
   that the service does not declare, so this cannot drift back.
+
+### Internal
+
+- **Every AWS limit enforced from two places is stated once,** in
+  `shared/aws-limits.ts`. `MAX_TOP_K` lived in two files, the dimension bounds in
+  two, the metadata-key length under two different names, the tag bounds twice
+  over. Every copy agreed — and nothing would have failed if one had been updated
+  and the others left behind. A limit enforced in one place only stays with the
+  code that enforces it.
+
+- **The plain-object check is one module and two names.** Four functions were
+  called `isPlainObject`, and they did not agree: two walked the prototype chain
+  to reject `Date` and class instances, two accepted anything that was not an
+  array. A call site said `isPlainObject` and meant whichever its own file
+  defined. They are `isPlainObject` (strict, for data that will be stored) and
+  `isObjectLike` (loose, for an options bag) now, so picking between them is a
+  decision rather than an accident of which file you are in.
+
+- Both are held in place by a new contract test rather than by care. `jscpd`
+  reports zero clones on this package and always did: this duplication was
+  single-line constants in different files under names that do not match, which
+  is not a shape a clone detector can see.
 
 ### Fixed documentation
 

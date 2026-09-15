@@ -6,6 +6,16 @@ import {
   type S3VectorsClient,
 } from '@aws-sdk/client-s3vectors';
 
+import {
+  MAX_DIMENSION,
+  METADATA_KEY_MAX_LENGTH,
+  METADATA_KEY_MIN_LENGTH,
+  MIN_DIMENSION,
+  TAG_KEY_MAX_LENGTH,
+  TAG_KEY_MIN_LENGTH,
+  TAG_VALUE_MAX_LENGTH,
+  TAG_VALUE_MIN_LENGTH,
+} from '../shared/aws-limits.js';
 import { renderValue } from '../shared/describe.js';
 import { isAwsConflictException } from '../shared/errors/aws-conflict.js';
 import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
@@ -15,6 +25,14 @@ import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { DistanceMetric, VectorDataType } from '../types.js';
 import { checkAborted, raceAbort, sendOptions } from './signals.js';
+
+/**
+ * At most 10 non-filterable metadata keys on an index (limits page).
+ *
+ * Enforced here alone, so it stays here: the shared limits module is for the
+ * ones this package checks from more than one place.
+ */
+const MAX_NON_FILTERABLE_KEYS = 10;
 
 /** The client and the index a lifecycle call acts on. */
 export interface IndexContext {
@@ -294,17 +312,6 @@ export interface IndexLifecycle {
   markAbsent(): void;
 }
 
-/** AWS limits, every one documented on the S3 Vectors limitations page. */
-const MIN_DIMENSION = 1;
-const MAX_DIMENSION = 4096;
-const MAX_NON_FILTERABLE_KEYS = 10;
-const NON_FILTERABLE_KEY_MIN = 1;
-const NON_FILTERABLE_KEY_MAX = 63;
-const TAG_KEY_MIN = 1;
-const TAG_KEY_MAX = 128;
-const TAG_VALUE_MIN = 0;
-const TAG_VALUE_MAX = 256;
-
 /**
  * The non-filterable keys a created index is given.
  *
@@ -341,9 +348,9 @@ function assertKeysCreatable(keys: readonly string[], fail: (message: string) =>
     );
   }
   for (const key of keys) {
-    if (key.length < NON_FILTERABLE_KEY_MIN || key.length > NON_FILTERABLE_KEY_MAX) {
+    if (key.length < METADATA_KEY_MIN_LENGTH || key.length > METADATA_KEY_MAX_LENGTH) {
       fail(
-        `Non-filterable metadata key ${JSON.stringify(key)} must be ${NON_FILTERABLE_KEY_MIN}-${NON_FILTERABLE_KEY_MAX} characters.`,
+        `Non-filterable metadata key ${JSON.stringify(key)} must be ${METADATA_KEY_MIN_LENGTH}-${METADATA_KEY_MAX_LENGTH} characters.`,
       );
     }
   }
@@ -360,12 +367,14 @@ function assertTagsCreatable(
   fail: (message: string) => never,
 ): void {
   for (const [key, value] of Object.entries(tags ?? {})) {
-    if (key.length < TAG_KEY_MIN || key.length > TAG_KEY_MAX) {
-      fail(`Tag key ${JSON.stringify(key)} must be ${TAG_KEY_MIN}-${TAG_KEY_MAX} characters.`);
-    }
-    if (value.length < TAG_VALUE_MIN || value.length > TAG_VALUE_MAX) {
+    if (key.length < TAG_KEY_MIN_LENGTH || key.length > TAG_KEY_MAX_LENGTH) {
       fail(
-        `Tag value for ${JSON.stringify(key)} must be ${TAG_VALUE_MIN}-${TAG_VALUE_MAX} characters.`,
+        `Tag key ${JSON.stringify(key)} must be ${TAG_KEY_MIN_LENGTH}-${TAG_KEY_MAX_LENGTH} characters.`,
+      );
+    }
+    if (value.length < TAG_VALUE_MIN_LENGTH || value.length > TAG_VALUE_MAX_LENGTH) {
+      fail(
+        `Tag value for ${JSON.stringify(key)} must be ${TAG_VALUE_MIN_LENGTH}-${TAG_VALUE_MAX_LENGTH} characters.`,
       );
     }
   }

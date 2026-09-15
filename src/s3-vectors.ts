@@ -35,6 +35,7 @@ import { attachInstance } from './shared/errors/decorate.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from './shared/errors/wrap-error.js';
+import { isObjectLike } from './shared/objects.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
 import { assertValidConfig, assertValidIndexConfig, resolveClient } from './shared/validation.js';
 import type {
@@ -56,16 +57,6 @@ const DEFAULT_MAX_CONCURRENT_BATCH_CALLS = 10;
 
 /** Default metadata key to store page_content in. */
 const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
-
-/**
- * A plain object, not an array and not null.
- *
- * `fromTexts` takes two arguments the type system cannot police for an untyped
- * caller, and both were previously read for whatever they happened to be.
- */
-function isPlainObjectValue(value: unknown): boolean {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /**
  * LangChain vector store backed by **Amazon S3 Vectors**.
@@ -967,11 +958,11 @@ export class AmazonS3Vectors extends VectorStore {
         );
       }
       metadatas.forEach((metadata: unknown, index: number) => {
-        if (metadata !== undefined && metadata !== null && !isPlainObjectValue(metadata)) {
+        if (metadata !== undefined && metadata !== null && !isObjectLike(metadata)) {
           fail(`metadatas[${index}] must be an object (received ${renderValue(metadata)}).`);
         }
       });
-    } else if (metadatas !== undefined && metadatas !== null && !isPlainObjectValue(metadatas)) {
+    } else if (metadatas !== undefined && metadatas !== null && !isObjectLike(metadatas)) {
       // Not an array, so it would be broadcast to every document — and a string
       // broadcast that way was spread into one metadata key per character and
       // written.

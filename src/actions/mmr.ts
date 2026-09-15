@@ -6,14 +6,12 @@ import { fetchVectorsByKey } from '../internal/get-vectors.js';
 import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
 import type { StoreScope } from '../internal/signals.js';
+import { MAX_TOP_K } from '../shared/aws-limits.js';
 import { renderValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { createDocument } from '../shared/metadata.js';
 import type { DistanceMetric } from '../types.js';
-
-/** "Top-K results per QueryVectors request: Up to 10,000" (limits page). */
-const MAX_TOP_K = 10_000;
 
 export interface MmrSearchOptions extends AwsOperation {
   /** The store's metric, verified against the query response. */

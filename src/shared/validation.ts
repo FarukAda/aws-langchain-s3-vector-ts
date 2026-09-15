@@ -2,9 +2,11 @@ import { DataType, DistanceMetric, S3VectorsClient, SseType } from '@aws-sdk/cli
 
 import type { StoreScope } from '../internal/signals.js';
 import type { AmazonS3VectorsConfig } from '../types.js';
+import { METADATA_KEY_MAX_LENGTH, TAG_KEY_MAX_LENGTH, TAG_VALUE_MAX_LENGTH } from './aws-limits.js';
 import { describeValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
+import { isObjectLike } from './objects.js';
 
 const BUCKET_NAME_MIN_LENGTH = 3;
 const BUCKET_NAME_MAX_LENGTH = 63;
@@ -68,12 +70,6 @@ export function assertValidIndexConfig(vectorBucketName: string, indexName: stri
   }
 }
 
-/** The metadata key length AWS documents for an index (userguide `s3-vectors-indexes.html`). */
-const METADATA_KEY_MAX_LENGTH = 63;
-/** Tag bounds from the `CreateIndex` API reference: keys 1–128 characters, values 0–256. */
-const TAG_KEY_MAX_LENGTH = 128;
-const TAG_VALUE_MAX_LENGTH = 256;
-
 /**
  * The five options an explicitly supplied `client` would otherwise decide
  * silently: each one is a constructor argument to the client this store would
@@ -134,11 +130,6 @@ function assertEnumMember(value: unknown, allowed: readonly string[], option: st
   }
 }
 
-/** A plain object, not an array and not null — the shape an options bag must have. */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 /**
  * `region`: a non-empty string.
  *
@@ -178,7 +169,7 @@ function assertEndpoint(value: unknown): void {
  */
 function assertCredentials(value: unknown): void {
   if (value === undefined || typeof value === 'function') return;
-  const pair = isPlainObject(value) ? value : undefined;
+  const pair = isObjectLike(value) ? value : undefined;
   if (
     pair === undefined ||
     typeof pair['accessKeyId'] !== 'string' ||
@@ -324,7 +315,7 @@ function assertRelevanceScoreFn(value: unknown): void {
  */
 function assertTags(value: unknown): void {
   if (value === undefined) return;
-  if (!isPlainObject(value)) {
+  if (!isObjectLike(value)) {
     fail(
       `config.tags must be an object of string keys and values (received ${describeValue(value)}).`,
     );
@@ -352,7 +343,7 @@ function assertTags(value: unknown): void {
  */
 function assertEncryption(value: unknown): void {
   if (value === undefined) return;
-  if (!isPlainObject(value)) {
+  if (!isObjectLike(value)) {
     fail(`config.encryptionConfiguration must be an object (received ${describeValue(value)}).`);
   }
   assertEnumMember(value['sseType'], Object.values(SseType), 'encryptionConfiguration.sseType');
@@ -404,7 +395,7 @@ export function assertValidConfig(config: AmazonS3VectorsConfig): void {
   // and a store assembled at runtime from an empty environment hands us
   // `undefined` — which surfaced as a raw TypeError from the first check rather
   // than as this package's own error.
-  if (!isPlainObject(config)) {
+  if (!isObjectLike(config)) {
     fail(
       `The store configuration must be an object (received ${describeValue(config)}). ` +
         'It must name at least `vectorBucketName` and `indexName`.',
