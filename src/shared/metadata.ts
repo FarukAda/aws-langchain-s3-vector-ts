@@ -28,17 +28,83 @@ const FILTERABLE_BYTE_LIMIT = 2048;
 const TOTAL_BYTE_LIMIT = 40960;
 const MEASURED_OVERHEAD_BYTES = 5;
 
-/** Accepted metadata values, per docs/evidence/metadata-value-types.md. */
-function isAcceptableValue(value: unknown): boolean {
+/**
+ * Why S3 Vectors could not store this value, or `undefined` if it can.
+ *
+ * Accepted values are per docs/evidence/metadata-value-types.md, with one rule
+ * on top: a value is refused unless its `JSON.stringify` form is also its wire
+ * form. The SDK's document serialiser does not agree with `JSON.stringify`
+ * everywhere, and where they disagree the stored data is not what the caller
+ * passed:
+ *
+ * - a non-finite number is written as the *string* `"NaN"` / `"Infinity"`
+ *   (`@aws-sdk/core` `submodules/protocols`), so the stored type changes and a
+ *   numeric filter on that field never matches again, while `JSON.stringify`
+ *   renders it `null`;
+ * - a hole in an array is omitted rather than sent as `null`, so the array
+ *   comes back shorter and every later element has shifted position.
+ *
+ * Refusing those is what makes {@link serialisedBytes} honest, without this
+ * package carrying a second copy of the SDK's serialiser to measure against.
+ */
+function rejectionReason(value: unknown): string | undefined {
   const type = typeof value;
-  if (type === 'string' || type === 'number' || type === 'boolean') return true;
-  if (Array.isArray(value)) {
-    return value.every((item) => typeof item === 'string' || typeof item === 'number');
+  if (type === 'string' || type === 'boolean') return undefined;
+  if (type === 'number') {
+    return Number.isFinite(value)
+      ? undefined
+      : `is ${String(value)}, which is not a finite number. The AWS SDK serialises it as ` +
+          `the string "${String(value)}", so it would be stored as text and no numeric ` +
+          'filter would ever match it';
   }
-  return false;
+  if (Array.isArray(value)) return arrayRejectionReason(value);
+  return (
+    'has a value S3 Vectors does not accept. Values must be a ' +
+    'string, number, boolean, or an array of strings or numbers'
+  );
 }
 
-/** UTF-8 bytes of the JSON serialisation, which is what AWS counts. */
+/**
+ * Why an array cannot be stored, or `undefined` if it can.
+ *
+ * Indexed rather than `Array.prototype.every`, which **skips holes**: `[1, , 3]`
+ * satisfied a callback checking that every element was a number, because the
+ * missing one was never visited.
+ */
+function arrayRejectionReason(value: readonly unknown[]): string | undefined {
+  for (let index = 0; index < value.length; index++) {
+    if (!Object.hasOwn(value, index)) {
+      return (
+        `has a hole at index ${index}. The AWS SDK omits a missing element rather than ` +
+        'sending null for it, so the array would be stored shorter than it is and every ' +
+        'later element would shift position'
+      );
+    }
+    const item: unknown = value[index];
+    if (typeof item === 'string') continue;
+    if (typeof item === 'number') {
+      if (Number.isFinite(item)) continue;
+      return (
+        `has ${String(item)} at index ${index}, which is not a finite number. The AWS SDK ` +
+        'serialises it as a string, changing the stored type of that element'
+      );
+    }
+    return (
+      `has a value of type ${typeof item} at index ${index}; an array may hold only strings ` +
+      'and numbers'
+    );
+  }
+  return undefined;
+}
+
+/**
+ * UTF-8 bytes of the JSON serialisation, which is what AWS counts.
+ *
+ * Truthful only because {@link rejectionReason} has already refused every value
+ * whose JSON form differs from what the SDK sends. Before that rule the count
+ * was wrong in both directions — 97 counted against 106 sent for one payload,
+ * 117 against 114 for another.
+ */
 function serialisedBytes(value: Record<string, unknown>): number {
   return Buffer.byteLength(JSON.stringify(value), 'utf8') + MEASURED_OVERHEAD_BYTES;
 }
@@ -84,15 +150,23 @@ export function buildPutMetadata(
           'a different `pageContentMetadataKey`.',
       );
     }
-    metadata[pageContentMetadataKey] = doc.pageContent;
+    // `defineProperty`, not assignment: assigning to `__proto__` on a plain
+    // object runs the inherited setter and stores nothing at all, so every
+    // document's page content was silently discarded and read back as `''`.
+    // The config validator refuses that key outright now; this keeps the
+    // function correct regardless of who calls it, and costs one line.
+    Object.defineProperty(metadata, pageContentMetadataKey, {
+      value: doc.pageContent,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
 
   for (const [key, value] of Object.entries(metadata)) {
-    if (!isAcceptableValue(value)) {
-      fail(
-        `Metadata key '${key}' has a value S3 Vectors does not accept. Values must be a ` +
-          'string, number, boolean, or an array of strings or numbers.',
-      );
+    const reason = rejectionReason(value);
+    if (reason !== undefined) {
+      fail(`Metadata key '${key}' ${reason}.`);
     }
   }
 

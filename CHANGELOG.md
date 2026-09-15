@@ -23,6 +23,30 @@ identically, and the wire format is untouched.
 
 ### Breaking
 
+- **Metadata values that would not survive serialisation are refused.** A
+  non-finite number (`NaN`, `Infinity`, `-Infinity`), an array with a hole
+  (`[1, , 3]`) and an array holding `undefined` now raise `VALIDATION` instead
+  of being written. None of them were stored as passed. The AWS SDK's document
+  serialiser writes a non-finite number as the *string* `"NaN"` or
+  `"Infinity"`, so the field silently changed type and no numeric filter
+  matched it again; and it omits a missing array element rather than sending
+  `null` for it, so the array read back shorter with every later element
+  shifted into the wrong position. The local byte counter, which measures
+  `JSON.stringify`, disagreed with what was actually sent in both directions —
+  97 bytes counted against 106 sent for one payload, 117 against 114 for
+  another — so a write could be refused locally that AWS would have taken, or
+  accepted locally that AWS would refuse. With these values refused, the JSON
+  form and the wire form agree by construction and the counter is exact. An
+  embedding that can produce `NaN` should be fixed at the source; storing the
+  string `"NaN"` was never what the caller asked for.
+
+- **`pageContentMetadataKey: '__proto__'` is refused.** It satisfied the 1–63
+  character rule and then stored nothing at all: `__proto__` is an accessor on
+  every plain object rather than a storable key, so the write succeeded, the
+  page content was discarded in silence, and every document read back with an
+  empty `pageContent`. Page content is now written with `Object.defineProperty`
+  as well, so no configured key can swallow it.
+
 - **`delete` no longer destroys the index; `deleteIndex()` does.** `ids` is now
   required, and `deleteAll` is refused with a message naming the replacement.
   `@langchain/core` describes the interface method as "remove stored documents

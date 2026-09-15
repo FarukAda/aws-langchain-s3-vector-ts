@@ -115,6 +115,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  *
  * @throws {S3VectorsError} `VALIDATION`. Only `undefined` takes the default,
  * so `''` would otherwise survive into `CreateIndex` as a zero-length key.
+ * `'__proto__'` is refused for a reason no length rule would catch: it is the
+ * one key name that is a setter on every plain object rather than a storable
+ * property, so page content written under it is discarded in silence — the
+ * write succeeds, and every document reads back with an empty `pageContent`.
  */
 function assertPageContentKey(value: unknown): void {
   if (value === undefined || value === null) return;
@@ -128,6 +132,14 @@ function assertPageContentKey(value: unknown): void {
     fail(
       `config.pageContentMetadataKey must be 1–${METADATA_KEY_MAX_LENGTH} characters ` +
         `(received ${value.length}).`,
+    );
+  }
+  if (value === '__proto__') {
+    fail(
+      "config.pageContentMetadataKey must not be '__proto__': it is an accessor on every " +
+        'plain object rather than a storable key, so page content written under it would be ' +
+        'discarded without error and every document would read back with an empty ' +
+        'pageContent. Choose any other key.',
     );
   }
 }
