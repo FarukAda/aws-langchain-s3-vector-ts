@@ -1,3 +1,4 @@
+import { renderValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
 
@@ -16,7 +17,7 @@ import { S3VectorsError } from './errors/s3-vectors-error.js';
 export function chunk<T>(items: readonly T[], size: number): T[][] {
   if (!Number.isInteger(size) || size < 1) {
     throw new S3VectorsError(
-      `Batch size must be an integer of 1 or more (received ${String(size)}).`,
+      `Batch size must be an integer of 1 or more (received ${renderValue(size)}).`,
       S3VectorsErrorCode.VALIDATION,
       { operation: 'chunk' },
     );

@@ -42,6 +42,7 @@ function setup(present: string[] = Object.keys(VECTORS)) {
       fetchK: 3,
       lambda: 0.5,
       pageContentMetadataKey: null,
+      maxConcurrent: 10,
       ...overrides,
     });
   return { mock, run };
@@ -117,6 +118,7 @@ describe('mmrSearch', () => {
       fetchK: 3,
       lambda: 0.5,
       pageContentMetadataKey: null,
+      maxConcurrent: 10,
     });
     expect(docs).toEqual([]);
     expect(mock.commandCalls(GetVectorsCommand)).toHaveLength(0);
@@ -193,6 +195,7 @@ describe('mmrSearch', () => {
       fetchK: 1,
       lambda: 0.5,
       pageContentMetadataKey: null,
+      maxConcurrent: 10,
     }).catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
     // Names the command and the key, so a caller can tell which of the two

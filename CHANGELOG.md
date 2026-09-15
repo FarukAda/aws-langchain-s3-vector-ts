@@ -23,6 +23,35 @@ identically, and the wire format is untouched.
 
 ### Breaking
 
+- **MMR honours `maxConcurrentBatchCalls`.** Its `GetVectors` fan-out never
+  received the store's cap and fell back to the helper's own default of 10, so a
+  store configured for strictly sequential calls issued ten at once. A cap a
+  caller sets to bound their request rate against a shared account quota is not
+  advisory.
+
+- **MMR validates `k`, `fetchK`, `lambda` and the filter before embedding the
+  query.** They were validated first inside the search helper, which the store
+  calls *after* `embedQuery` — so an impossible `k` cost a billable,
+  uncancellable round trip before failing, which is the opposite of what the
+  method's own documentation promised. A `lambda` that is not a number is now
+  refused by a type check first, because `>=` and `<=` coerce and the comparison
+  itself could throw before the value was ever reported.
+
+- **`deleteIndex({ signal })` stops waiting for an in-flight index creation when
+  the signal fires,** as it was documented to. It awaited the shared creation
+  without racing the signal, so an abort did nothing until the creation finished
+  and `DeleteIndex` was then issued anyway with an already-aborted signal. The
+  creation itself is still not cancelled — it is shared, and not one caller's to
+  end — but this caller's wait is their own.
+
+- **No error message can throw while being built.** Completing the fix from the
+  previous release note: every remaining site that read a caller's value into a
+  message — MMR's bounds, `pageSize`, `batchSize`, `maxConcurrentBatchCalls`, the
+  index dimension, and `toError`'s own fallback — went through `String()`, which
+  raises "Cannot convert object to primitive value" on an object with a null
+  prototype. `toError` is documented as throwing nothing and runs inside error
+  handling, where a second failure replaces the first.
+
 - **A write to an index that disagrees about non-filterable keys is refused
   with `INDEX_CONFIG_MISMATCH`.** `nonFilterableMetadataKeys` decides two
   different things — which keys a created index excludes from filters, and which

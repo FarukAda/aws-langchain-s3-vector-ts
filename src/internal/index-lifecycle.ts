@@ -6,6 +6,7 @@ import {
   type S3VectorsClient,
 } from '@aws-sdk/client-s3vectors';
 
+import { renderValue } from '../shared/describe.js';
 import { isAwsConflictException } from '../shared/errors/aws-conflict.js';
 import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
@@ -396,7 +397,7 @@ function assertCreatable(
 
   if (!Number.isInteger(dimension) || dimension < MIN_DIMENSION || dimension > MAX_DIMENSION) {
     fail(
-      `dimension must be an integer between ${MIN_DIMENSION} and ${MAX_DIMENSION} (received ${String(dimension)}).`,
+      `dimension must be an integer between ${MIN_DIMENSION} and ${MAX_DIMENSION} (received ${renderValue(dimension)}).`,
     );
   }
   assertKeysCreatable(keys, fail);
@@ -535,9 +536,18 @@ export function createIndexLifecycle(
 
       // Serialise behind any creation already running. Without this, a
       // creation that started before this delete settles after it and
-      // re-creates the index. Its outcome is irrelevant here:
-      // a failed creation still leaves nothing to wait for.
-      if (memo) await memo.catch(() => undefined);
+      // re-creates the index. Its outcome is irrelevant here: a failed creation
+      // still leaves nothing to wait for.
+      //
+      // Raced against the signal rather than simply awaited. The creation is
+      // shared, so one caller may not cancel it — but this caller's *wait* is
+      // their own, and the documented promise is that the signal ends it early.
+      // Plainly awaited, an abort did nothing until the creation finished, and
+      // `DeleteIndex` was then issued anyway with an already-aborted signal.
+      if (memo) {
+        const settled = memo.catch(() => undefined);
+        await raceAbort(() => settled, signal, operation, ctx);
+      }
 
       try {
         await ctx.client.send(

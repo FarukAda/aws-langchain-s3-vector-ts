@@ -1,3 +1,4 @@
+import { renderValue } from '../describe.js';
 import { S3VectorsErrorCode } from './error-code.js';
 import {
   isS3VectorsError,
@@ -12,15 +13,24 @@ function isError(value: unknown): value is Error {
   return typeof candidate.name === 'string' && typeof candidate.message === 'string';
 }
 
-/** Stringify a value for an error message, tolerating BigInt and circular references. */
+/**
+ * Stringify a value for an error message, tolerating BigInt and circular
+ * references — and never throwing.
+ *
+ * `String()` is not the fallback it looks like: on an object with a null
+ * prototype, or one whose `toString` throws, it raises "Cannot convert object to
+ * primitive value". Reached from `toError`, which is documented as throwing
+ * nothing and runs inside error handling, that would replace the failure being
+ * reported with a failure to describe it. `renderValue` cannot throw.
+ */
 function safeStringify(value: unknown): string {
   try {
     const json = JSON.stringify(value, (_key: string, v: unknown) =>
       typeof v === 'bigint' ? v.toString() : v,
     );
-    return json === undefined ? String(value) : json;
+    return json === undefined ? renderValue(value) : json;
   } catch {
-    return String(value);
+    return renderValue(value);
   }
 }
 

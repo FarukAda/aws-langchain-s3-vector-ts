@@ -1,5 +1,6 @@
 import { ListVectorsCommand } from '@aws-sdk/client-s3vectors';
 
+import { renderValue } from '../shared/describe.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
@@ -37,7 +38,7 @@ function assertPageSize(pageSize: number | undefined, operation: string, scope: 
   if (!Number.isInteger(pageSize) || pageSize < MIN_PAGE_SIZE || pageSize > MAX_PAGE_SIZE) {
     throw new S3VectorsError(
       `pageSize must be an integer between ${MIN_PAGE_SIZE} and ${MAX_PAGE_SIZE} ` +
-        `(received ${String(pageSize)}).`,
+        `(received ${renderValue(pageSize)}).`,
       S3VectorsErrorCode.VALIDATION,
       { operation, ...scope },
     );

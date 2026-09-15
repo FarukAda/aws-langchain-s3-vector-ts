@@ -6,6 +6,7 @@ import { fetchVectorsByKey } from '../internal/get-vectors.js';
 import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
 import type { StoreScope } from '../internal/signals.js';
+import { renderValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { createDocument } from '../shared/metadata.js';
@@ -29,6 +30,15 @@ export interface MmrSearchOptions extends AwsOperation {
   readonly filter?: unknown;
   /** Where page content is stored, so it can be lifted back out. */
   readonly pageContentMetadataKey: string | null;
+  /**
+   * How many `GetVectors` calls the candidate fetch may have in flight at once.
+   *
+   * The store's `maxConcurrentBatchCalls`. It was not passed at all, so the
+   * fetch fell back to its own default of 10 and a store configured for
+   * strictly sequential calls issued ten — the cap a caller sets to bound their
+   * own request rate against a shared account quota is not advisory.
+   */
+  readonly maxConcurrent: number;
 }
 
 /**
@@ -48,7 +58,7 @@ export interface MmrSearchOptions extends AwsOperation {
  * not a trade-off between relevance and diversity, it is arbitrary, and
  * silently clamping would return a ranking the caller did not ask for.
  */
-function assertMmrParameters(
+export function assertMmrParameters(
   k: number,
   fetchK: number,
   lambda: number,
@@ -61,15 +71,20 @@ function assertMmrParameters(
   ] as const) {
     if (!Number.isInteger(value) || value < 1 || value > MAX_TOP_K) {
       throw new S3VectorsError(
-        `${name} must be an integer between 1 and ${MAX_TOP_K} (received ${String(value)}).`,
+        `${name} must be an integer between 1 and ${MAX_TOP_K} (received ${renderValue(value)}).`,
         S3VectorsErrorCode.VALIDATION,
         { operation, ...scope },
       );
     }
   }
-  if (!(lambda >= 0 && lambda <= 1)) {
+  // `typeof` first, because `>=` and `<=` coerce: comparing an object with no
+  // primitive conversion throws "Cannot convert object to primitive value"
+  // before any message is built, so the guard itself would fail rather than the
+  // value it was guarding. `Number.isInteger` above has no such problem — it
+  // answers `false` for a non-number instead of converting it.
+  if (typeof lambda !== 'number' || !(lambda >= 0 && lambda <= 1)) {
     throw new S3VectorsError(
-      `lambda must be between 0 and 1 (received ${String(lambda)}). Outside that range the ` +
+      `lambda must be between 0 and 1 (received ${renderValue(lambda)}). Outside that range the ` +
         'selection is not a trade-off between relevance and diversity.',
       S3VectorsErrorCode.VALIDATION,
       { operation, ...scope },
@@ -147,6 +162,7 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
     keys: candidates.map((candidate) => candidate.key),
     returnData: true,
     returnMetadata: true,
+    maxConcurrent: opts.maxConcurrent,
     signal,
     ...scope,
   });

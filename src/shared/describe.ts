@@ -67,7 +67,16 @@ export function describeValue(value: unknown, objectFallback = 'an object'): str
  * {@link describeValue} where it might be a credential.
  */
 export function renderValue(value: unknown): string {
-  const type = typeof value;
-  if (type === 'number' || type === 'boolean' || type === 'bigint') return String(value);
+  // Returned as literals rather than through `String()`: they read better as
+  // themselves — "received undefined" against `describeValue`'s "received an
+  // undefined" — and naming them avoids stringifying an `unknown` at all.
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  // Tested on `value` directly rather than on a stored `typeof`, so the type is
+  // narrowed to the three that convert safely — which is also what proves to a
+  // reader, and to the linter, that nothing here can reach `Object.toString`.
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
   return describeValue(value);
 }

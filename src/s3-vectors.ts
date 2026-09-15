@@ -9,7 +9,7 @@ import { addDocuments, addVectors } from './actions/add.js';
 import { deleteVectors } from './actions/delete.js';
 import { getByIds } from './actions/get-by-ids.js';
 import { listDocuments, listVectors } from './actions/list.js';
-import { mmrSearch } from './actions/mmr.js';
+import { assertMmrParameters, mmrSearch } from './actions/mmr.js';
 import { searchByVector, selectRelevanceScoreFn } from './actions/search.js';
 import { validateFilter } from './internal/filter.js';
 import { assertK, rejectSignalInCallbacksSlot, validationError } from './internal/guards.js';
@@ -25,6 +25,7 @@ import {
   createRetriever,
   type AmazonS3VectorsRetrieverFields,
 } from './retriever.js';
+import { renderValue } from './shared/describe.js';
 import { attachInstance } from './shared/errors/decorate.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
@@ -222,7 +223,7 @@ export class AmazonS3Vectors extends VectorStore {
       throw validationError(
         'constructor',
         this._scope,
-        `config.maxConcurrentBatchCalls must be a positive integer (received ${String(config.maxConcurrentBatchCalls)}).`,
+        `config.maxConcurrentBatchCalls must be a positive integer (received ${renderValue(config.maxConcurrentBatchCalls)}).`,
       );
     }
     this._relevanceScoreFn = config.relevanceScoreFn;
@@ -652,6 +653,13 @@ export class AmazonS3Vectors extends VectorStore {
     const fetchK = options.fetchK ?? 20;
     const lambda = options.lambda ?? 0.5;
 
+    // Before the embed, not after it. `mmrSearch` checks these too and checks
+    // them first, but the store calls it *after* embedding — so an impossible
+    // `k` cost a billable, uncancellable round trip before failing, which is
+    // exactly what this method's own documentation promised it would not.
+    assertMmrParameters(k, fetchK, lambda, 'maxMarginalRelevanceSearch', this._scope);
+    validateFilter(options.filter, 'maxMarginalRelevanceSearch', this._scope);
+
     // embedQuery has no signal support, so it cannot self-cancel — check
     // before spending a billable, uncancellable call.
     this._checkAborted('maxMarginalRelevanceSearch', signal);
@@ -667,6 +675,7 @@ export class AmazonS3Vectors extends VectorStore {
       lambda,
       filter: options.filter,
       pageContentMetadataKey: this.pageContentMetadataKey,
+      maxConcurrent: this.maxConcurrentBatchCalls,
       signal,
       ...this._scope,
     });
