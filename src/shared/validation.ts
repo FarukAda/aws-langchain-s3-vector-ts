@@ -85,7 +85,36 @@ const CLIENT_EXCLUSIVE_OPTIONS = [
   'endpoint',
   'maxAttempts',
   'retryMode',
+  'connectionTimeout',
+  'socketTimeout',
+  'requestTimeout',
 ] as const;
+
+/**
+ * Retry modes the SDK accepts. `S3VectorsClientConfig` types `retryMode` as a
+ * bare `string`, so there is no enum object to check against the way
+ * `DistanceMetric` and `DataType` are — these are the three
+ * `@smithy/util-retry` defines, and the set `AmazonS3VectorsConfig` already
+ * declares.
+ *
+ * @see https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-smithy-util-retry/Enum/RETRY_MODES/
+ */
+const RETRY_MODES = ['standard', 'adaptive', 'legacy'] as const;
+
+/**
+ * Connection-phase ceiling for a client this store builds. Generous: it bounds
+ * establishing a TCP connection, not the work that follows.
+ */
+const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
+
+/**
+ * Idle-socket ceiling for a client this store builds.
+ *
+ * Idle, not total: a request still transferring never trips it, so a large
+ * batch is safe, while an endpoint that accepts the connection and then says
+ * nothing is ended rather than waited on forever.
+ */
+const DEFAULT_SOCKET_TIMEOUT_MS = 60_000;
 
 /** `"a", "b"`, built from the SDK's own enum object rather than a copy of it. */
 function oneOf(allowed: readonly string[]): string {
@@ -108,6 +137,108 @@ function assertEnumMember(value: unknown, allowed: readonly string[], option: st
 /** A plain object, not an array and not null — the shape an options bag must have. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * `region`: a non-empty string.
+ *
+ * @throws {S3VectorsError} `VALIDATION`. An empty string, a number or `null`
+ * otherwise reaches the SDK, which raises its own uncoded
+ * `Error("Region is missing")` from inside the first request.
+ */
+function assertRegion(value: unknown): void {
+  if (value === undefined) return;
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    fail(`config.region must be a non-empty string (received ${describeOption(value)}).`);
+  }
+}
+
+/**
+ * `endpoint`: an absolute URL.
+ *
+ * @throws {S3VectorsError} `VALIDATION`. A string that is not a URL is taken by
+ * the SDK and fails per request, far from the mistake that caused it.
+ */
+function assertEndpoint(value: unknown): void {
+  if (value === undefined) return;
+  if (typeof value !== 'string' || !URL.canParse(value)) {
+    fail(
+      'config.endpoint must be an absolute URL string such as ' +
+        `"https://s3vectors.us-east-1.amazonaws.com" (received ${describeOption(value)}).`,
+    );
+  }
+}
+
+/**
+ * `credentials`: a static credential pair, or a provider returning one.
+ *
+ * @throws {S3VectorsError} `VALIDATION`, describing the value by kind only.
+ * This is the one option whose content is a secret, so the message never
+ * echoes it.
+ */
+function assertCredentials(value: unknown): void {
+  if (value === undefined || typeof value === 'function') return;
+  const pair = isPlainObject(value) ? value : undefined;
+  if (
+    pair === undefined ||
+    typeof pair['accessKeyId'] !== 'string' ||
+    typeof pair['secretAccessKey'] !== 'string'
+  ) {
+    fail(
+      'config.credentials must be an object with string `accessKeyId` and `secretAccessKey`, ' +
+        `or a function returning one (received ${describeValue(value)}).`,
+    );
+  }
+}
+
+/**
+ * `maxAttempts`: an integer of 1 or more.
+ *
+ * @throws {S3VectorsError} `VALIDATION`. `0` and `-1` are silently taken by the
+ * SDK as a single attempt and a string as the default three, so a caller asking
+ * for more retries could quietly get fewer.
+ */
+function assertMaxAttempts(value: unknown): void {
+  if (value === undefined) return;
+  if (!Number.isInteger(value) || (value as number) < 1) {
+    fail(
+      `config.maxAttempts must be an integer of 1 or more (received ${describeOption(value)}). ` +
+        '1 means a single attempt with no retries.',
+    );
+  }
+}
+
+/**
+ * A millisecond timeout: a non-negative integer, `0` disabling it.
+ *
+ * @throws {S3VectorsError} `VALIDATION`.
+ */
+function assertTimeoutOption(value: unknown, option: string): void {
+  if (value === undefined) return;
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    fail(
+      `config.${option} must be a non-negative integer number of milliseconds ` +
+        `(received ${describeOption(value)}). Use 0 to disable it.`,
+    );
+  }
+}
+
+/**
+ * A boolean option, checked rather than coerced.
+ *
+ * @throws {S3VectorsError} `VALIDATION`. The case that matters is a config
+ * assembled from environment variables, where every non-empty string is truthy:
+ * `createIndexIfNotExist: 'false'` read as "yes, create it", and created it.
+ */
+function assertBooleanOption(value: unknown, option: string): void {
+  if (value === undefined) return;
+  if (typeof value !== 'boolean') {
+    fail(
+      `config.${option} must be a boolean (received ${describeOption(value)}). ` +
+        "A string is not coerced: 'false' read from an environment variable is truthy and " +
+        'would mean the opposite of what it says.',
+    );
+  }
 }
 
 /**
@@ -286,6 +417,15 @@ export function assertValidConfig(config: AmazonS3VectorsConfig): void {
   assertRelevanceScoreFn(config.relevanceScoreFn);
   assertTags(config.tags);
   assertEncryption(config.encryptionConfiguration);
+  assertRegion(config.region);
+  assertEndpoint(config.endpoint);
+  assertCredentials(config.credentials);
+  assertMaxAttempts(config.maxAttempts);
+  assertEnumMember(config.retryMode, RETRY_MODES, 'retryMode');
+  assertTimeoutOption(config.connectionTimeout, 'connectionTimeout');
+  assertTimeoutOption(config.socketTimeout, 'socketTimeout');
+  assertTimeoutOption(config.requestTimeout, 'requestTimeout');
+  assertBooleanOption(config.createIndexIfNotExist, 'createIndexIfNotExist');
   assertClientExclusivity(config);
 }
 
@@ -332,6 +472,20 @@ export function resolveClient(config: AmazonS3VectorsConfig, scope: StoreScope):
       endpoint: config.endpoint,
       maxAttempts: config.maxAttempts,
       retryMode: config.retryMode,
+      // A plain options object rather than a constructed handler: the SDK
+      // accepts `NodeHttpHandlerOptions` here and builds the handler itself, so
+      // this package keeps its zero runtime dependencies instead of taking one
+      // on `@smithy/node-http-handler` for three numbers.
+      requestHandler: {
+        connectionTimeout: config.connectionTimeout ?? DEFAULT_CONNECTION_TIMEOUT_MS,
+        socketTimeout: config.socketTimeout ?? DEFAULT_SOCKET_TIMEOUT_MS,
+        // Paired, always. Alone, `requestTimeout` only logs a warning and lets
+        // the request continue, so a caller who set it would believe they had a
+        // deadline and would not have one.
+        ...(config.requestTimeout === undefined
+          ? {}
+          : { requestTimeout: config.requestTimeout, throwOnRequestTimeout: true }),
+      },
     })
   );
 }

@@ -182,6 +182,43 @@ export interface AmazonS3VectorsConfig {
    * Not accepted together with `client`, which carries its own.
    */
   readonly retryMode?: 'standard' | 'adaptive' | 'legacy';
+
+  /**
+   * Milliseconds the connection phase of a request may take before it is
+   * abandoned, defaulting to 5,000. `0` disables it. Not accepted together
+   * with `client`, which carries its own request handler.
+   */
+  readonly connectionTimeout?: number;
+
+  /**
+   * Milliseconds a socket may sit **idle** before the request is failed,
+   * defaulting to 60,000. `0` disables it. Not accepted together with
+   * `client`.
+   *
+   * This is the timeout that ends a request to an endpoint which accepts the
+   * connection and then never answers. It is idle-based, so it does not
+   * interrupt a large upload that is still making progress — which is why it,
+   * rather than {@link requestTimeout}, is the one with a default.
+   *
+   * A `TimeoutError` from this is retryable, so the worst-case wait for a
+   * black-holed endpoint is `maxAttempts` times this value, plus backoff.
+   */
+  readonly socketTimeout?: number;
+
+  /**
+   * Milliseconds a whole request and response may take, as a **total
+   * deadline**. No default, and `0` disables it. Not accepted together with
+   * `client`.
+   *
+   * Deliberately not defaulted: a 500-vector batch at 4,096 dimensions is a
+   * large upload, and a deadline would end it however healthy the transfer is.
+   * Set it only when a hard ceiling is what you want.
+   *
+   * Setting it also sets the SDK's `throwOnRequestTimeout`. Without that flag
+   * the SDK emits a warning and keeps waiting, so the option would otherwise
+   * mean something other than what its name says.
+   */
+  readonly requestTimeout?: number;
 }
 
 // ─── Output / parameter types ────────────────────────────────────────────────

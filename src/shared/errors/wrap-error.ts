@@ -53,6 +53,10 @@ export function toError(value: unknown): Error {
  * this library; a caller seeing one here is looking at exhausted attempts.
  */
 const RETRYABLE_AWS_ERROR_NAMES = new Set([
+  // Raised by the SDK's own HTTP handler when a socket goes idle past
+  // `socketTimeout`, or a request past `requestTimeout`. Waiting again is
+  // exactly what might work, so it is retryable.
+  'TimeoutError',
   'ThrottlingException',
   'TooManyRequestsException',
   'ServiceUnavailableException',
@@ -131,7 +135,13 @@ function awsDiagnostics(cause: unknown): AwsDiagnostics {
   // Nothing here came from AWS: no SDK metadata, and a name that is not one of
   // the service's exceptions. Reporting an awsErrorName and a retryability
   // verdict would invite a caller to retry a bug in their own code.
-  if (metadata === undefined && !(name !== undefined && name.endsWith('Exception'))) return {};
+  // `TimeoutError` carries no `$metadata` and is not named for a service
+  // exception, but it is the SDK's own failure rather than a caller's bug — and
+  // with a socket timeout now applied by default it is one callers will
+  // actually see, so it has to arrive carrying a retryability verdict.
+  const isSdkFailure =
+    name !== undefined && (name.endsWith('Exception') || name === 'TimeoutError');
+  if (metadata === undefined && !isSdkFailure) return {};
 
   const out: {
     awsErrorName?: string;

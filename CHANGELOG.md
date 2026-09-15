@@ -23,6 +23,35 @@ identically, and the wire format is untouched.
 
 ### Breaking
 
+- **A store-built client now has timeouts.** The AWS SDK applies none by
+  default, so an endpoint that accepted a connection and then never answered
+  blocked `getByIds`, `addDocuments` and every search *forever* unless the
+  caller passed an `AbortSignal` — and nothing said so. New `connectionTimeout`
+  (5,000 ms) and `socketTimeout` (60,000 ms) options carry those defaults, and
+  `0` disables either.
+
+  `socketTimeout` is idle-based, which is why it is the one with a default: a
+  large batch that is still transferring never trips it, while a request that
+  has gone silent is ended. `requestTimeout` is also exposed but deliberately
+  *not* defaulted, because it is a total deadline and would cut short a
+  legitimately slow 500-vector upload; setting it also sets the SDK's
+  `throwOnRequestTimeout`, since without that flag the SDK merely logs a warning
+  and keeps waiting — the option would otherwise not mean what its name says.
+
+  A `TimeoutError` from either is reported as retryable, so the worst case
+  against a black-holed endpoint is `maxAttempts` times `socketTimeout` plus
+  backoff, not an unbounded wait. A caller-supplied `client` is untouched, and
+  these options are refused alongside one, like every other client option.
+
+- **`region`, `credentials`, `endpoint`, `maxAttempts`, `retryMode` and
+  `createIndexIfNotExist` are validated at construction,** which the README
+  already claimed. Until now `retryMode: 'bogus'` silently became `standard`,
+  `maxAttempts: -1` silently became a single attempt, `region: ''` surfaced as
+  the SDK's own uncoded `Error("Region is missing")` from inside the first
+  request, and `createIndexIfNotExist: 'false'` — the string an environment
+  variable produces — was truthy and **created the index**. The `credentials`
+  message describes the value by kind only and never echoes it.
+
 - **Every failure a read raises is now an `S3VectorsError`.** An embeddings
   model that throws — a provider rate-limiting or falling over, the most likely
   failure a read has — escaped unwrapped from `similaritySearch`,
