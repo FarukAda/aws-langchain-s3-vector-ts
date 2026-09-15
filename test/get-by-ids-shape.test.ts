@@ -5,9 +5,9 @@ import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { createTestStore } from './helpers.js';
 
 /**
- * `getByIds` returns one slot per requested id (DESIGN.md D-6). Absence is an
- * ordinary state of the world, so it is `undefined` in that slot rather than an
- * exception; an error now means the request actually failed.
+ * `getByIds` returns one slot per requested id. Absence is an ordinary state
+ * of the world, so it is `undefined` in that slot rather than an exception; an
+ * error now means the request actually failed.
  */
 const awsError = (name: string): Error => Object.assign(new Error(`synthetic ${name}`), { name });
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
@@ -63,7 +63,7 @@ describe('getByIds — aligned slots', () => {
   });
 });
 
-describe('getByIds — every document owns its metadata (D-14)', () => {
+describe('getByIds — every document owns its metadata', () => {
   it('gives duplicate ids independent documents, so mutating one cannot affect another', async () => {
     const { store, mock } = createTestStore();
     mock.on(GetVectorsCommand).callsFake(respondWith({ a: { nested: { n: 1 } } }));

@@ -1,6 +1,6 @@
 # T3-8 and T3-2 — deleting things that are not there
 
-Run conditions: see `README.md`.
+Run conditions: see [`README.md`](./README.md) in this directory.
 
 ## T3-8 — `DeleteVectors` accepts absent keys
 
@@ -11,7 +11,7 @@ DeleteVectors  keys: ['never-existed-1', 'never-existed-2']
 
 Deleting keys that were never stored succeeds. The package's documented
 idempotency for `delete({ ids })` — "a blind retry of the full `ids` list is
-always safe" (`README.md:390`) — rests on this, and now has a citation rather
+always safe" (`README.md`, *Errors*) — rests on this, and now has a citation rather
 than an assumption.
 
 The practical consequence is retry after an ambiguous network failure: a delete

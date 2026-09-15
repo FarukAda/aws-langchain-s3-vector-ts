@@ -4,12 +4,11 @@ import { validateFilter } from '../../src/internal/filter.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 
 /**
- * One test per domain cell of `validateFilter` (docs/CONTRACTS-DRAFT.md,
- * "internal/filter"). The operator vocabulary is documented and closed
- * (userguide s3-vectors-metadata-filtering.html), and docs/evidence/
- * filter-validation.md established that AWS rejects an unknown `$`-prefixed
- * key — including one that might have been a literal — so rejecting locally
- * refuses nothing the service would have accepted.
+ * One test per domain cell of `validateFilter`. The operator vocabulary is
+ * documented and closed (userguide s3-vectors-metadata-filtering.html), and
+ * docs/evidence/ filter-validation.md established that AWS rejects an unknown
+ * `$`-prefixed key — including one that might have been a literal — so
+ * rejecting locally refuses nothing the service would have accepted.
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
@@ -155,7 +154,7 @@ describe('validateFilter — operators', () => {
 
   it('passes a logical operator nested under a field through, because nothing measured covers it', () => {
     // Conservative by design: rejecting on an omission would refuse what the
-    // service may accept (docs/CONTRACTS-DRAFT.md, "internal/filter").
+    // service may accept.
     expect(check({ genre: { $and: [{ a: 1 }] } })).toBeUndefined();
   });
 

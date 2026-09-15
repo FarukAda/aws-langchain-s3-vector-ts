@@ -1,6 +1,6 @@
 # T3-1 and T3-11 — filter validation
 
-Run conditions: see `README.md`. Index: dimension 4, `cosine`, one stored vector
+Run conditions: see [`README.md`](./README.md) in this directory. Index: dimension 4, `cosine`, one stored vector
 with metadata `{ g: 'a' }`.
 
 Every rejection below is `ValidationException`, HTTP 400, with an identical body:

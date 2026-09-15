@@ -8,10 +8,9 @@ import {
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 
 /**
- * One test per domain cell of the batch-concurrency helpers
- * (docs/CONTRACTS-DRAFT.md, "Write path"). What these own is the reporting of
- * partial progress: which ids are known to have committed when something
- * fails, and in what order they are reported.
+ * One test per domain cell of the batch-concurrency helpers. What these own is
+ * the reporting of partial progress: which ids are known to have committed
+ * when something fails, and in what order they are reported.
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 

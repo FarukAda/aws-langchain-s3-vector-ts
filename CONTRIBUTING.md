@@ -57,7 +57,7 @@ Use [GitHub Issues](https://github.com/FarukAda/aws-langchain-s3-vector-ts/issue
 
 ## Release Process
 
-Releases are handled by the maintainer via a tag-triggered GitHub Actions workflow (`.github/workflows/release.yml`) using npm Trusted Publishing (OIDC) — no manual `npm publish` or long-lived npm token involved. Version numbers follow [Semantic Versioning](https://semver.org/); what a major, minor and patch may change is stated in [`docs/STABILITY.md`](./docs/STABILITY.md). A prerelease tag (`v1.0.0-rc.1`) publishes under the `next` dist-tag and a plain tag under `latest`, and the workflow refuses to publish until every check run on the tagged commit has succeeded.
+Releases are handled by the maintainer via a tag-triggered GitHub Actions workflow (`.github/workflows/release.yml`) using npm Trusted Publishing (OIDC) — no manual `npm publish` or long-lived npm token involved. Version numbers follow [Semantic Versioning](https://semver.org/): removing or renaming an export, narrowing an accepted input, changing a return type or changing a documented default needs a major; adding an export or an optional option is a minor; a patch only fixes behaviour against what is documented. Anything scheduled for removal is marked `@deprecated` in its JSDoc and listed in the CHANGELOG for at least one minor release before the major that removes it, and keeps working until then. A prerelease tag (`v1.0.0-rc.1`) publishes under the `next` dist-tag and a plain tag under `latest`, and the workflow refuses to publish until every check run on the tagged commit has succeeded.
 
 ## Code of Conduct
 

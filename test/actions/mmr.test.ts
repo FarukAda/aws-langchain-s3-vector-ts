@@ -6,10 +6,10 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { createMockClient } from '../helpers.js';
 
 /**
- * One test per domain cell of `mmrSearch` (docs/CONTRACTS-DRAFT.md,
- * "actions/mmr"). The selection itself is core's
- * `maximalMarginalRelevance` (`@langchain/core@1.2.11` `dist/utils/math.d.ts:40`)
- * — this package fetches the candidates and their vectors and maps the result.
+ * One test per domain cell of `mmrSearch`. The selection itself is core's
+ * `maximalMarginalRelevance` (`@langchain/core@1.2.11`
+ * `dist/utils/math.d.ts:40`) — this package fetches the candidates and their
+ * vectors and maps the result.
  */
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
 

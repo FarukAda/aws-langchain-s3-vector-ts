@@ -20,10 +20,14 @@ on the intended usage pattern.
 
 > `readonly` `optional` **client?**: `S3VectorsClient`
 
-Defined in: [types.ts:149](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L149)
+Defined in: [types.ts:152](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L152)
 
 A pre-configured `S3VectorsClient` instance.
-When provided, `region`, `credentials`, and `endpoint` are ignored.
+
+Exclusive with the five options that would configure one: supplying it
+together with `region`, `credentials`, `endpoint`, `maxAttempts` or
+`retryMode` is rejected with `VALIDATION` rather than silently resolved
+in the client's favour.
 
 ***
 
@@ -31,17 +35,16 @@ When provided, `region`, `credentials`, and `endpoint` are ignored.
 
 > `readonly` `optional` **createIndexIfNotExist?**: `boolean`
 
-Defined in: [types.ts:79](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L79)
+Defined in: [types.ts:78](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L78)
 
 When `true`, the index is created automatically if it does not exist
-on the first `addVectors` / `addDocuments` call.
+on the first `addVectors` / `addDocuments` call: that write issues one
+`GetIndex` and, when the index is missing, one `CreateIndex`.
 
-Note that `false` does **not** remove the need for `s3vectors:GetIndex`
-permission: every first write on an instance calls `GetIndex` once to
-validate the index's dimension and distance metric against this
-store's configuration, regardless of this flag. The flag only controls
-whether a *missing* index is created (`CreateIndex`) or left to fail
-at `PutVectors`.
+When `false`, neither call is made. Nothing is checked there that AWS
+does not already enforce on the write itself, so a store that never
+creates an index needs no control-plane permission at all — a missing
+index simply fails at `PutVectors`.
 
 #### Default Value
 
@@ -53,10 +56,11 @@ at `PutVectors`.
 
 > `readonly` `optional` **credentials?**: `AwsCredentialIdentity` \| `AwsCredentialIdentityProvider`
 
-Defined in: [types.ts:158](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L158)
+Defined in: [types.ts:165](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L165)
 
 AWS credentials: either a static credential object or an async
 provider function — the same shape `S3VectorsClient` itself accepts.
+Not accepted together with `client`.
 
 ***
 
@@ -92,7 +96,7 @@ Distance metric used for similarity search.
 
 > `readonly` `optional` **embeddings?**: `EmbeddingsInterface`\<`number`[]\>
 
-Defined in: [types.ts:132](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L132)
+Defined in: [types.ts:131](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L131)
 
 Embedding model used for both indexing and querying.
 Required unless you only call methods that accept raw vectors.
@@ -103,7 +107,7 @@ Required unless you only call methods that accept raw vectors.
 
 > `readonly` `optional` **encryptionConfiguration?**: `EncryptionConfiguration`
 
-Defined in: [types.ts:94](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L94)
+Defined in: [types.ts:93](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L93)
 
 Server-side encryption to request for an index this store creates
 (`createIndexIfNotExist: true`). Forwarded verbatim to `CreateIndex`;
@@ -123,9 +127,10 @@ or pre-create the index with your own tooling and use
 
 > `readonly` `optional` **endpoint?**: `string`
 
-Defined in: [types.ts:161](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L161)
+Defined in: [types.ts:171](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L171)
 
 Custom endpoint URL to use instead of the default regional endpoint.
+Not accepted together with `client`.
 
 ***
 
@@ -145,10 +150,11 @@ and contain only lowercase letters, numbers, hyphens, and dots.
 
 > `readonly` `optional` **maxAttempts?**: `number`
 
-Defined in: [types.ts:167](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L167)
+Defined in: [types.ts:178](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L178)
 
 Maximum number of attempts (initial try + retries) for AWS requests.
-Forwarded to the AWS SDK retry strategy. Ignored when `client` is provided.
+Forwarded to the AWS SDK retry strategy. Not accepted together with
+`client`, which carries its own.
 
 ***
 
@@ -156,7 +162,7 @@ Forwarded to the AWS SDK retry strategy. Ignored when `client` is provided.
 
 > `readonly` `optional` **maxConcurrentBatchCalls?**: `number`
 
-Defined in: [types.ts:117](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L117)
+Defined in: [types.ts:116](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L116)
 
 Maximum number of `PutVectors` / `DeleteVectors` / `GetVectors`
 calls this store keeps in flight at once during a batched
@@ -209,7 +215,7 @@ Metadata key under which to store the document `page_content`.
 
 > `readonly` `optional` **queryEmbeddings?**: `EmbeddingsInterface`\<`number`[]\>
 
-Defined in: [types.ts:141](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L141)
+Defined in: [types.ts:140](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L140)
 
 Separate embedding model used exclusively for queries.
 Useful when the embedding provider differentiates between
@@ -223,9 +229,10 @@ Falls back to [embeddings](#embeddings) when not set.
 
 > `readonly` `optional` **region?**: `string`
 
-Defined in: [types.ts:152](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L152)
+Defined in: [types.ts:158](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L158)
 
 AWS region to use when creating the SDK client (e.g. `"us-east-1"`).
+Not accepted together with `client`.
 
 ***
 
@@ -233,7 +240,7 @@ AWS region to use when creating the SDK client (e.g. `"us-east-1"`).
 
 > `readonly` `optional` **relevanceScoreFn?**: (`distance`) => `number`
 
-Defined in: [types.ts:124](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L124)
+Defined in: [types.ts:123](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L123)
 
 Optional custom function that converts a raw distance value into a
 relevance score. If not provided, a built-in function is selected
@@ -255,10 +262,10 @@ based on the configured [distanceMetric](#distancemetric).
 
 > `readonly` `optional` **retryMode?**: `"standard"` \| `"adaptive"` \| `"legacy"`
 
-Defined in: [types.ts:173](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L173)
+Defined in: [types.ts:184](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L184)
 
 AWS SDK retry mode. Throttling and 5xx errors are retried by the SDK.
-Ignored when `client` is provided.
+Not accepted together with `client`, which carries its own.
 
 ***
 
@@ -266,7 +273,7 @@ Ignored when `client` is provided.
 
 > `readonly` `optional` **tags?**: `Record`\<`string`, `string`\>
 
-Defined in: [types.ts:102](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L102)
+Defined in: [types.ts:101](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L101)
 
 Tags to apply to an index this store creates (`createIndexIfNotExist:
 true`), for cost allocation or attribute-based access control.

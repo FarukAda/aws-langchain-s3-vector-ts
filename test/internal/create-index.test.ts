@@ -10,10 +10,9 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { createMockClient } from '../helpers.js';
 
 /**
- * One test per rule of `createIndex` (docs/CONTRACTS-DRAFT.md,
- * "internal/index-lifecycle"). An index's dimension, metric and non-filterable
- * keys are fixed at creation, so a rejected configuration must never reach
- * `CreateIndex`.
+ * One test per rule of `createIndex`. An index's dimension, metric and
+ * non-filterable keys are fixed at creation, so a rejected configuration must
+ * never reach `CreateIndex`.
  */
 const awsError = (name: string): Error => Object.assign(new Error(`synthetic ${name}`), { name });
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;

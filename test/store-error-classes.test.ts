@@ -7,8 +7,8 @@ import { createTestStore, indexFixture } from './helpers.js';
 
 /**
  * Service failures reach the caller as the class they belong to, not as one
- * generic code (DESIGN.md D-16). A caller branches on retry-now, retry-later,
- * fix-IAM, fix-KMS, fix-request and missing-resource.
+ * generic code. A caller branches on retry-now, retry-later, fix-IAM, fix-KMS,
+ * fix-request and missing-resource.
  */
 const awsError = (name: string, extra: Record<string, unknown> = {}): Error =>
   Object.assign(new Error(`synthetic ${name}`), { name, ...extra });

@@ -144,17 +144,16 @@ describe('index-validation cache — concurrency', () => {
   });
 });
 
-// Unlike the "index-validation cache — concurrency" tests above (which race
-// deleteAll against a write still waiting on GetIndex/CreateIndex — this
-// library's own local cache), these race deleteAll against a write that has
-// *already passed* local validation and is inside its actual PutVectors
-// network call — the interleaving the README calls out as "not
-// coordinated." A mocked client can't prove what AWS itself does with an
-// orphaned PutVectors call, but it can prove this library's own state
-// machine doesn't hang, crash, or resurrect a cleared cache under either
-// possible outcome.
-describe('delete({deleteAll: true}) racing an in-flight PutVectors call', () => {
-  it('does not resurrect the cleared cache when a racing PutVectors call resolves after the delete', async () => {
+// Unlike the index-existence concurrency tests above (which race a
+// deleteIndex() against a write still waiting on GetIndex/CreateIndex),
+// these race a deleteIndex() against a write that has *already passed* local
+// validation and is inside its actual PutVectors network call — the
+// interleaving the README calls out as "not coordinated." A mocked client
+// can't prove what AWS itself does with an orphaned PutVectors call, but it
+// can prove this library's own state machine doesn't hang, crash, or mark
+// the index present again under either possible outcome.
+describe('deleteIndex() racing an in-flight PutVectors call', () => {
+  it('does not mark the index present again when a racing PutVectors call resolves after the delete', async () => {
     const { store, mock } = createTestStore();
     mock.on(GetIndexCommand).resolves({
       index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),

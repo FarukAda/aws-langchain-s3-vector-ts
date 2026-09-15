@@ -6,7 +6,7 @@ import { buildPutMetadata } from '../../src/shared/metadata.js';
 
 /**
  * The metadata rules measured against live AWS (docs/evidence/) and decided in
- * docs/CONTRACTS-DRAFT.md, "shared/metadata".
+ * its contract.
  */
 const BASE = {
   pageContentMetadataKey: '_page_content',

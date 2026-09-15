@@ -70,7 +70,7 @@ if (!env) {
         try {
           await cleanup.deleteIndex();
         } catch {
-          // deleteAll is idempotent, so an index that never got created is fine.
+          // deleteIndex() is idempotent, so an index that never got created is fine.
         }
       }
     });
@@ -155,7 +155,7 @@ if (!env) {
         indexName,
         distanceMetric: 'cosine',
         // No `region` alongside `client`: the client above already carries
-        // one, and supplying both is rejected (DESIGN.md D-34).
+        // one, and supplying both is rejected.
         client,
       });
 

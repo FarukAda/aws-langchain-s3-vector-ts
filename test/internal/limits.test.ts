@@ -5,8 +5,7 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
 
 /**
- * One test per domain cell of the write-path limit checks
- * (docs/CONTRACTS-DRAFT.md, "internal/limits — write path").
+ * One test per domain cell of the write-path limit checks.
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;

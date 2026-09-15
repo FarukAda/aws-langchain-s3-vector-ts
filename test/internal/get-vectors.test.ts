@@ -6,9 +6,9 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { createMockClient, sendOptionsOf } from '../helpers.js';
 
 /**
- * One test per domain cell of `fetchVectorsByKey` (docs/CONTRACTS-DRAFT.md,
- * "internal/get-vectors"). A Map keyed by id, because GetVectors does not
- * return results in request order (docs/evidence/get-vectors-absent-keys.md).
+ * One test per domain cell of `fetchVectorsByKey`. A Map keyed by id, because
+ * GetVectors does not return results in request order
+ * (docs/evidence/get-vectors-absent-keys.md).
  */
 const awsError = (name: string): Error => Object.assign(new Error(`synthetic ${name}`), { name });
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;

@@ -11,11 +11,10 @@ import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { createTestStore, indexFixture, malformedIndexFixture } from './helpers.js';
 
 /**
- * How the store uses the index lifecycle (DESIGN.md §4). These assert the
- * behaviour that replaced the index-configuration cache, and each is the
- * negation of a test the cache required — a write no longer pre-validates
- * dimension or metric, because AWS enforces the first and the read path
- * verifies the second.
+ * How the store uses the index lifecycle. These assert the behaviour that
+ * replaced the index-configuration cache, and each is the negation of a test
+ * the cache required — a write no longer pre-validates dimension or metric,
+ * because AWS enforces the first and the read path verifies the second.
  */
 const awsError = (name: string): Error => Object.assign(new Error(`synthetic ${name}`), { name });
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
@@ -92,7 +91,7 @@ describe('store — index lifecycle', () => {
     expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(1);
   });
 
-  it('forgets existence after deleteAll, so the next write re-checks', async () => {
+  it('forgets existence after deleteIndex(), so the next write re-checks', async () => {
     const { store, mock } = createTestStore();
     mock.on(GetIndexCommand).resolves({ index: indexFixture() });
     mock.on(PutVectorsCommand).resolves({});

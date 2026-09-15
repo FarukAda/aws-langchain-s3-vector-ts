@@ -29,7 +29,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const outDir = join(root, '.doc-samples');
 
 /** The documents whose samples a reader is expected to be able to run. */
-const DOCUMENTS = ['README.md', 'src/guide.md', 'docs/STABILITY.md', 'CHANGELOG.md'];
+const DOCUMENTS = ['README.md', 'src/guide.md', 'CHANGELOG.md'];
 
 /** Blocks legitimately un-compilable, and why. Growing this list is the point. */
 const EXPECTED_SKIPS = 1;

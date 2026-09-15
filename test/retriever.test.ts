@@ -6,9 +6,8 @@ import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { createTestStore, sendOptionsOf } from './helpers.js';
 
 /**
- * One test per domain cell of `AmazonS3VectorsRetriever`
- * (docs/CONTRACTS-DRAFT.md, "Cancellation"). Core's `BaseRetriever.invoke`
- * never passes the config to `_getRelevantDocuments`
+ * One test per domain cell of `AmazonS3VectorsRetriever`. Core's
+ * `BaseRetriever.invoke` never passes the config to `_getRelevantDocuments`
  * (`@langchain/core@1.2.11` `dist/retrievers/index.js:81`, `:85`), so the two
  * signals have two different jobs: a retriever **field** signal reaches
  * `QueryVectors` and cancels it; a **config** signal ends the invocation only.

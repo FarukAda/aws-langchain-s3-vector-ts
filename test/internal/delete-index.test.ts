@@ -6,9 +6,8 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { createMockClient, indexFixture, sendOptionsOf } from '../helpers.js';
 
 /**
- * One test per domain cell of `deleteIndex` (docs/CONTRACTS-DRAFT.md,
- * "internal/index-lifecycle"), plus the serialisation that closes the
- * resurrection defect (DESIGN.md D-30).
+ * One test per domain cell of `deleteIndex`, plus the serialisation that
+ * closes the resurrection defect.
  */
 const awsError = (name: string): Error => Object.assign(new Error(`synthetic ${name}`), { name });
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;

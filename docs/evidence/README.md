@@ -3,10 +3,10 @@
 Each file records a behaviour the S3 Vectors service exhibits that AWS does not
 document, together with the raw request and response that established it.
 
-A Tier 3 claim (`DESIGN.md` §2.3) becomes citable only when **both** exist: the
-evidence file here, and a named integration test asserting the same fact, so the
-nightly live run fails if AWS changes it. The file alone goes stale silently; the
-test alone cannot be checked by a reviewer without AWS credentials.
+A behaviour recorded here becomes citable only when **both** exist: the evidence
+file, and a named integration test asserting the same fact, so the nightly live
+run fails if AWS changes it. The file alone goes stale silently; the test alone
+cannot be checked by a reviewer without AWS credentials.
 
 ## Run conditions common to every file in this directory
 

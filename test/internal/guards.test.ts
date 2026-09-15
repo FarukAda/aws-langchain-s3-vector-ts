@@ -11,11 +11,10 @@ import {
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 
 /**
- * One test per domain cell of the shared caller-input guards
- * (docs/CONTRACTS-DRAFT.md, "Store shell"). Every one of these is reachable
- * only from an untyped caller or a cast — which is exactly why they exist:
- * without them the same input arrives as a raw `TypeError`, or as an AWS
- * round trip that fails for a reason the caller has to decode.
+ * One test per domain cell of the shared caller-input guards. Every one of
+ * these is reachable only from an untyped caller or a cast — which is exactly
+ * why they exist: without them the same input arrives as a raw `TypeError`, or
+ * as an AWS round trip that fails for a reason the caller has to decode.
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 

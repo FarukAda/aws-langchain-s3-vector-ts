@@ -76,7 +76,7 @@ if (!env) {
         try {
           await cleanup.deleteIndex();
         } catch {
-          // deleteAll is idempotent as of 0.8.0, so a missing index is fine.
+          // deleteIndex() is idempotent, so a missing index is fine.
         }
       }
     });
@@ -112,9 +112,9 @@ if (!env) {
       expect(isS3VectorsError(fetched)).toBe(true);
     }, 120_000);
 
-    // ── IM6: deleteAll idempotency ──────────────────────────────────────
+    // ── IM6: deleteIndex() idempotency ──────────────────────────────────
 
-    it('resolves a second delete({ deleteAll: true }) cleanly', async () => {
+    it('resolves a second deleteIndex() cleanly', async () => {
       const { store } = newStore();
       await store.addDocuments([new Document({ pageContent: 'hello' })], { ids: ['d1'] });
 
@@ -215,10 +215,10 @@ if (!env) {
         )
         .catch((e: unknown) => e);
 
-      // The write path no longer pre-validates a dimension against cached index
-      // configuration (DESIGN.md D-9); AWS enforces it (F-1). What this package
-      // still owes the caller is an accurate account of what landed before the
-      // failure — batch 0 committed, batch 1 did not.
+      // The write path no longer pre-validates a dimension against cached
+      // index configuration; AWS enforces it. What this package still owes the
+      // caller is an accurate account of what landed before the failure —
+      // batch 0 committed, batch 1 did not.
       const context = (error as { context: Record<string, unknown> }).context;
       expect(context['awsErrorName']).toBe('ValidationException');
       expect(context['writtenIds']).toEqual(['b']);
@@ -304,8 +304,8 @@ if (!env) {
       expect(fetched[0]!.metadata['genre']).toBe('a');
 
       await store.delete({ ids: ['doc-1'] });
-      // A deleted id is an undefined slot, not an error: absence is an ordinary
-      // state of the world (DESIGN.md D-6).
+      // A deleted id is an undefined slot, not an error: absence is an
+      // ordinary state of the world.
       expect(await store.getByIds(['doc-1'])).toEqual([undefined]);
 
       await store.deleteIndex();

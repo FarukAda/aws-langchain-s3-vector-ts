@@ -103,7 +103,7 @@ describe('AmazonS3Vectors — a mid-pagination QueryVectors failure explains its
       .similaritySearchVectorWithScore([1, 2, 3], 50)
       .catch((e: unknown) => e);
 
-    // The fixture is a ValidationException, so it now carries that class (D-16);
+    // The fixture is a ValidationException, so it now carries that class;
     // the pagination context is what this test is really about.
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.AWS_REJECTED);
     expect((error as Error).message).toContain('page 2 of a paginated');

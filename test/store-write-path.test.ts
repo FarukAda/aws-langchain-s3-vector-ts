@@ -6,8 +6,7 @@ import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { createTestStore, indexFixture, mockExistingIndex } from './helpers.js';
 
 /**
- * The write path's local checks and failure reporting (docs/CONTRACTS-DRAFT.md,
- * "actions/add-vectors and actions/add-documents").
+ * The write path's local checks and failure reporting.
  */
 const awsError = (name: string): Error => Object.assign(new Error(`synthetic ${name}`), { name });
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
@@ -117,7 +116,7 @@ describe('store — write-path local checks', () => {
   });
 });
 
-describe('store — failed writes are retryable without duplicating (D-12)', () => {
+describe('store — failed writes are retryable without duplicating', () => {
   it('carries the full resolved id list alongside what already landed', async () => {
     const { store, mock } = createTestStore();
     mock.on(GetIndexCommand).resolves({ index: indexFixture() });

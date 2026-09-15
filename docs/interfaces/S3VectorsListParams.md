@@ -6,7 +6,7 @@
 
 # Interface: S3VectorsListParams
 
-Defined in: [types.ts:246](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L246)
+Defined in: [types.ts:257](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L257)
 
 Options accepted by [AmazonS3Vectors.listDocuments](../classes/AmazonS3Vectors.md#listdocuments) and
 [AmazonS3Vectors.listVectors](../classes/AmazonS3Vectors.md#listvectors).
@@ -21,7 +21,7 @@ looking like a server-side filter.
 
 > `readonly` `optional` **pageSize?**: `number`
 
-Defined in: [types.ts:253](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L253)
+Defined in: [types.ts:264](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L264)
 
 Vectors requested per `ListVectors` call: an integer 1-1000. Advisory —
 AWS stops a page at 1 MB of processed data regardless, so a short page is
@@ -39,7 +39,7 @@ the service default of 500
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [types.ts:259](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L259)
+Defined in: [types.ts:270](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L270)
 
 Abort an in-progress listing. Checked before each page and threaded into
 the request, so it both cancels the page in flight and stops the next one

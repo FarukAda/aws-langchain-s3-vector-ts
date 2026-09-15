@@ -12,8 +12,7 @@ import {
 } from '../helpers.js';
 
 /**
- * One test per domain cell of `indexExists` (docs/CONTRACTS-DRAFT.md,
- * "internal/index-lifecycle").
+ * One test per domain cell of `indexExists`.
  */
 const awsError = (name: string): Error => Object.assign(new Error(`synthetic ${name}`), { name });
 

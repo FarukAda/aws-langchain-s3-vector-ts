@@ -4,10 +4,10 @@ import { describe, it, expect } from '@jest/globals';
 import { createTestStore, sendOptionsOf } from './helpers.js';
 
 /**
- * Enumeration (DESIGN.md §6.7, D-25). Two methods rather than one with a flag
- * (D-27): "sometimes there is a vector on the result" is the optional-field
- * ambiguity the contract standard exists to prevent, and the 1 MB page cap
- * makes them economically different operations.
+ * Enumeration. Two methods rather than one with a flag: "sometimes there is a
+ * vector on the result" is the optional-field ambiguity the contract standard
+ * exists to prevent, and the 1 MB page cap makes them economically different
+ * operations.
  */
 const page = (keys: string[], withData: boolean, nextToken?: string): object => ({
   vectors: keys.map((key) => ({

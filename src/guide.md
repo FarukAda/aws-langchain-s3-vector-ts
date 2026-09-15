@@ -70,11 +70,11 @@ Unlike a naive approach that embeds all documents at once (which can exhaust mem
 // With 10,000 documents and batchSize: 200 (default):
 // → 50 embedding calls, each processing 200 texts
 // → 50 PutVectors calls, each storing 200 vectors
-// → Peak memory: ~200 vectors at a time, not 10,000
+// → Peak memory: a bounded window of batches, not all 10,000
 await store.addDocuments(largeDocs, { batchSize: 200 });
 ```
 
-Peak memory therefore tracks the batch size, not the size of the input, which is what makes a large ingest survivable.
+`embedDocuments` is never called for two batches at once, but a batch's `PutVectors` is dispatched while the next batch is embedded, so up to `maxConcurrentBatchCalls` (default 10) writes are in flight. Peak memory for in-flight vectors is therefore bounded by roughly `(maxConcurrentBatchCalls + 1) × batchSize` — by the two knobs, never by the size of the input, which is what makes a large ingest survivable.
 
 ## Similarity Search
 
@@ -92,12 +92,10 @@ The text-based methods reserve a `Callbacks` slot (accepted and ignored) so they
 
 Passing an `AbortSignal` in that `Callbacks` slot raises a coded `VALIDATION` error on all three text-based searches rather than being silently ignored: the search would otherwise run to completion, uncancelled, after already spending a billable `embedQuery` call. Pass it as the fifth argument instead.
 
-**Distance vs. relevance:** S3 Vectors returns a *distance* (lower = more similar). LangChain expects a *relevance score* (higher = more relevant). The library provides built-in conversion functions:
+**Distance vs. relevance:** S3 Vectors returns a *distance* (lower = more similar). LangChain expects a *relevance score* (higher = more relevant). One conversion is built in, and only one:
 
-- **Cosine:** `1.0 - distance` → score in `[-1, 1]` (typically `[0, 1]`)
-- **Euclidean:** `1.0 - distance / √4096` → score in `[0, 1]`
-
-You can also provide your own via `relevanceScoreFn` in the config.
+- **Cosine:** `cosineRelevanceScoreFn` — `1.0 - distance`. Cosine distance is exactly `1 − cosine_similarity` (`docs/evidence/cosine-distance.md`), so the score range is `[-1, 1]`, and `[0, 1]` for the normalised embeddings most models produce.
+- **Euclidean:** none. `similaritySearchWithRelevanceScores` on a euclidean index with no `relevanceScoreFn` raises `VALIDATION` rather than returning a number: euclidean distance is unbounded above, so no fixed formula maps it to a comparable score without knowing your embedding's scale. Supply `relevanceScoreFn` in the config, or read raw distances with `similaritySearchWithScore`.
 
 Call `similaritySearchWithRelevanceScores(query, k, filter?, callbacks?, signal?)` to get `[Document, score][]` tuples with the conversion already applied. Through 0.x this method also honored an `AbortSignal` in the fourth position, where earlier versions expected it; since 1.0 it takes the signal fifth like its siblings, and a signal in the fourth slot is rejected the same way.
 
@@ -157,7 +155,7 @@ const client = new S3VectorsClient({
 const store = new AmazonS3Vectors(embeddings, {
   vectorBucketName: "my-bucket",
   indexName: "my-index",
-  client, // region/credentials/endpoint in config are ignored
+  client, // exclusive with region/credentials/endpoint/maxAttempts/retryMode
 });
 ```
 
@@ -198,10 +196,10 @@ The AWS SDK v3 has built-in retry behaviour (exponential backoff with jitter) fo
 
 ## Deletion
 
-The `delete()` method supports two modes:
+Removing vectors and destroying an index are two different methods, deliberately:
 
-- **By IDs:** `await store.delete({ ids: ["id1", "id2"] })` — deletes specific vectors (batched, default 500 per call)
-- **Entire index:** `await store.deleteIndex()` — deletes the whole vector index (not the bucket). It is a separate, named method precisely because destroying a resource is not what `delete` means: `delete` requires `ids` and will not destroy an index whatever it is passed.
+- **By IDs:** `await store.delete({ ids: ["id1", "id2"] })` — deletes specific vectors (batched, default 500 per call). `ids` is required, and `delete` will not destroy an index whatever it is passed.
+- **Entire index:** `await store.deleteIndex()` — deletes the whole vector index (not the bucket). It has to be named to be called, precisely because destroying a resource is not what `delete` means.
 
 Both are idempotent, so a blind retry after an ambiguous network failure is safe: deleting ids that are already gone succeeds, and `deleteIndex()` against an index that no longer exists resolves cleanly rather than erroring.
 

@@ -7,7 +7,7 @@ import { wrapAwsError } from '../../../src/shared/errors/wrap-error.js';
  * `ValidationException.fieldList` is a typed member of the SDK's exception
  * (`@aws-sdk/client-s3vectors@3.1132.0` `dist-types/models/errors.d.ts`), and
  * each entry is `{ path, message }` (`models_0.d.ts:94`). It names the field
- * AWS rejected, and was discarded (docs/CONTRACTS-DRAFT.md, "Error model").
+ * AWS rejected, and was discarded.
  */
 const SCOPE = { operation: 'addVectors', vectorBucketName: 'b', indexName: 'i' };
 

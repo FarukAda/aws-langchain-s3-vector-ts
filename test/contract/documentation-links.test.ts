@@ -16,7 +16,7 @@ import { describe, it, expect } from '@jest/globals';
  */
 const ROOT = resolve(new URL('../../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 
-const DOCS = ['README.md', 'CHANGELOG.md', 'src/guide.md', 'docs/STABILITY.md'] as const;
+const DOCS = ['README.md', 'CHANGELOG.md', 'src/guide.md'] as const;
 
 /**
  * GitHub's anchor rule, as far as these documents exercise it.

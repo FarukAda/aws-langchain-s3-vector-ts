@@ -20,7 +20,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:24](https://github.com/FarukAda/a
 
 Every id the failed write resolved, whether or not it landed. Retrying with
 `{ ids: attemptedIds }` overwrites in place instead of minting fresh UUIDs
-for the documents that already committed (DESIGN.md D-12).
+for the documents that already committed.
 
 ***
 

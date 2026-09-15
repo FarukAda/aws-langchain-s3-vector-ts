@@ -5,8 +5,7 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
 
 /**
- * One test per domain cell of `checkAborted` (docs/CONTRACTS-DRAFT.md,
- * "Cancellation").
+ * One test per domain cell of `checkAborted`.
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 
@@ -75,10 +74,9 @@ describe('checkAborted', () => {
 });
 
 /**
- * One test per domain cell of `raceAbort` (docs/CONTRACTS-DRAFT.md,
- * "Cancellation"). It lets a caller's own wait end early without cancelling
- * work other callers depend on — the shared index-creation memo (DESIGN.md
- * §7.2) and a retriever invocation (§7.3).
+ * One test per domain cell of `raceAbort`. It lets a caller's own wait end
+ * early without cancelling work other callers depend on — the shared
+ * index-creation memo and a retriever invocation.
  */
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
 

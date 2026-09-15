@@ -19,7 +19,7 @@ export interface S3VectorsErrorContext {
   /**
    * Every id the failed write resolved, whether or not it landed. Retrying with
    * `{ ids: attemptedIds }` overwrites in place instead of minting fresh UUIDs
-   * for the documents that already committed (DESIGN.md D-12).
+   * for the documents that already committed.
    */
   readonly attemptedIds?: string[];
   /**
@@ -179,7 +179,7 @@ export class S3VectorsError extends Error {
  * Throws: nothing.
  *
  * Guarantees: this is the supported way to recognise these errors, and the
- * brand string is stable for `1.x` (`docs/STABILITY.md` §3).
+ * brand string is stable for `1.x`.
  */
 export function isS3VectorsError(value: unknown): value is S3VectorsError {
   return (

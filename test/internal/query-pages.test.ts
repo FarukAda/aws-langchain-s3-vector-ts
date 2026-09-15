@@ -7,8 +7,7 @@ import { S3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
 import { createMockClient } from '../helpers.js';
 
 /**
- * One test per domain cell of `queryPages` (docs/CONTRACTS-DRAFT.md,
- * "internal/query-pages").
+ * One test per domain cell of `queryPages`.
  */
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
 

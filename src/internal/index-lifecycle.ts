@@ -147,7 +147,7 @@ export interface IndexLifecycle {
   markAbsent(): void;
 }
 
-/** AWS limits, every one documented; see docs/DESIGN.md §9. */
+/** AWS limits, every one documented on the S3 Vectors limitations page. */
 const MIN_DIMENSION = 1;
 const MAX_DIMENSION = 4096;
 const MAX_NON_FILTERABLE_KEYS = 10;
@@ -334,7 +334,7 @@ async function createIndex(
  *   that started first can never land afterwards and resurrect the index.
  * - Nothing about an existing index is cached beyond its existence: AWS
  *   enforces the dimension on every write and the metric is checked on every
- *   read, so there is no stale descriptor to go wrong (DESIGN.md D-9).
+ *   read, so there is no stale descriptor to go wrong.
  */
 export function createIndexLifecycle(
   ctx: IndexContext,
@@ -363,7 +363,7 @@ export function createIndexLifecycle(
 
       // The memo is shared, so the wait is raced rather than the work
       // cancelled: one caller's abort must not cancel a creation the others
-      // are waiting on (DESIGN.md §7.2).
+      // are waiting on.
       const shared = memo;
       await raceAbort(() => shared, signal, operation, ctx);
     },
@@ -377,8 +377,7 @@ export function createIndexLifecycle(
 
       // Serialise behind any creation already running. Without this, a
       // creation that started before this delete settles after it and
-      // re-creates the index — the defect the epoch counter was originally
-      // added to prevent (DESIGN.md D-30). Its outcome is irrelevant here:
+      // re-creates the index. Its outcome is irrelevant here:
       // a failed creation still leaves nothing to wait for.
       if (memo) await memo.catch(() => undefined);
 

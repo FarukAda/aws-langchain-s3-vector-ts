@@ -1,6 +1,6 @@
 # T3-9 — metadata value types are enforced
 
-Run conditions: see `README.md`.
+Run conditions: see [`README.md`](./README.md) in this directory.
 
 ```
 PutVectors  metadata: { obj: { a: 1 } }
@@ -23,9 +23,9 @@ The service enforces the value types the user guide lists, and the enforcement i
   objects. The user guide says metadata supports "string, number, boolean, and
   list types" without saying what a list may hold.
 
-## This reverses a contract decision
+## This reverses an earlier decision
 
-`CONTRACTS-DRAFT.md` passed nested objects through, on the reasoning that an
+This package used to pass nested objects through, on the reasoning that an
 omission from a documented list is not evidence of rejection and that a false
 local rejection would be worse than a round trip.
 

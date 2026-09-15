@@ -5,11 +5,10 @@ import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { createTestStore } from './helpers.js';
 
 /**
- * Relevance-score selection (DESIGN.md §6.3, D-3). No fixed formula can map an
- * unbounded euclidean distance to a comparable score without knowing the
- * embedding's scale, and only the caller knows that — so a euclidean store
- * without `relevanceScoreFn` fails closed rather than returning numbers from an
- * arbitrary divisor.
+ * Relevance-score selection. No fixed formula can map an unbounded euclidean
+ * distance to a comparable score without knowing the embedding's scale, and
+ * only the caller knows that — so a euclidean store without `relevanceScoreFn`
+ * fails closed rather than returning numbers from an arbitrary divisor.
  */
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
 

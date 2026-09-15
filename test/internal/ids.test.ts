@@ -5,8 +5,7 @@ import { assertIdsWellFormed, resolveWriteIds } from '../../src/internal/ids.js'
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 
 /**
- * One test per domain cell of `resolveWriteIds` and `assertIdsWellFormed`
- * (docs/CONTRACTS-DRAFT.md, "internal/ids").
+ * One test per domain cell of `resolveWriteIds` and `assertIdsWellFormed`.
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;

@@ -66,14 +66,13 @@ export interface AmazonS3VectorsConfig {
 
   /**
    * When `true`, the index is created automatically if it does not exist
-   * on the first `addVectors` / `addDocuments` call.
+   * on the first `addVectors` / `addDocuments` call: that write issues one
+   * `GetIndex` and, when the index is missing, one `CreateIndex`.
    *
-   * Note that `false` does **not** remove the need for `s3vectors:GetIndex`
-   * permission: every first write on an instance calls `GetIndex` once to
-   * validate the index's dimension and distance metric against this
-   * store's configuration, regardless of this flag. The flag only controls
-   * whether a *missing* index is created (`CreateIndex`) or left to fail
-   * at `PutVectors`.
+   * When `false`, neither call is made. Nothing is checked there that AWS
+   * does not already enforce on the write itself, so a store that never
+   * creates an index needs no control-plane permission at all — a missing
+   * index simply fails at `PutVectors`.
    * @defaultValue `true`
    */
   readonly createIndexIfNotExist?: boolean;
@@ -144,31 +143,43 @@ export interface AmazonS3VectorsConfig {
 
   /**
    * A pre-configured `S3VectorsClient` instance.
-   * When provided, `region`, `credentials`, and `endpoint` are ignored.
+   *
+   * Exclusive with the five options that would configure one: supplying it
+   * together with `region`, `credentials`, `endpoint`, `maxAttempts` or
+   * `retryMode` is rejected with `VALIDATION` rather than silently resolved
+   * in the client's favour.
    */
   readonly client?: S3VectorsClient;
 
-  /** AWS region to use when creating the SDK client (e.g. `"us-east-1"`). */
+  /**
+   * AWS region to use when creating the SDK client (e.g. `"us-east-1"`).
+   * Not accepted together with `client`.
+   */
   readonly region?: string;
 
   /**
    * AWS credentials: either a static credential object or an async
    * provider function — the same shape `S3VectorsClient` itself accepts.
+   * Not accepted together with `client`.
    */
   readonly credentials?: S3VectorsClientConfig['credentials'];
 
-  /** Custom endpoint URL to use instead of the default regional endpoint. */
+  /**
+   * Custom endpoint URL to use instead of the default regional endpoint.
+   * Not accepted together with `client`.
+   */
   readonly endpoint?: string;
 
   /**
    * Maximum number of attempts (initial try + retries) for AWS requests.
-   * Forwarded to the AWS SDK retry strategy. Ignored when `client` is provided.
+   * Forwarded to the AWS SDK retry strategy. Not accepted together with
+   * `client`, which carries its own.
    */
   readonly maxAttempts?: number;
 
   /**
    * AWS SDK retry mode. Throttling and 5xx errors are retried by the SDK.
-   * Ignored when `client` is provided.
+   * Not accepted together with `client`, which carries its own.
    */
   readonly retryMode?: 'standard' | 'adaptive' | 'legacy';
 }
@@ -178,10 +189,10 @@ export interface AmazonS3VectorsConfig {
 /**
  * Shape of a single vector as returned by QueryVectors / GetVectors.
  *
- * Public: this is the input type of the exported `createDocument` helper,
- * so a caller mapping their own `QueryVectors` responses (for example from
- * a Lambda that calls the SDK directly) can build the same `Document`
- * shape this store produces.
+ * Public because it is the shape the store reads: a caller mapping their own
+ * `QueryVectors` or `GetVectors` responses (for example from a Lambda that
+ * calls the SDK directly) can type them against the same contract this store
+ * maps to `Document`.
  */
 export interface S3OutputVector {
   /** The vector key — the id this package wrote it under. */

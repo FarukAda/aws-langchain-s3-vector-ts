@@ -1,6 +1,6 @@
 # T3-4 — how AWS counts metadata bytes
 
-Run conditions: see `README.md`.
+Run conditions: see [`README.md`](./README.md) in this directory.
 
 **Claim settled.** The 2 KB filterable and 40 KB total metadata limits are
 counted over the **UTF-8 byte length of the JSON serialisation** of the metadata
@@ -64,7 +64,7 @@ Exactly 50, as documented:
 
 ## Consequence for the contracts
 
-Local enforcement (`DESIGN.md` §9.3) becomes exact rather than a guess:
+Local enforcement becomes exact rather than a guess:
 
 ```
 byteLength(JSON.stringify(filterableSubset)) + 5 ≤ 2048
@@ -73,7 +73,7 @@ Object.keys(wholeMetadata).length                 ≤ 50
 ```
 
 The filterable subset is the metadata minus the keys declared non-filterable at
-index creation, which this package knows — it sets them (§5.5).
+index creation, which this package knows — it sets them.
 
 Erring by the 5-byte overhead is conservative in the caller's favour: a payload
 this package accepts is one AWS accepts.

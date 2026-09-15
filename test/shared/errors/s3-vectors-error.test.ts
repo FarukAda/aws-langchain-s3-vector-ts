@@ -57,7 +57,7 @@ describe('S3VectorsError', () => {
 describe('S3VectorsErrorCode — the value is the contract, not the key', () => {
   it('every member serialises to its own name', () => {
     // A caller who cannot import the enum compares against the string, and
-    // docs/STABILITY.md promises a value is never renamed. A key and value
+    // A `1.x` release never renames a value. A key and value
     // that drift apart break that silently.
     for (const [key, value] of Object.entries(S3VectorsErrorCode)) {
       expect(value).toBe(key);

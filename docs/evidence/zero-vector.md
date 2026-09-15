@@ -1,6 +1,6 @@
 # T3-10 — a zero vector is rejected on a cosine index
 
-Run conditions: see `README.md`. Index: dimension 4, `cosine`.
+Run conditions: see [`README.md`](./README.md) in this directory. Index: dimension 4, `cosine`.
 
 **Claim settled: AWS rejects it, on both paths.**
 

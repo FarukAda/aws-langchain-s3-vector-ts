@@ -58,8 +58,8 @@ if (!env) {
           })
           .catch((e: unknown) => e);
 
-        // DESIGN.md F-1: AWS enforces the dimension, which is why this package
-        // no longer pre-validates it. Verified live rather than assumed.
+        // AWS enforces the dimension, which is why this package no longer
+        // pre-validates it. Verified live rather than assumed.
         expect(isS3VectorsError(error)).toBe(true);
         expect((error as { context: Record<string, unknown> }).context['awsErrorName']).toBe(
           'ValidationException',
@@ -67,7 +67,7 @@ if (!env) {
 
         const docs = await store4.getByIds(['id-1']);
         expect(docs).toHaveLength(1);
-        // Absence is an ordinary outcome now: an undefined slot, not an error (D-6).
+        // Absence is an ordinary outcome now: an undefined slot, not an error.
         expect(await store4.getByIds(['id-2'])).toEqual([undefined]);
       } finally {
         await store4.deleteIndex().catch(() => undefined);
@@ -95,8 +95,8 @@ if (!env) {
           distanceMetric: 'euclidean',
         });
 
-        // DESIGN.md F-5: the metric governs query-time computation only, so a
-        // mismatched store writes valid vectors...
+        // The metric governs query-time computation only, so a mismatched
+        // store writes valid vectors...
         await expect(
           euclideanStore.addVectors([[5, 6, 7, 8]], [new Document({ pageContent: 'y' })], {
             ids: ['id-2'],
@@ -104,7 +104,7 @@ if (!env) {
         ).resolves.toEqual(['id-2']);
 
         // ...and the mismatch surfaces on the read path instead, against the
-        // distanceMetric QueryVectors returns (§4.1). That is the only metric
+        // distanceMetric QueryVectors returns. That is the only metric
         // check this package still performs.
         const error = await euclideanStore
           .similaritySearchVectorWithScore([1, 2, 3, 4], 1)
@@ -174,7 +174,7 @@ if (!env) {
           .catch((e: unknown) => e);
 
         // With createIndexIfNotExist false this package issues no GetIndex at
-        // all (§4.2), so the dimension is AWS's to reject (DESIGN.md F-1).
+        // all, so the dimension is AWS's to reject.
         expect(isS3VectorsError(error)).toBe(true);
         expect((error as { context: Record<string, unknown> }).context['awsErrorName']).toBe(
           'ValidationException',
@@ -189,7 +189,7 @@ if (!env) {
       }
     }, 60_000);
 
-    it('delete() requires deleteAll:true to actually remove the index', async () => {
+    it('delete() requires ids and never removes the index', async () => {
       const indexName = `eh-deleteguard-${randomUUID().slice(0, 8)}`;
       const store = new AmazonS3Vectors(randomEmbeddings(4), {
         vectorBucketName: safeEnv.bucketName,

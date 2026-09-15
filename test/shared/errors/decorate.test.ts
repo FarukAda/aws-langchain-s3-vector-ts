@@ -5,9 +5,9 @@ import { S3VectorsErrorCode } from '../../../src/shared/errors/error-code.js';
 import { S3VectorsError } from '../../../src/shared/errors/s3-vectors-error.js';
 
 /**
- * One test per domain cell of the error decorators (docs/CONTRACTS-DRAFT.md,
- * "Error model"). Two jobs: never lose track of what already committed, and
- * never become the apparent origin of a failure they only annotate.
+ * One test per domain cell of the error decorators. Two jobs: never lose track
+ * of what already committed, and never become the apparent origin of a failure
+ * they only annotate.
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 

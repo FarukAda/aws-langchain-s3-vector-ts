@@ -35,8 +35,8 @@ const CREDENTIALS = { accessKeyId: 'AKIAIOSFODNN7EXAMPLE', secretAccessKey: SECR
 
 describe('F3 — credentials never reach lc_kwargs or any object rendering of the store', () => {
   it('keeps credentials and the embeddings models out of lc_kwargs', () => {
-    // Credentials and a client are mutually exclusive now (DESIGN.md D-34),
-    // so this is the shape that can carry credentials at all.
+    // Credentials and a client are mutually exclusive now, so this is the
+    // shape that can carry credentials at all.
     const embeddings = createMockEmbeddings();
     const store = new AmazonS3Vectors(embeddings, {
       ...BASE_CONFIG,
@@ -104,9 +104,9 @@ describe('F11 — error.context.instance is a non-enumerable recovery handle', (
 });
 
 /**
- * There is no index-configuration cache any more (DESIGN.md D-9) — what a
- * store remembers is one fact, "this index exists", and only a PutVectors that
- * reports it gone may clear it. These tests pin which failures do and do not.
+ * There is no index-configuration cache any more — what a store remembers is
+ * one fact, "this index exists", and only a PutVectors that reports it gone
+ * may clear it. These tests pin which failures do and do not.
  */
 describe('F4 — only a NotFound PutVectors makes the next write re-check the index', () => {
   const doc = () => new Document({ pageContent: 'x' });
@@ -166,7 +166,7 @@ describe('F4 — only a NotFound PutVectors makes the next write re-check the in
       createIndexIfNotExist: false,
     });
     const error = await store.addDocuments([doc()]).catch((e: unknown) => e);
-    // A missing index is NOT_FOUND now that failures carry their class (D-16).
+    // A missing index is NOT_FOUND now that failures carry their class.
     expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.NOT_FOUND);
   });
 });

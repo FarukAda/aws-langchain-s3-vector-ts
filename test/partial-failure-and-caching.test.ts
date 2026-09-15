@@ -304,7 +304,7 @@ describe('AmazonS3Vectors caches index info across sequential writes on the defa
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(5);
   });
 
-  it('clears the cache on delete({ deleteAll: true }), so the next write re-fetches', async () => {
+  it('forgets the index on deleteIndex(), so the next write re-checks', async () => {
     const { store, mock } = createTestStore();
     mockExistingIndex(mock);
 

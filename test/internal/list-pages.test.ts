@@ -6,8 +6,7 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { createMockClient, sendOptionsOf } from '../helpers.js';
 
 /**
- * One test per domain cell of `listPages` (docs/CONTRACTS-DRAFT.md,
- * "actions/list and internal/list-pages"). AWS caps a page at 1 MB regardless
+ * One test per domain cell of `listPages`. AWS caps a page at 1 MB regardless
  * of `maxResults`, so a short page is normal and only an empty `nextToken`
  * ends a listing (API ref API_S3VectorBuckets_ListVectors.html).
  */

@@ -5,8 +5,7 @@ import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
 
 /**
- * One test per domain cell of the constructor's configuration validation
- * (docs/CONTRACTS-DRAFT.md, "Store shell"; DESIGN.md D-33 and D-34).
+ * One test per domain cell of the constructor's configuration validation.
  *
  * Every option here is reachable from an untyped JavaScript caller, from a
  * cast, and from a config assembled at runtime out of environment variables —

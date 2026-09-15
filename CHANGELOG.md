@@ -146,8 +146,8 @@ identically, and the wire format is untouched.
 - **Both peer floors are raised**: `@aws-sdk/client-s3vectors` to `^3.1132.0`
   and `@langchain/core` to `^1.2.11`, from `^3.1117.0` and `^1.2.9`. A consumer
   on an older minor of either must update. Raising a floor is a documented
-  change of support, not a silent one ([`docs/STABILITY.md`](./docs/STABILITY.md)
-  §4), and the floors are what the peer-floors CI job installs and runs the type
+  change of support, not a silent one, and the floors are what the
+  peer-floors CI job installs and runs the type
   checks and the unit tier against — so the range this package promises is the
   range it is tested at, rather than a wider one nothing exercises.
 - **Every dependency is at its current version**, including
@@ -172,11 +172,11 @@ identically, and the wire format is untouched.
   index deletion out of `delete` (D-10) — the latter chosen explicitly during
   the design review. Both are now implemented; the other 36 check out.
 
-- **A 503 did not say how big the batch was.** `docs/DESIGN.md` D-24 decided
-  that a write failure would carry the batch size, because AWS answers an
-  oversized batch with the same `ServiceUnavailableException` it uses for
-  genuine unavailability and nothing else separates them. The decision was
-  never implemented. `context.batchSize` is now set on every `PutVectors`
+- **A 503 did not say how big the batch was.** The design decided that a write
+  failure would carry the batch size, because AWS answers an oversized batch
+  with the same `ServiceUnavailableException` it uses for genuine
+  unavailability and nothing else separates them. The decision was never
+  implemented. `context.batchSize` is now set on every `PutVectors`
   failure, through the same decorator that preserves the original stack.
 
 - **MMR did not validate its filter.** `maxMarginalRelevanceSearch` checked it
@@ -300,7 +300,7 @@ identically, and the wire format is untouched.
   `assertCreatable`, `awsDiagnostics`, `mmrSearch` and the constructor. What is
   left above the thresholds is a pagination loop and an optional-field
   extractor, where the branches are the algorithm.
-- README, `src/guide.md` and `docs/STABILITY.md` are rewritten against the new
+- README and `src/guide.md` are rewritten against the new
   behaviour: the error-code table, the `getByIds` contract, MMR, enumeration,
   the two retriever signals, the IAM policy (now including
   `s3vectors:ListVectors`) and what construction validates. Every reference to
@@ -308,6 +308,39 @@ identically, and the wire format is untouched.
   AWS's documentation and `@langchain/core`, not against another implementation.
 - `docs/evidence/` records each live probe with its raw request and response,
   and the README says which claims rest on it.
+- **The documentation was audited against the code, and four claims it made
+  were wrong.** `createIndexIfNotExist`'s JSDoc said a `GetIndex` is issued on
+  every instance's first write "regardless of this flag", and that it validates
+  the index's dimension and metric; neither is true — `false` issues no
+  control-plane call at all, and `indexExists` reads no field of the response.
+  The `client` option and the five it is exclusive with were documented as
+  "ignored" when supplied together, which has been a rejection since this
+  rework. `S3OutputVector` was described as the input type of an exported
+  `createDocument` helper, which is not exported. The README's
+  *Non-Filterable Metadata Keys* section still said the metadata byte caps
+  "aren't checked locally" and that a local check was unsafe, contradicting its
+  own limits table and the evidence probe that settled the counting rule. Each
+  is corrected at the source, so the generated reference under `docs/` is
+  correct too.
+- **`src/guide.md` documented a relevance conversion that no longer exists.**
+  It listed a built-in euclidean formula (`1.0 - distance / √4096`) as one of
+  two; `euclideanRelevanceScoreFn` was removed above, and a euclidean index
+  with no `relevanceScoreFn` raises `VALIDATION`. The guide also described
+  `delete()` as having an "entire index" mode and put peak ingest memory at one
+  batch rather than the pipeline window.
+- **The README's *Metadata Value Types* section described the old behaviour.**
+  A `Date`, an `undefined`, a `null` and a nested object were documented as
+  silently converted, silently dropped, or rejected by AWS; all four are now
+  rejected locally with `VALIDATION` naming the key. `SUPPORT.md` still pointed
+  readers at `deleteAll`, and the IAM section attributed `s3vectors:DeleteIndex`
+  to `delete()` rather than to `deleteIndex()`.
+- `docs/STABILITY.md` is removed. What a consumer needs from it now lives where
+  it is read: the supported Node, module-format, TypeScript and peer ranges in
+  the README's *Runtime Requirements* and *Testing* sections, the storage
+  layout in *Metadata Value Types* and *Disabling Page-Content
+  Round-Tripping*, the error contract — append-only codes and the stable
+  `isS3VectorsError` brand — in *Errors*, and the semver and deprecation rules
+  in `CONTRIBUTING.md`'s *Release Process*.
 - `CONTRIBUTING.md` says where behaviour comes from — the S3 Vectors API
   reference, the SDK service model, `@langchain/core`'s source, or a recorded
   live probe with a test guarding it — replacing the section that told
@@ -318,7 +351,7 @@ identically, and the wire format is untouched.
 
 ## [1.0.0-rc.1] - 2026-09-02
 
-The 1.0.0 release candidate, published under the `next` dist-tag. Every finding of an in-depth pre-1.0 review of the package as a whole — source, public types, error surface, CI/release pipeline and documentation — against the bar of "safe to depend on in an enterprise production system" is fixed; the package ships an ESM and a CommonJS build; and [`docs/STABILITY.md`](./docs/STABILITY.md) states what every `1.x` release promises to keep. No wire-format or storage-format change: everything written by 0.9.0 reads back identically, and 0.9.0 reads everything this version writes.
+The 1.0.0 release candidate, published under the `next` dist-tag. Every finding of an in-depth pre-1.0 review of the package as a whole — source, public types, error surface, CI/release pipeline and documentation — against the bar of "safe to depend on in an enterprise production system" is fixed; the package ships an ESM and a CommonJS build; and `docs/STABILITY.md` stated what every `1.x` release promised to keep. No wire-format or storage-format change: everything written by 0.9.0 reads back identically, and 0.9.0 reads everything this version writes.
 
 ### Breaking
 
@@ -342,7 +375,7 @@ The 1.0.0 release candidate, published under the `next` dist-tag. Every finding 
 - **AWS diagnostics on every wrapped error.** `S3VectorsError.context` now carries `awsErrorName`, `httpStatusCode`, `requestId` and `retryable` when the cause is an AWS SDK error, and the message names them inline (`PutVectors failed (ThrottlingException, HTTP 429, requestId …): …`) so a log line alone is enough to open an AWS support case. `retryable` is derived from the SDK's `$retryable` marker, the documented transient exception names, and HTTP 429 / 5xx status, and is the intended input for a caller-side retry/backoff layer on top of the SDK's own retries.
 - **`maxConcurrentBatchCalls` config option** (default `10`, positive integer). Caps how many `PutVectors` / `DeleteVectors` / `GetVectors` calls the store keeps in flight at once. Lower it when sharing a bucket's request quota with other producers; raise it on dedicated buckets with high write volume.
 - **`addDocuments` pipelines embedding against upload.** Previously each concurrent group waited for *all* of its `embedDocuments` calls before issuing any `PutVectors`, so the upload path idled during embedding and vice versa. Batches are now embedded one at a time (preserving the sequential, rate-limit-friendly embedding behaviour) while previously embedded batches are already uploading, with at most `maxConcurrentBatchCalls` uploads in flight. Partial-failure semantics are unchanged: `context.writtenIds` still lists exactly what reached AWS, and an abort signal is still honoured between every batch — now also *after* an embed and before its upload.
-- **`docs/STABILITY.md`** states what every `1.x` release promises: the public export set, the layout of what the store writes to S3 Vectors, append-only error codes and the stable `isS3VectorsError` brand, the supported Node, TypeScript and peer ranges with the check that verifies each, the deprecation rule, and the Python-parity choices that are deliberate. `SUPPORT.md`, issue templates (bug report, feature request) and a pull-request template point at it. The README's Testing section now states what each test tier proves and what nothing proves, and its description of the live-AWS workflow matches what the workflow does (nightly, an ephemeral bucket, a zero-tests-ran guard). The JSDoc for `S3VectorsErrorContext.awsErrorName` named an `INDEX_NOT_FOUND` code that does not exist; it is `NOT_FOUND`.
+- **`docs/STABILITY.md`** (since removed) stated what every `1.x` release promises: the public export set, the layout of what the store writes to S3 Vectors, append-only error codes and the stable `isS3VectorsError` brand, the supported Node, TypeScript and peer ranges with the check that verifies each, the deprecation rule, and the Python-parity choices that are deliberate. `SUPPORT.md`, issue templates (bug report, feature request) and a pull-request template pointed at it. The README's Testing section now states what each test tier proves and what nothing proves, and its description of the live-AWS workflow matches what the workflow does (nightly, an ephemeral bucket, a zero-tests-ran guard). The JSDoc for `S3VectorsErrorContext.awsErrorName` named an `INDEX_NOT_FOUND` code that does not exist; it is `NOT_FOUND`.
 - README: a Non-goals section (no `ListVectors`, bucket lifecycle, retry layer or client-side metadata-size enforcement); a Rate Limits, Payload Limits and Cost section quantifying the per-call caps this store's batching is sized to and how they map to billing; a note that `asRetriever().invoke()` does not forward an `AbortSignal`; a section on the strict `getByIds` contract and recovering `context.foundIds`; and a list of which `S3VectorsClientConfig` fields are passed through when the store builds its own client.
 
 ### Repository hygiene

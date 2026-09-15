@@ -11,7 +11,7 @@ import {
 } from '../src/index.js';
 
 /**
- * The export set is the API surface `docs/STABILITY.md` promises to keep, so
+ * The export set is the API surface a `1.x` release promises to keep, so
  * it is pinned exactly: an accidental export is as much a breaking change as
  * an accidental removal, because a minor may add but only a major may remove.
  */

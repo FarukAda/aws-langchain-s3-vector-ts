@@ -73,7 +73,7 @@ describe('_getIndex — a literal null index', () => {
 });
 
 describe('later write batches — validation against the established index', () => {
-  it('lets a later batch through to AWS when a concurrent deleteAll cleared the cache', async () => {
+  it('lets a later batch through to AWS when a concurrent deleteIndex() removed the index', async () => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
     mock.on(GetIndexCommand).resolves({
@@ -84,8 +84,8 @@ describe('later write batches — validation against the established index', () 
     let puts = 0;
     mock.on(PutVectorsCommand).callsFake(async () => {
       puts += 1;
-      // Between batch 0 and batch 1, wipe the index — clearing the cache
-      // the later-batch check would otherwise consult.
+      // Between batch 0 and batch 1, wipe the index — clearing the
+      // remembered existence the later-batch path would otherwise rely on.
       if (puts === 1) await store.deleteIndex();
       return {};
     });

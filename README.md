@@ -283,7 +283,7 @@ const client = new S3VectorsClient({
 const store = new AmazonS3Vectors(embeddings, {
   vectorBucketName: "my-bucket",
   indexName: "my-index",
-  client, // takes precedence over region/credentials/endpoint
+  client, // exclusive with region/credentials/endpoint/maxAttempts/retryMode
 });
 ```
 
@@ -442,6 +442,8 @@ exception the service declares — never a substring match on a message:
 | `QUERY_PAGE_LIMIT_EXCEEDED` | A paginated search reached this library's 1,000-page runaway ceiling with pages still outstanding and fewer than `k` results collected. `context.pagesScanned` and `context.resultsCollected` say how far short it fell — narrow the filter or lower `k`. A search that legitimately runs out of matches returns what it found, without error; that ambiguity is exactly what this code removes. |
 | `UNEXPECTED_ERROR` | A failure that never touched AWS — a raw throw from a caller-supplied embeddings model, or input malformed enough to bypass validation. |
 
+**The codes are append-only for `1.x`.** A value is never removed, never renamed, and never reassigned to a different condition; `S3VectorsErrorContext` only gains fields, and `operation` is always present. Error *messages* are not covered — branch on `code`, on `context` and on `cause`, never on text. `isS3VectorsError` is the supported way to recognise these errors: it checks a brand, `Symbol.for('@farukada/aws-langchain-s3-vector-ts:S3VectorsError')`, rather than `instanceof`, so it works across realms and across the ESM and CommonJS copies of the module, and that brand string is stable for `1.x` too.
+
 **Logging errors safely.** `error.context.instance` (set only by the `fromDocuments`/`fromTexts` factories) is a live store handle for programmatic recovery. It is a *non-enumerable* property, so `JSON.stringify(error.context)`, `util.inspect(error)`, `console.error(error)` and structured loggers all omit it; direct access still works. Independently of that, the store never keeps `credentials` or the SDK `client` in any enumerable field (they are excluded from LangChain's `lc_kwargs`), so printing a store — or an error that carries one — cannot leak credential material. Regression tests pin both.
 
 ### Maximal Marginal Relevance (MMR)
@@ -567,7 +569,7 @@ The limits this library enforces locally (failing fast with a `VALIDATION` error
 
 The metadata byte caps **are** checked locally, because the counting rule is now known rather than guessed: AWS counts the UTF-8 byte length of the JSON serialisation — key names, quotes and punctuation included — plus a fixed 5-byte overhead. That was established by binary search against the live service and recorded in [`docs/evidence/metadata-limits.md`](docs/evidence/metadata-limits.md), with a live test that fails if AWS ever changes it. A local check turns a round trip into an immediate, specific error naming the key at fault; see [Non-Filterable Metadata Keys](#non-filterable-metadata-keys) for keeping large text out of the filterable budget. Request-rate quotas are account-level and published by AWS; see [Retries](#retries) for how to behave under them.
 
-**Cost model, briefly.** S3 Vectors bills per API request plus storage; the request count is what this library's knobs control. A write of *N* documents costs `ceil(N / batchSize)` `PutVectors` requests plus one `GetIndex` (and possibly one `CreateIndex`) per store instance lifetime, plus whatever your embeddings provider charges. A `similaritySearch` with `k > 100` costs one `QueryVectors` request per 100-result page. `getByIds`/`delete` cost `ceil(N / batchSize)` requests each. Larger `batchSize` values therefore mean fewer billable requests — the default 200 for writes is a balance between request count and the size of a failed batch to retry; raise it toward 500 for bulk backfills. `maxConcurrentBatchCalls` changes *how fast* those requests are issued, not how many. Check the [S3 Vectors pricing page](https://aws.amazon.com/s3/pricing/) for current rates.
+**Cost model, briefly.** S3 Vectors bills per API request plus storage; the request count is what this library's knobs control. A write of *N* documents costs `ceil(N / batchSize)` `PutVectors` requests, plus — only with `createIndexIfNotExist` on — one `GetIndex` and possibly one `CreateIndex` per store instance lifetime, plus whatever your embeddings provider charges. A `similaritySearch` with `k > 100` costs one `QueryVectors` request per 100-result page. `getByIds`/`delete` cost `ceil(N / batchSize)` requests each. Larger `batchSize` values therefore mean fewer billable requests — the default 200 for writes is a balance between request count and the size of a failed batch to retry; raise it toward 500 for bulk backfills. `maxConcurrentBatchCalls` changes *how fast* those requests are issued, not how many. Check the [S3 Vectors pricing page](https://aws.amazon.com/s3/pricing/) for current rates.
 
 ### Non-Filterable Metadata Keys
 
@@ -587,18 +589,19 @@ AWS caps `nonFilterableMetadataKeys` at 10 keys per index. If your own list is a
 
 This configuration applies at index-creation time — it cannot be changed after the index exists.
 
-These two caps (2048 bytes filterable, 40,960 bytes total per vector) aren't checked locally before the `PutVectors` call. AWS's own error is already specific (`"Filterable metadata must have at most 2048 bytes"` / `"Metadata object must have at most 40960 bytes"`), but reproducing the exact byte count client-side turned out not to be safe: probing the live service shows the counted size isn't a simple `JSON.stringify(...).length` of the metadata object, or of the value alone — the true boundary sits somewhere between those two measures. Since the AWS SDK doesn't publish the exact algorithm, a local check built on a guessed formula risks rejecting metadata AWS would have accepted (worse than the current opaque-but-correct AWS error), and it would silently go stale the moment AWS changes its wire encoding. If you're batching large text into metadata, keep an eye on this cap yourself rather than relying on this library to catch it early.
+Both caps (2048 bytes filterable, 40,960 bytes total per vector) **are** checked locally, before the `PutVectors` call. The counting rule was established by binary search against the live service and recorded in [`docs/evidence/metadata-limits.md`](docs/evidence/metadata-limits.md): AWS counts the UTF-8 byte length of the JSON serialisation plus a fixed 5-byte overhead. The filterable subset is the metadata minus the keys declared non-filterable at index creation, which this library knows because it sets them. Erring by the overhead is conservative in your favour — a payload this library accepts is one AWS accepts — and a live test fails if AWS ever changes the rule.
 
 ### Metadata Value Types
 
-S3 Vectors only accepts metadata values that are strings, numbers, booleans, or arrays of strings/numbers (an array mixing types, e.g. a boolean alongside strings, is rejected). `null` and nested objects are rejected outright by AWS with a `PutVectors` validation error.
+S3 Vectors only accepts metadata values that are strings, numbers, booleans, or arrays of strings/numbers. An array may hold **only** strings or numbers — a boolean inside one is rejected, and so is an object — which is stricter than the user guide's "string, number, boolean, and list types" suggests; both rejections were confirmed against the live service and recorded in [`docs/evidence/metadata-value-types.md`](docs/evidence/metadata-value-types.md).
 
-Two JavaScript types are **silently converted** rather than rejected — worth knowing before you rely on round-tripping them:
+Because the service's own rule is now known rather than assumed, this library enforces it **locally**, before the round trip and before the billable embedding call that would otherwise precede it. Anything outside that set raises a `VALIDATION` error naming the key at fault rather than being converted, dropped or sent:
 
-- A `Date` value is stored (and read back) as a **number** — Unix epoch **seconds**, not milliseconds, and not an ISO string. Reading it back gives you a plain number, not a `Date`.
-- `NaN` is stored (and read back) as the **string** `"NaN"`.
+- `null` and nested objects (and arrays containing them) are rejected.
+- A `Date` is rejected. Convert it yourself first — `date.toISOString()` for a string, or `date.getTime()` for a number — so the stored representation is the one you chose.
+- A key whose value is `undefined` is rejected rather than quietly omitted, so a typo'd or unset field is visible instead of silently missing from the index.
 
-A key whose value is `undefined` is silently dropped rather than stored as `null` or rejected. If you need `Date`/`NaN` values preserved as such, convert them yourself (e.g. `date.toISOString()`) before passing metadata in.
+One value passes the type check but has no JSON representation: `NaN` is a `number` to JavaScript, yet JSON has no `NaN` literal. Don't put one in metadata — convert it to a string or drop the key before writing.
 
 ### Disabling Page-Content Round-Tripping
 
@@ -759,6 +762,7 @@ import {
   DistanceMetric,
   VectorDataType,
   S3VectorsDeleteParams,
+  S3VectorsDeleteIndexParams,
   S3VectorsListParams,
   S3VectorsRecord,
   S3OutputVector,
@@ -813,7 +817,7 @@ The store uses the following S3 Vectors actions. The IAM policy below enumerates
 **Reducing the policy further:**
 
 - If you pre-create the index and set `createIndexIfNotExist: false`, drop the whole `S3VectorsIndexLifecycle` statement: no `GetIndex` is issued either, because nothing is checked there that AWS does not already enforce on the write itself.
-- If you never call `delete()`, remove `s3vectors:DeleteIndex` and `s3vectors:DeleteVectors`.
+- If you never call `delete()`, remove `s3vectors:DeleteVectors`; if you never call `deleteIndex()`, remove `s3vectors:DeleteIndex`. They are separate methods and separate permissions.
 - If your application is read-only (`similaritySearch*`, `getByIds`), keep only the `S3VectorsRead` statement — the read path never touches the control plane.
 - If you never enumerate, remove `s3vectors:ListVectors`. If you *do* enumerate, keep `s3vectors:GetVectors` alongside it: `listDocuments` and `listVectors` both request metadata, and AWS answers a metadata or data request made without `s3vectors:GetVectors` with `403 Forbidden`.
 - `maxMarginalRelevanceSearch` needs both `s3vectors:QueryVectors` and `s3vectors:GetVectors`: candidates come from the query, their embeddings from the fetch.
@@ -896,6 +900,7 @@ npm run lint:fix    # ESLint with --fix
 npm run build       # Compile src/ to dist/esm (ESM) and dist/cjs (CommonJS)
 npm run pack:check  # Tarball listing guard, then publint + arethetypeswrong (needs a build)
 npm run docs        # Regenerate TypeDoc output
+npm run check:docs  # Type-check every TypeScript sample in the documentation
 ```
 
 ## 📁 Project Structure
@@ -957,7 +962,8 @@ test/                             # Unit (100% coverage), contract, property, ty
 └── integration/                  # Live-AWS integration tests (env-gated)
 
 scripts/
-└── pack-check.mjs                # Tarball listing guard; `npm run pack:check` adds publint + arethetypeswrong
+├── pack-check.mjs                # Tarball listing guard; `npm run pack:check` adds publint + arethetypeswrong
+└── check-doc-samples.mjs         # Compiles every TypeScript sample in README.md, src/guide.md and CHANGELOG.md
 
 examples/                         # Standalone real-AWS verification scripts (.mjs)
 ├── _harness.mjs / _embeddings.mjs
@@ -978,7 +984,7 @@ dist/                             # Build output (gitignored): esm/ and cjs/ tre
 
 ## 🤝 Contributing
 
-Contributions are welcome — please open an issue to discuss non-trivial changes before submitting a PR. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for local development setup, coding standards, and PR expectations, and [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) for community expectations. [`SUPPORT.md`](./SUPPORT.md) says how to get help, and [`docs/STABILITY.md`](./docs/STABILITY.md) states what every `1.x` release promises to keep: the public API, what the store writes to S3 Vectors, the error codes, and the supported Node, TypeScript and peer ranges.
+Contributions are welcome — please open an issue to discuss non-trivial changes before submitting a PR. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for local development setup, coding standards, and PR expectations, and [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) for community expectations. [`SUPPORT.md`](./SUPPORT.md) says how to get help.
 
 Found a security issue? See [`SECURITY.md`](./SECURITY.md) instead of opening a public issue.
 

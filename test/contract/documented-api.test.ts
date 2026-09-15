@@ -14,7 +14,7 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
  * release after they were gone, and claimed `createDocument` was exported when
  * it never was. Prose cannot be type-checked, but the *names* in it can be.
  */
-const DOCS = ['README.md', 'src/guide.md', 'docs/STABILITY.md'] as const;
+const DOCS = ['README.md', 'src/guide.md'] as const;
 
 const read = (doc: string): string =>
   readFileSync(new URL(`../../${doc}`, import.meta.url), 'utf8');
@@ -77,9 +77,9 @@ describe.each(DOCS)('%s documents only names that exist', (doc) => {
 
   it('checks a real list of codes, so an empty scan cannot pass', () => {
     const named = [...text.matchAll(/^\| `([A-Z][A-Z_]+)` \|/gm)].map((m) => m[1]!);
-    // README and the guide each carry the full error table; STABILITY refers
-    // to codes only in prose, and legitimately names none this way.
-    if (doc !== 'docs/STABILITY.md') expect(named.length).toBeGreaterThan(8);
+    // README and the guide each carry the full error table, so nothing found
+    // means the pattern broke rather than that the table is clean.
+    expect(named.length).toBeGreaterThan(8);
   });
 
   it('every package export it names is exported', () => {

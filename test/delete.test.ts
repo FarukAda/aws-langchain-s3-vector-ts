@@ -11,7 +11,7 @@ import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { BASE_CONFIG, createMockClient, createTestStore, mockExistingIndex } from './helpers.js';
 
 describe('AmazonS3Vectors.delete', () => {
-  it('deletes entire index when deleteAll is explicitly true', async () => {
+  it('deletes the entire index through deleteIndex()', async () => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
 
@@ -117,7 +117,7 @@ describe('AmazonS3Vectors.delete', () => {
   });
 });
 
-describe('AmazonS3Vectors.delete({ deleteAll }) — idempotency', () => {
+describe('AmazonS3Vectors.deleteIndex — idempotency', () => {
   const notFound = (): Error =>
     Object.assign(new Error('The specified index could not be found'), {
       name: 'NotFoundException',
@@ -126,7 +126,7 @@ describe('AmazonS3Vectors.delete({ deleteAll }) — idempotency', () => {
   it('resolves cleanly when the index is already gone', async () => {
     // Confirmed against real AWS: DeleteIndex on a missing index returns
     // NotFoundException — the same shape _getIndex already special-cases.
-    // The realistic trigger is retrying a deleteAll after an ambiguous
+    // The realistic trigger is retrying a deleteIndex() after an ambiguous
     // network failure whose first attempt actually succeeded server-side.
     const { store, mock } = createTestStore();
     mock.on(DeleteIndexCommand).rejects(notFound());
@@ -159,7 +159,7 @@ describe('AmazonS3Vectors.delete({ deleteAll }) — idempotency', () => {
     const error = await store.deleteIndex().catch((e: unknown) => e);
 
     // Classified, not generic: an access failure is an IAM problem the caller
-    // acts on differently from a transient one (DESIGN.md D-16).
+    // acts on differently from a transient one.
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
   });
 });

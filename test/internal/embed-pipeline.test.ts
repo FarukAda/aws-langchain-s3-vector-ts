@@ -5,11 +5,10 @@ import { embedAndWrite } from '../../src/internal/embed-pipeline.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 
 /**
- * One test per domain cell of the embed/write pipeline (docs/CONTRACTS-DRAFT.md,
- * "Write path"). Its whole reason to exist is the shape of the concurrency:
- * embedding strictly sequential, writing pipelined behind it, and a
- * partial-failure report that stays in document order however the writes
- * happen to settle.
+ * One test per domain cell of the embed/write pipeline. Its whole reason to
+ * exist is the shape of the concurrency: embedding strictly sequential,
+ * writing pipelined behind it, and a partial-failure report that stays in
+ * document order however the writes happen to settle.
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 

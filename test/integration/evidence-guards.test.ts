@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import { requireLiveIntegrationEnv } from './_guard.js';
 
 /**
- * One test per Tier 3 claim in `docs/evidence/` (DESIGN.md §2.3).
+ * One test per Tier 3 claim in `docs/evidence/`.
  *
  * A Tier 3 claim is a behaviour AWS does not document, which this package
  * nevertheless relies on. The rule is that such a claim is citable only when

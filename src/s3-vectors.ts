@@ -130,7 +130,8 @@ export class AmazonS3Vectors extends VectorStore {
   /**
    * Existence tracking for this store's index. Owns the shared
    * `GetIndex`/`CreateIndex` memo, and remembers only that the index exists —
-   * never its dimension or metric, because nothing asks (see DESIGN.md §4).
+   * never its dimension or metric, because nothing asks: AWS enforces the
+   * dimension on every write and the metric is checked on every read.
    */
   private readonly _lifecycle: IndexLifecycle;
 
@@ -155,15 +156,16 @@ export class AmazonS3Vectors extends VectorStore {
    * @param config - Configuration options for the store
    * @param config.vectorBucketName - Name of an existing S3 vector bucket
    * @param config.indexName - Name of the vector index (3–63 chars)
-   * @param config.client - Optional pre-configured S3VectorsClient (takes precedence over region/credentials)
-   * @param config.region - AWS region (ignored when `client` is set)
-   * @param config.credentials - AWS credentials (ignored when `client` is set)
+   * @param config.client - Optional pre-configured S3VectorsClient. Exclusive
+   * with the five options that would configure one
+   * @param config.region - AWS region (not accepted together with `client`)
+   * @param config.credentials - AWS credentials (not accepted together with `client`)
    * @param config.distanceMetric - Distance metric: `"cosine"` (default) or `"euclidean"`
    * @param config.createIndexIfNotExist - Auto-create index on first write (default: `true`)
    * @param config.queryEmbeddings - Separate embedding model for queries only
    * @param config.nonFilterableMetadataKeys - Metadata keys excluded from query filters
-   * @param config.maxAttempts - Max attempts (initial + retries) for AWS requests (ignored when `client` is set)
-   * @param config.retryMode - AWS SDK retry mode: `"standard"` | `"adaptive"` | `"legacy"` (ignored when `client` is set)
+   * @param config.maxAttempts - Max attempts (initial + retries) for AWS requests (not accepted together with `client`)
+   * @param config.retryMode - AWS SDK retry mode: `"standard"` | `"adaptive"` | `"legacy"` (not accepted together with `client`)
    * @param config.encryptionConfiguration - Server-side encryption for an auto-created index (ignored for an existing index)
    * @param config.tags - Tags for an auto-created index (ignored for an existing index)
    * @param config.maxConcurrentBatchCalls - Cap on concurrent batch AWS calls (default: `10`)

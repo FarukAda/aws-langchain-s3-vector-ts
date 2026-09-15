@@ -7,10 +7,9 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { createMockClient, sendOptionsOf } from '../helpers.js';
 
 /**
- * One test per domain cell of the single-batch write (docs/CONTRACTS-DRAFT.md,
- * "Write path"). The ordering matters as much as the checks: everything this
- * refuses, it refuses before the index can be created, so a rejected batch
- * cannot leave a freshly created index behind.
+ * One test per domain cell of the single-batch write. The ordering matters as
+ * much as the checks: everything this refuses, it refuses before the index can
+ * be created, so a rejected batch cannot leave a freshly created index behind.
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 

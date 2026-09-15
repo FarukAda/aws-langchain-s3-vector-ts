@@ -22,7 +22,7 @@ module, which a process mixing `import` and `require` will load both of.
 Throws: nothing.
 
 Guarantees: this is the supported way to recognise these errors, and the
-brand string is stable for `1.x` (`docs/STABILITY.md` §3).
+brand string is stable for `1.x`.
 
 ## Parameters
 

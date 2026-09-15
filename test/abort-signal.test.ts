@@ -77,7 +77,7 @@ describe('AmazonS3Vectors AbortSignal — forwarded to every AWS call', () => {
     });
   });
 
-  it('forwards signal to DeleteIndex via delete({deleteAll: true})', async () => {
+  it('forwards signal to DeleteIndex via deleteIndex()', async () => {
     const { client, mock } = createMockClient();
     const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
     mock.on(DeleteIndexCommand).resolves({});

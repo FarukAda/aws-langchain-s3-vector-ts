@@ -10,8 +10,8 @@ import { requireLiveIntegrationEnv } from './_guard.js';
 
 /**
  * Live cover for the capabilities the contract rework added or changed:
- * enumeration (D-25), MMR (D-5), the retriever's two signals (D-18), and the
- * `(Document | undefined)[]` shape of `getByIds` (D-6).
+ * enumeration, MMR, the retriever's two signals, and the
+ * `(Document | undefined)[]` shape of `getByIds`.
  *
  * The unit suite proves these against a mocked client, which cannot show that
  * the requests are ones AWS accepts. That is all this file adds — one live

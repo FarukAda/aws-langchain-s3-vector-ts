@@ -3,11 +3,10 @@ import { describe, it, expect } from '@jest/globals';
 import { isAbortError } from '../../../src/shared/errors/aws-abort.js';
 
 /**
- * One test per domain cell of `isAbortError` (docs/CONTRACTS-DRAFT.md,
- * "Cancellation"). The cause-chain walk exists because `config.client` is a
- * supported injection point: a custom request handler may wrap its abort, and
- * an unrecognised abort is reported as a request failure — a cancelled call
- * reported as something that went wrong (D-32).
+ * One test per domain cell of `isAbortError`. The cause-chain walk exists
+ * because `config.client` is a supported injection point: a custom request
+ * handler may wrap its abort, and an unrecognised abort is reported as a
+ * request failure — a cancelled call reported as something that went wrong.
  */
 const abort = (): Error => Object.assign(new Error('aborted'), { name: 'AbortError' });
 const wrapping = (cause: unknown): Error => Object.assign(new Error('wrapped'), { cause });
