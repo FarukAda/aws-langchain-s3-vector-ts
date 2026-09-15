@@ -838,12 +838,14 @@ The store uses the following S3 Vectors actions. The IAM policy below enumerates
 | Unit (`npm test`) | every push, 3 OS × Node 22/24 | One test per domain cell of every contract, against a mocked `S3VectorsClient`, at 100 % coverage — plus the `VectorStore` contract suite run through `@langchain/core`'s own machinery, `fast-check` properties over whole input domains (filter validation, id resolution, batching, metadata, error normalisation), and compile-time assertions on the public types. The mocks encode AWS's *documented* responses. |
 | Peer floors | every push | The lower bound of each declared peer range compiles and passes the unit tier, so the ranges in `package.json` are a promise rather than a guess. |
 | Package (`npm run pack:check`, `npm run test:package-smoke`) | every push and every release | The tarball's shape (the file listing, publint, arethetypeswrong), and that the installed package works from ESM, CommonJS and a TypeScript 5 consumer with `skipLibCheck` off. |
-| Live AWS (`npm run test:integration`) | nightly and on demand, against an ephemeral bucket | The real service behaves as the mocks assume: index lifecycle, writes, reads, filters, pagination, enumeration, MMR and the error shapes this library branches on. It also re-checks every undocumented behaviour recorded in [`docs/evidence/`](docs/evidence/) — the metadata byte-counting rule, the cosine-distance formula, what `GetVectors` does with absent keys — so a change on AWS's side fails a test rather than going unnoticed. |
+| Live AWS (`npm run test:integration`) | on demand, locally, against an ephemeral bucket | The real service behaves as the mocks assume: index lifecycle, writes, reads, filters, pagination, enumeration, MMR and the error shapes this library branches on. It also re-checks every undocumented behaviour recorded in [`docs/evidence/`](docs/evidence/) — the metadata byte-counting rule, the cosine-distance formula, what `GetVectors` does with absent keys — so a change on AWS's side fails a test rather than going unnoticed. |
 | Verification scripts (`npm run verify`) | on demand | The whole public API end to end, with real Bedrock embeddings. |
 
-**Coverage is not the evidence.** 100 % means no line is unexercised; it does not mean a behaviour was decided. What backs the suite is mutation sampling: 254 semantic mutations applied across every module, the suite re-run for each. Eight survived and each was a real gap — an asserted branch whose output nothing checked, a `&&` that could move a metadata field into page content, two stack-provenance tests that checked the old stack was gone rather than that the new one had frames, an error shape that let a non-AWS failure be reported as a retryable AWS one, and an unpinned depth bound. All eight now fail the suite when reintroduced; the last two rounds found no survivors.
+**Coverage is not the evidence.** 100 % means no line is unexercised; it does not mean a behaviour was decided. What backs the suite is the executable contract registry under [`test/contract/registry/`](test/contract/registry/): every public entry point is declared as data — the errors it may raise, the context each one carries, the AWS calls it makes and in what order — and the conformance runner drives each declaration against a two-axis hostile corpus, 32 input values across 13 ambient conditions. Six properties are asserted over the result: that nothing escapes outside the declared set, that an input outside the accepted domain is refused before any AWS call or billable embedding, that every declared code is reachable, that each carries the context it promises, that the effects are the declared ones, and that the registry covers the whole public surface. A contract the code breaks fails a run; so does a recorded exception the code has stopped breaking, which is what keeps the ledger from going stale. Nine service behaviours AWS does not document are recorded under [`docs/evidence/`](docs/evidence/) with their raw traffic, each paired with a live test.
 
-What nothing proves: throughput under a shared account quota, behaviour at AWS's absolute limits (a 20 MiB request, a 10,000-result search) beyond what the live suite samples, and any S3 Vectors behaviour AWS changes between two nightly runs. There is no S3 Vectors emulator, so every check that is not the live suite trusts the documented contract.
+The gap this closes is a specific one: the contracts were written, reviewed and linted for a release, and never executed. A syntactic gate read them as text and could not tell a true clause from a false one.
+
+What nothing proves: throughput under a shared account quota, behaviour at AWS's absolute limits (a 20 MiB request, a 10,000-result search) beyond what the live suite samples, and any S3 Vectors behaviour AWS changes between two live runs. There is no S3 Vectors emulator, so every check that is not the live suite trusts the documented contract.
 
 ### Unit tests
 
@@ -871,9 +873,7 @@ npm run test:integration
 
 Without `RUN_LIVE_INTEGRATION=1` **and** `AWS_VECTOR_BUCKET` set, the suite prints a skip message and exits 0 — no false passes, no false fails.
 
-**CI run (nightly and on demand):**
-
-The [`Integration (live AWS)`](https://github.com/FarukAda/aws-langchain-s3-vector-ts/actions/workflows/integration-live.yml) workflow runs every night and via `workflow_dispatch`. It assumes an IAM role through GitHub OIDC (the `AWS_ROLE_TO_ASSUME` secret), creates an ephemeral vector bucket (`langchain-vectors-ci`), runs the suite, deletes the bucket again, and fails if it reports success having run zero tests — so a dropped environment variable can never turn the job green without a single AWS call.
+**There is no CI job for this tier.** The live suite runs locally, on demand, against a bucket you create and delete for the run. A scheduled workflow spent real money on every night the repository was untouched and reported against whatever `main` happened to be, which is not the commit anyone was looking at; it is removed rather than left to run unread. Everything it enforced still holds when you run the suite yourself: `RUN_LIVE_INTEGRATION=1` with no `AWS_VECTOR_BUCKET` is fatal rather than a silent skip, so a half-set environment cannot report success having run nothing.
 
 ### Verifying against real AWS
 
@@ -979,7 +979,6 @@ examples/                         # Standalone real-AWS verification scripts (.m
 ├── codeql.yml                    # Static analysis on push/PR to main + weekly
 ├── dependency-review.yml         # Fails a PR introducing a high-severity+ vulnerable dependency
 ├── scorecard.yml                 # OpenSSF Scorecard, published weekly + on push to main
-├── integration-live.yml          # Nightly + workflow_dispatch live-AWS smoke via OIDC
 └── release.yml                   # Tag-triggered publish via npm Trusted Publishing, gated on green CI (+ SBOM); `-rc` tags go to `next`
 
 docs/                             # TypeDoc-generated API docs (checked in)

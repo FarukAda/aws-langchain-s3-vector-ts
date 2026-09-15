@@ -404,6 +404,19 @@ identically, and the wire format is untouched.
   method — the check that catches a `k?` that is required. Both were run against
   the defects above and fail on each.
 
+- **The scheduled live-AWS workflow is removed.**
+  `.github/workflows/integration-live.yml` ran the live suite every night
+  against whatever `main` happened to be, which is not the commit anyone was
+  looking at, and spent real money on every night the repository was untouched.
+  A green run nobody reads is not evidence. The live suite itself stays exactly
+  where it was — `npm run test:integration`, against a bucket created and
+  deleted for the run — and everything the workflow enforced still holds when
+  you run it: `RUN_LIVE_INTEGRATION=1` with no `AWS_VECTOR_BUCKET` is fatal
+  rather than a silent skip. `docs/evidence/` now says in as many words that
+  nothing re-runs these probes on a schedule, so a claim there is only as fresh
+  as the date it records. `release.yml` is unaffected: its CI gate counts the
+  check runs on the tagged commit, and a scheduled workflow never produced one.
+
 ### Added
 
 - **Maximal Marginal Relevance, for real.** `maxMarginalRelevanceSearch(query,

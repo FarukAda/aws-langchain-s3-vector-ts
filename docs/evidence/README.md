@@ -4,9 +4,15 @@ Each file records a behaviour the S3 Vectors service exhibits that AWS does not
 document, together with the raw request and response that established it.
 
 A behaviour recorded here becomes citable only when **both** exist: the evidence
-file, and a named integration test asserting the same fact, so the nightly live
-run fails if AWS changes it. The file alone goes stale silently; the test alone
-cannot be checked by a reviewer without AWS credentials.
+file, and a named integration test asserting the same fact, so a live run fails
+if AWS changes it. The file alone goes stale silently; the test alone cannot be
+checked by a reviewer without AWS credentials.
+
+Nothing runs that live suite on a schedule. It is a local, on-demand tier
+(`npm run test:integration`, see the README's *Testing* section), so a claim
+here is only as fresh as the last time someone ran it — the date in the table
+below is that date, and it is stated for exactly this reason. Re-run the suite
+before relying on one of these claims in a decision that matters.
 
 ## Run conditions common to every file in this directory
 

@@ -10,10 +10,9 @@
  * Skipping is only ever the answer to "nobody asked for live tests." Once
  * `RUN_LIVE_INTEGRATION=1` says otherwise, a missing `AWS_VECTOR_BUCKET` is
  * a misconfiguration rather than an opt-out, and this throws instead of
- * skipping. That distinction is what stops a CI job from reporting success
- * having run nothing against AWS: a skipped suite exits 0, so a dropped env
- * line or an unset secret would otherwise turn the nightly live run green
- * while testing nothing at all.
+ * skipping. That distinction is what stops a run from reporting success having
+ * done nothing against AWS: a skipped suite exits 0, so a half-set environment
+ * would otherwise look exactly like a clean pass.
  */
 interface LiveIntegrationEnv {
   readonly bucketName: string;
