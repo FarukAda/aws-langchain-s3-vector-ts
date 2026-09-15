@@ -10,6 +10,7 @@ import {
   S3VectorsClient,
 } from '@aws-sdk/client-s3vectors';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
+import type { DocumentType } from '@smithy/types';
 
 import { requireLiveIntegrationEnv } from './_guard.js';
 
@@ -72,10 +73,13 @@ if (!env) {
         new PutVectorsCommand({
           ...scope,
           vectors: [
-            { key: 'same', data: { float32: [1, 0, 0, 0] }, metadata: { g: 'a' } },
-            { key: 'scaled', data: { float32: [5, 0, 0, 0] }, metadata: { g: 'a' } },
-            { key: 'orth', data: { float32: [0, 1, 0, 0] }, metadata: { g: 'a' } },
-            { key: 'opp', data: { float32: [-1, 0, 0, 0] }, metadata: { g: 'a' } },
+            // `popular` is a boolean on purpose: T3-12 needs a stored type to
+            // mismatch a filter value against. The vectors themselves are
+            // untouched, so every distance assertion above stays valid.
+            { key: 'same', data: { float32: [1, 0, 0, 0] }, metadata: { g: 'a', popular: true } },
+            { key: 'scaled', data: { float32: [5, 0, 0, 0] }, metadata: { g: 'a', popular: true } },
+            { key: 'orth', data: { float32: [0, 1, 0, 0] }, metadata: { g: 'a', popular: true } },
+            { key: 'opp', data: { float32: [-1, 0, 0, 0] }, metadata: { g: 'a', popular: true } },
           ],
         }),
       );
@@ -288,5 +292,45 @@ if (!env) {
       },
       120_000,
     );
+
+    // ── T3-12 and T3-13 — docs/evidence/filter-validation.md ───────
+
+    it('T3-12: a type-mismatched comparison matches nothing, and is not an error', async () => {
+      const query = async (filter: DocumentType): Promise<number> => {
+        const response = await client.send(
+          new QueryVectorsCommand({
+            ...scope,
+            topK: 4,
+            queryVector: { float32: [1, 0, 0, 0] },
+            returnDistance: true,
+            filter,
+          }),
+        );
+        return response.vectors?.length ?? 0;
+      };
+
+      // The control matters as much as the case: without it, a filter that
+      // matched nothing for some unrelated reason would look like confirmation.
+      expect(await query({ popular: { $eq: true } })).toBeGreaterThan(0);
+      expect(await query({ popular: { $eq: 'true' } })).toBe(0);
+      expect(await query({ absent: { $eq: 'x' } })).toBe(0);
+    }, 120_000);
+
+    it('T3-13: filtering on a non-filterable key is rejected, and says so', async () => {
+      const failure = await failureOf(() =>
+        client.send(
+          new QueryVectorsCommand({
+            ...scope,
+            topK: 1,
+            queryVector: { float32: [1, 0, 0, 0] },
+            returnDistance: true,
+            // `bulk` is this index's declared non-filterable key.
+            filter: { bulk: { $eq: 'x' } },
+          }),
+        ),
+      );
+      expect(failure.name).toBe('ValidationException');
+      expect(failure.message).toContain('non-filterable');
+    }, 120_000);
   });
 }

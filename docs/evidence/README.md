@@ -39,3 +39,5 @@ before relying on one of these claims in a decision that matters.
 | T3-9 | Metadata value types are enforced | `metadata-value-types.md` |
 | T3-10 | A zero vector is rejected on a cosine index | `zero-vector.md` |
 | T3-11 | Unknown `$`-prefixed filter keys are rejected | `filter-validation.md` |
+| T3-12 | A type-mismatched filter comparison matches nothing, without error | `filter-validation.md` |
+| T3-13 | Filtering on a non-filterable key is rejected | `filter-validation.md` |

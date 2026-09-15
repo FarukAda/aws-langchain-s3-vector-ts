@@ -437,6 +437,41 @@ identically, and the wire format is untouched.
   Found by re-running the audit's own probes against the finished package
   rather than against the tests written for each finding.
 
+- **The documentation was read end to end against the code, and eight more
+  claims were wrong.** The worst was in *Infrastructure Setup*: the
+  `aws s3vectors create-index` snippet a reader is told to run omitted
+  `--metadata-configuration`, and an index created that way reports an empty
+  non-filterable key list — which this store now refuses to write to with
+  `INDEX_CONFIG_MISMATCH`, and which cannot be corrected afterwards because the
+  list is fixed at creation. Verified by running the README's own command
+  against live AWS, writing through the library, and watching it fail; then
+  re-running with the flag and watching it pass. The CLI snippet, the console
+  steps and the CDK note now all state the rule.
+
+  The CDK note was stale in its own right: it said to use a raw `CfnResource`,
+  but `aws-cdk-lib` (checked at 2.269.0) ships typed L1 constructs for both
+  resources — `aws_s3vectors.CfnVectorBucket` and `aws_s3vectors.CfnIndex`. A
+  worked snippet replaces the advice. There are still no L2 constructs.
+
+  The rest: the *Retries* section named `ThrottlingException` as a name this
+  service sends, which is one of the three invented names removed from the code
+  in this release — S3 Vectors sends `TooManyRequestsException`; two code
+  comments still listed the five options `client` is exclusive with, which
+  became eight when the timeouts arrived; the guide's `INDEX_CONFIG_MISMATCH`
+  and `VALIDATION` rows described narrower conditions than the code raises; and
+  the project tree omitted three modules this release added
+  (`internal/output-vectors.ts`, `shared/objects.ts`, `shared/aws-limits.ts`)
+  while describing `actions/delete.ts` as still able to destroy the index and
+  `index-lifecycle.ts` as exporting an existence check.
+
+- **Two filter behaviours the README asserted now have evidence and a guard.**
+  A type-mismatched comparison (`{ popular: { $eq: 'true' } }` against a stored
+  boolean) matches nothing without erroring, and filtering on a non-filterable
+  key is rejected outright. Both were stated as "confirmed live" with nothing
+  re-checking them, which is the one thing `docs/evidence/README.md` says a
+  citable claim may not be. They are recorded as T3-12 and T3-13 with their raw
+  traffic, and the live suite now fails if AWS changes either answer.
+
 ### Added
 
 - **Maximal Marginal Relevance, for real.** `maxMarginalRelevanceSearch(query,

@@ -155,7 +155,7 @@ const client = new S3VectorsClient({
 const store = new AmazonS3Vectors(embeddings, {
   vectorBucketName: "my-bucket",
   indexName: "my-index",
-  client, // exclusive with region/credentials/endpoint/maxAttempts/retryMode
+  client, // exclusive with region/credentials/endpoint/maxAttempts/retryMode/the three timeouts
 });
 ```
 
@@ -167,7 +167,7 @@ Every failure this library surfaces — caller mistake, not-found, malformed AWS
 
 | Code | Raised when |
 |---|---|
-| `VALIDATION` | Caller input was invalid — a mismatched count, a non-array argument, a bad batch size or page size, a malformed filter, a reserved metadata key, or a configuration option outside its documented set. Raised before any AWS call. |
+| `VALIDATION` | Caller input was invalid — a mismatched count, a non-array argument, an options bag that is not an object, a bad batch size or page size, a malformed filter, a reserved metadata key, an empty-string or duplicate vector id within one write call, a configuration option outside its documented set, or a `client` supplied alongside an option that would configure one. Raised before any AWS call, and before any billable embedding. |
 | `AWS_REJECTED` | `ValidationException` (400): AWS refused the request. `context.fieldList` carries its field-level detail. |
 | `THROTTLED` | `TooManyRequestsException` (429). Retry after a backoff. |
 | `SERVICE_UNAVAILABLE` | `InternalServerException` (500), `ServiceUnavailableException` (503) or `RequestTimeoutException` (408). A 503 from `PutVectors` also means the batch exceeded resource capacity — `context.batchSize` says how large it was, so you can split rather than retry. |
@@ -178,7 +178,7 @@ Every failure this library surfaces — caller mistake, not-found, malformed AWS
 | `NOT_FOUND` | `NotFoundException` (404): the bucket or index is not there. A missing *vector id* is not this — `getByIds` returns `undefined` in that id's slot. |
 | `EMBEDDINGS_MISSING` | An operation needed an embedding model but none was configured. |
 | `AWS_REQUEST_FAILED` | An AWS request failed and no narrower class applies. |
-| `INDEX_CONFIG_MISMATCH` | The index's actual distance metric disagrees with this store's configuration. |
+| `INDEX_CONFIG_MISMATCH` | An existing index disagrees with this store's configuration: its distance metric, checked against the `QueryVectors` response on every read, or its non-filterable metadata keys, checked against the `GetIndex` that precedes a first write. Also raised when the vectors in one batch disagree with each other on dimension. |
 | `ABORTED` | The supplied `AbortSignal` fired before or during the operation. |
 | `AWS_INVALID_RESPONSE` | An AWS response was missing, carried an unusable value for, or wasn't an object at all where this library requires one. Reachable only from a mocked, stubbed or otherwise non-conforming client. |
 | `QUERY_PAGE_LIMIT_EXCEEDED` | A paginated search hit the 1,000-page runaway ceiling with pages still outstanding and fewer than `k` results collected. |

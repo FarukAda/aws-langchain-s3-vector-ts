@@ -218,10 +218,10 @@ const recent = await store.similaritySearch(
 );
 ```
 
-A few behaviors worth knowing, confirmed live against the real service:
+A few behaviours worth knowing, each recorded with its raw traffic in [`docs/evidence/filter-validation.md`](docs/evidence/filter-validation.md) and re-checked by a live test, so a change on AWS's side fails a run rather than quietly making this section wrong:
 
 - **Don't pass an empty filter object.** `similaritySearch(query, k, {})` throws locally (AWS itself rejects `{}` with an opaque "Invalid filter" error rather than treating it as "no filter"). Omit the `filter` argument entirely — or pass `undefined` — to search without filtering. This matters if you build a filter dynamically and it can end up with no conditions applied.
-- **A type-mismatched comparison returns zero results, not an error.** Comparing a boolean-valued field against a string (e.g. `{ popular: { $eq: "true" } }` when `popular` is actually stored as the boolean `true`) silently matches nothing rather than failing — the same as filtering on a field that doesn't exist on any document at all.
+- **A type-mismatched comparison returns zero results, not an error.** Comparing a boolean-valued field against a string (e.g. `{ popular: { $eq: "true" } }` when `popular` is actually stored as the boolean `true`) silently matches nothing rather than failing — indistinguishable from filtering on a field that doesn't exist on any document at all. This library cannot catch it for you: the stored type is the writer's and the filter value is the reader's, and no single call sees both. Watch for it wherever a filter value arrives from a query string or a form, where everything is a string.
 - **You can't filter on a non-filterable key.** Filtering on `pageContentMetadataKey` (or any key listed in `nonFilterableMetadataKeys`) fails with an "Invalid use of non-filterable metadata in filter" error — expected, since that's the whole point of the non-filterable list, but easy to hit by accident if you filter on the same key you excluded for index-size reasons.
 
 ### Use as a LangChain Retriever
@@ -284,7 +284,7 @@ const client = new S3VectorsClient({
 const store = new AmazonS3Vectors(embeddings, {
   vectorBucketName: "my-bucket",
   indexName: "my-index",
-  client, // exclusive with region/credentials/endpoint/maxAttempts/retryMode
+  client, // exclusive with region/credentials/endpoint/maxAttempts/retryMode/the three timeouts
 });
 ```
 
@@ -321,13 +321,27 @@ aws s3vectors create-vector-bucket \
 
 # (Optional) Create the vector index manually — otherwise the library
 # creates it on first write.
+#
+# --metadata-configuration is NOT optional if you then write through this
+# library with its default `pageContentMetadataKey`. An index created without
+# it treats `_page_content` as filterable, which spends the 2 KB filterable
+# budget on document text; the store refuses the first write with
+# INDEX_CONFIG_MISMATCH rather than writing into that. A non-filterable key
+# set is fixed at creation and cannot be changed afterwards.
 aws s3vectors create-index \
   --vector-bucket-name my-vector-bucket \
   --index-name my-index \
   --data-type float32 \
   --dimension 1536 \
-  --distance-metric cosine
+  --distance-metric cosine \
+  --metadata-configuration '{"nonFilterableMetadataKeys":["_page_content"]}'
 ```
+
+If you set a custom `pageContentMetadataKey`, use that name instead; add any
+`nonFilterableMetadataKeys` you configure to the same list; and if you set
+`pageContentMetadataKey: null`, omit the flag entirely. The rule is simply that
+the index's list and the store's must match — letting the library create the
+index is the way to not have to think about it.
 
 </details>
 
@@ -337,14 +351,35 @@ aws s3vectors create-index \
 1. Open the **Amazon S3 console**.
 2. Select **Vector buckets** in the left navigation.
 3. Choose **Create vector bucket** and supply a bucket name.
-4. Leave the index creation to the library (automatic on first write) or create one manually with the matching `dimension` for your embedding model.
+4. Leave the index creation to the library (automatic on first write). This is the recommended path: the library creates the index with the `dimension` from your first vector *and* with `pageContentMetadataKey` in its non-filterable metadata keys.
+5. If you create the index by hand instead, match both: the `dimension` for your embedding model, and a non-filterable metadata key list containing `_page_content` (or whatever `pageContentMetadataKey` you configure). A mismatch is refused on the first write with `INDEX_CONFIG_MISMATCH`, and cannot be corrected afterwards — the list is fixed at creation.
 
 </details>
 
 <details>
 <summary><strong>AWS CDK (TypeScript)</strong></summary>
 
-As of 2026-04, CDK L2 constructs for S3 Vectors are not yet available. Use `CfnResource` with the CloudFormation raw type, or provision via the CLI / console as a one-time step outside your CDK stack.
+There are still no L2 constructs, but `aws-cdk-lib` ships typed **L1** constructs for both resources — `aws_s3vectors.CfnVectorBucket` (`AWS::S3Vectors::VectorBucket`) and `aws_s3vectors.CfnIndex` (`AWS::S3Vectors::Index`) — so a raw `CfnResource` is no longer needed. Checked against `aws-cdk-lib` 2.269.0.
+
+<!-- sample:skip illustrative: aws-cdk-lib is not a dependency of this package -->
+```typescript
+import { aws_s3vectors as s3vectors } from "aws-cdk-lib";
+
+const bucket = new s3vectors.CfnVectorBucket(this, "VectorBucket", {
+  vectorBucketName: "my-vector-bucket",
+});
+
+new s3vectors.CfnIndex(this, "VectorIndex", {
+  vectorBucketName: bucket.vectorBucketName,
+  indexName: "my-index",
+  dataType: "float32",
+  dimension: 1536,
+  distanceMetric: "cosine",
+  // Same rule as the CLI above: this must match the store's configuration,
+  // and it is fixed at creation.
+  metadataConfiguration: { nonFilterableMetadataKeys: ["_page_content"] },
+});
+```
 
 </details>
 
@@ -387,7 +422,7 @@ Only the options listed above are read by this library. The constructor builds i
 
 ### Retries
 
-Throttling (`ThrottlingException` / `TooManyRequestsException`, HTTP 429) and transient 5xx failures are retried automatically by the AWS SDK's retry strategy — **3 attempts total (1 + 2 retries) with exponential backoff and jitter** under the default `"standard"` mode. This library adds no retry layer of its own: an `AWS_REQUEST_FAILED` error you catch means the SDK's attempts were exhausted.
+Throttling (`TooManyRequestsException`, HTTP 429 — S3 Vectors' name for it; not `ThrottlingException`, which several other AWS services use and this one never sends) and transient 5xx failures are retried automatically by the AWS SDK's retry strategy — **3 attempts total (1 + 2 retries) with exponential backoff and jitter** under the default `"standard"` mode. This library adds no retry layer of its own: an `AWS_REQUEST_FAILED` error you catch means the SDK's attempts were exhausted.
 
 Tune it with `maxAttempts` / `retryMode`, or pass a fully pre-configured `client`:
 
@@ -925,10 +960,10 @@ src/
 │   ├── search.ts                 # searchByVector, selectRelevanceScoreFn
 │   ├── mmr.ts                    # maximalMarginalRelevance over query + fetch
 │   ├── get-by-ids.ts             # getByIds
-│   ├── delete.ts                 # delete by id, or the index
+│   ├── delete.ts                 # delete by id (destroying the index is its own path)
 │   └── list.ts                   # listDocuments / listVectors
 ├── internal/                     # Request-shaped helpers (not re-exported)
-│   ├── index-lifecycle.ts        # exists / create / delete, with the shared creation memo
+│   ├── index-lifecycle.ts        # describe / create / delete, with the shared creation memo
 │   ├── put-batch.ts              # One validated PutVectors batch; sendAws
 │   ├── embed-pipeline.ts         # Sequential embedding pipelined against writes
 │   ├── concurrency.ts            # First batch alone, then bounded groups
@@ -936,6 +971,7 @@ src/
 │   ├── list-pages.ts             # ListVectors pagination, as an async generator
 │   ├── get-vectors.ts            # Batched GetVectors by key
 │   ├── ids.ts / limits.ts        # Write-id resolution; dimension and value checks
+│   ├── output-vectors.ts         # Reads the vector list off an AWS response, or fails
 │   ├── guards.ts                 # Caller-input checks shared by the entry points
 │   ├── filter.ts                 # Filter vocabulary validation
 │   ├── operation.ts              # The request fields every action shares
@@ -946,6 +982,8 @@ src/
 │   ├── metadata.ts               # buildPutMetadata, createDocument (pure functions)
 │   ├── batching.ts               # chunk, offsetBatches (pure functions)
 │   ├── describe.ts               # Describes a rejected value by kind, never by content
+│   ├── objects.ts                # isObjectLike / isPlainObject — the two object checks, once
+│   ├── aws-limits.ts             # Every AWS limit enforced in more than one place, stated once
 │   └── errors/                   # Typed error model
 │       ├── s3-vectors-error.ts   # S3VectorsError + isS3VectorsError guard
 │       ├── error-code.ts         # S3VectorsErrorCode enum
@@ -963,7 +1001,7 @@ test/                             # Unit (100% coverage), contract, property, ty
 ├── shared/                       # Mirrors src/shared (incl. errors/, validation)
 ├── internal/                     # Mirrors src/internal, one suite per contract
 ├── actions/                      # Mirrors src/actions
-├── contract/                     # VectorStore + MMR contract tests, run through core
+├── contract/                     # The executable contract registry and its conformance run, plus the VectorStore and MMR suites run through core and the doc-truth gates
 ├── property/                     # fast-check invariants over whole input domains
 ├── types/                        # Compile-time public-API assertions
 ├── package-smoke/                # Pack, install, then import / require / type-check the tarball (node --test)

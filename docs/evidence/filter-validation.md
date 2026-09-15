@@ -34,3 +34,29 @@ ever refusing something the service would have accepted.
 **Local checking is worth more than usual here**, because the service's own
 diagnosis is the bare string "Invalid filter" — no indication of which operator,
 which field, or what was wrong with it. A local check can name all three.
+
+## T3-12 and T3-13 — what the service accepts but does not match
+
+Not every filter the service accepts is a filter that can match. Two cases the
+README describes were re-confirmed on 2026-09-15 against an index holding one
+vector with metadata `{ popular: true, genre: 'scifi' }` and `_page_content`
+declared non-filterable:
+
+| Filter | Result |
+|---|---|
+| `{ popular: { $eq: true } }` | 1 result — the control |
+| `{ popular: { $eq: 'true' } }` | **0 results, no error** — T3-12 |
+| `{ nope: { $eq: 'x' } }` (absent field) | 0 results, no error |
+| `{ _page_content: { $eq: 'alpha' } }` | **rejected** — `ValidationException`, "Invalid use of non-filterable metadata in filter" — T3-13 |
+
+**T3-12.** A type-mismatched comparison is indistinguishable from a field that
+does not exist: both return nothing and neither is an error. A boolean stored as
+`true` and compared against the string `'true'` — the shape a query string or a
+form value arrives in — silently matches nothing. This package cannot detect it:
+the metadata type is the writer's, the filter value is the reader's, and nothing
+in a single call sees both. It is documented instead.
+
+**T3-13.** Filtering on a non-filterable key is refused by the service rather
+than ignored, and unlike the bare "Invalid filter" above, this message says what
+is wrong. It is easy to reach by accident: the key excluded for index-size
+reasons is often the interesting one to filter by.

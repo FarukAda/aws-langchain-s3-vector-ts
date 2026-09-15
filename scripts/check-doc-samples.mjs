@@ -31,8 +31,15 @@ const outDir = join(root, '.doc-samples');
 /** The documents whose samples a reader is expected to be able to run. */
 const DOCUMENTS = ['README.md', 'src/guide.md', 'CHANGELOG.md'];
 
-/** Blocks legitimately un-compilable, and why. Growing this list is the point. */
-const EXPECTED_SKIPS = 1;
+/**
+ * Blocks legitimately un-compilable, and why. Growing this list is the point.
+ *
+ * 1. `src/guide.md` — a RAG chain and an agent tool, from packages this one
+ *    does not depend on.
+ * 2. `README.md` — the AWS CDK snippet under *Infrastructure Setup*;
+ *    `aws-cdk-lib` is not a dependency here either.
+ */
+const EXPECTED_SKIPS = 2;
 
 /** A sample is worth compiling only if there are samples; guards an empty scan. */
 const MINIMUM_SAMPLES = 30;
