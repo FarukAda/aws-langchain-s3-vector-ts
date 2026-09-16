@@ -2,6 +2,7 @@ import { addDocumentsContract } from './entries/add-documents.js';
 import { addVectorsContract } from './entries/add-vectors.js';
 import { deleteContract } from './entries/delete.js';
 import { getByIdsContract } from './entries/get-by-ids.js';
+import { mmrContract } from './entries/mmr.js';
 import type { EntryPointContract } from './types.js';
 
 /**
@@ -44,7 +45,6 @@ export const PENDING_ENTRY_POINTS: readonly string[] = [
   'AmazonS3Vectors.similaritySearchWithScore',
   'AmazonS3Vectors.similaritySearchVectorWithScore',
   'AmazonS3Vectors.similaritySearchWithRelevanceScores',
-  'AmazonS3Vectors.maxMarginalRelevanceSearch',
   'AmazonS3Vectors.deleteIndex',
   'AmazonS3Vectors.listDocuments',
   'AmazonS3Vectors.listVectors',
@@ -66,4 +66,5 @@ export const REGISTRY: readonly EntryPointContract<unknown>[] = [
   addVectorsContract as EntryPointContract<unknown>,
   addDocumentsContract as EntryPointContract<unknown>,
   getByIdsContract as EntryPointContract<unknown>,
+  mmrContract as EntryPointContract<unknown>,
 ];

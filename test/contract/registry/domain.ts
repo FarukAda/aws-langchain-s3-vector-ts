@@ -13,6 +13,8 @@ export const MAX_DELETE_BATCH_SIZE = 500;
 export const DEFAULT_MAX_CONCURRENT = 10;
 /** "Vectors per GetVectors API call: Up to 100" (limits page). */
 export const MAX_GET_BATCH_SIZE = 100;
+/** The `topK` ceiling, which bounds `k` and `fetchK` (limits page). */
+export const MAX_TOP_K = 10_000;
 
 /** "Vectors per PutVectors call: 500" (limits page). */
 const MAX_PUT_BATCH_SIZE = 500;
@@ -29,13 +31,20 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** An object literal or a null-prototype object — data, not an instance of something. */
+function isDataObject(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) return false;
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === null || Object.getPrototypeOf(proto) === null;
+}
+
 /** `undefined`, or `null` — which this package reads as "not provided" throughout. */
 export function isAbsent(value: unknown): value is null | undefined {
   return value === undefined || value === null;
 }
 
 /** `AbortSignal`-shaped: a boolean `aborted` and an `addEventListener`. */
-function isAbortSignalLike(value: unknown): boolean {
+export function isAbortSignalLike(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as { aborted?: unknown; addEventListener?: unknown };
   return typeof candidate.aborted === 'boolean' && typeof candidate.addEventListener === 'function';
@@ -155,4 +164,73 @@ export function isWriteOptions(options: unknown, count: number): boolean {
     isOptionalIntegerUpTo(options['batchSize'], MAX_PUT_BATCH_SIZE) &&
     isOptionalSignal(options['signal'])
   );
+}
+
+/** `$eq`'s operand: a well-formed string, a finite number or a boolean (T3-16; T3-19 for non-finite numbers). */
+function isScalarOperand(value: unknown): boolean {
+  return (
+    isWellFormedString(value) ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  );
+}
+
+/** A range operator's operand: a finite number (T3-16). */
+function isFiniteNumber(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** `$in`'s operand: a non-empty array of scalar operands, mixed types allowed (T3-16). */
+function isScalarArray(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  for (let index = 0; index < value.length; index++) {
+    if (!isScalarOperand(value[index])) return false;
+  }
+  return true;
+}
+
+/** Every comparison operator and the operand it takes (userguide `s3-vectors-metadata-filtering.html`). */
+const OPERANDS = new Map<string, (operand: unknown) => boolean>([
+  ['$eq', isScalarOperand],
+  ['$ne', isScalarOperand],
+  ['$gt', isFiniteNumber],
+  ['$gte', isFiniteNumber],
+  ['$lt', isFiniteNumber],
+  ['$lte', isFiniteNumber],
+  ['$in', isScalarArray],
+  ['$nin', isScalarArray],
+  ['$exists', (operand) => typeof operand === 'boolean'],
+]);
+
+/**
+ * One condition: a data object with exactly one key (T3-17) — `$and` or `$or`
+ * holding a non-empty array of conditions, or a well-formed field name holding
+ * a scalar operand (implicit `$eq`) or a data object of one or more comparison
+ * operators, each with an operand it takes (T3-16, T3-18).
+ */
+function isValidCondition(value: unknown): boolean {
+  if (!isDataObject(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== 1) return false;
+  const key = keys[0]!;
+  const entry: unknown = value[key];
+  if (key === '$and' || key === '$or') {
+    if (!Array.isArray(entry) || entry.length === 0) return false;
+    for (let index = 0; index < entry.length; index++) {
+      if (!isValidCondition(entry[index])) return false;
+    }
+    return true;
+  }
+  if (key.startsWith('$') || !key.isWellFormed()) return false;
+  if (!isDataObject(entry)) return isScalarOperand(entry);
+  const operators = Object.keys(entry);
+  return (
+    operators.length > 0 &&
+    operators.every((operator) => OPERANDS.get(operator)?.(entry[operator]) === true)
+  );
+}
+
+/** A filter S3 Vectors accepts and that means what it says: absent, or one valid condition. */
+export function isValidFilter(filter: unknown): boolean {
+  return isAbsent(filter) || isValidCondition(filter);
 }
