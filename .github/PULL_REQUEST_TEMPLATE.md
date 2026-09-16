@@ -17,4 +17,4 @@ None.
 - [ ] tests were written first and cover the change (unit; the live-AWS suite for anything that depends on the real service)
 - [ ] CHANGELOG `[Unreleased]` entry for anything a user can observe
 - [ ] README updated where documented behaviour changed; `npm run docs` regenerated if public JSDoc changed
-- [ ] the change respects [docs/STABILITY.md](../docs/STABILITY.md)
+- [ ] a breaking change to the public API, or to what the store writes to S3 Vectors, is called out under **Breaking changes** above

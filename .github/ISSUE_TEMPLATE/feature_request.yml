@@ -13,7 +13,7 @@ body:
     id: proposal
     attributes:
       label: Proposed behaviour
-      description: How the API or what the store writes would change, how it fits docs/STABILITY.md, and whether the Python langchain-aws reference does the same.
+      description: How the API or what the store writes would change, whether that is a breaking change for a 1.x consumer, and which primary source (AWS API reference, the SDK service model, @langchain/core) says it should behave that way.
   - type: textarea
     id: alternatives
     attributes:

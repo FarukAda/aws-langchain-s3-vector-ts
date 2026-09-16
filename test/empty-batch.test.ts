@@ -7,6 +7,7 @@ import {
   BASE_CONFIG,
   createMockClient,
   createMockEmbeddings,
+  mockExistingIndex,
   mockIndexNotFound,
 } from './helpers.js';
 
@@ -30,7 +31,24 @@ describe('AmazonS3Vectors empty-batch dimension guard', () => {
     // second test below covers.
     await expect(
       store.addDocuments([new Document({ pageContent: 'orphan' })], { ids: ['id-1'] }),
-    ).rejects.toThrow('Embeddings model returned 0 vectors for 1 documents');
+    ).rejects.toThrow(
+      'Embeddings model returned 0 vectors for 1 documents — it must return exactly one ' +
+        'vector per document.',
+    );
+  });
+
+  it('names addDocuments, since that is the call the mismatch happened inside', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    const embeddings: EmbeddingsInterface = {
+      embedDocuments: async () => [],
+      embedQuery: async () => [1, 2, 3],
+    };
+    const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+    const error = await store
+      .addDocuments([new Document({ pageContent: 'x' })])
+      .catch((e: unknown) => e);
+    expect((error as { context: { operation: string } }).context.operation).toBe('addDocuments');
   });
 
   it('throws when the first vector is an empty array (not just absent)', async () => {

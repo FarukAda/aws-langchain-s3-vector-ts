@@ -10,7 +10,15 @@ const PAGE_CONTENT_KEY = '_page_content';
 describe('buildPutMetadata', () => {
   it('stores pageContent under the key when key is set', () => {
     const doc = new Document({ pageContent: 'hello', metadata: { genre: 'scifi' } });
-    expect(buildPutMetadata(doc, PAGE_CONTENT_KEY, 'addDocuments')).toEqual({
+    expect(
+      buildPutMetadata(doc, {
+        pageContentMetadataKey: PAGE_CONTENT_KEY,
+        nonFilterableKeys: [PAGE_CONTENT_KEY],
+        operation: 'addDocuments',
+        vectorBucketName: 'b',
+        indexName: 'i',
+      }),
+    ).toEqual({
       genre: 'scifi',
       [PAGE_CONTENT_KEY]: 'hello',
     });
@@ -18,7 +26,15 @@ describe('buildPutMetadata', () => {
 
   it('omits pageContent when key is null', () => {
     const doc = new Document({ pageContent: 'hello', metadata: { genre: 'scifi' } });
-    expect(buildPutMetadata(doc, null, 'addDocuments')).toEqual({ genre: 'scifi' });
+    expect(
+      buildPutMetadata(doc, {
+        pageContentMetadataKey: null,
+        nonFilterableKeys: [],
+        operation: 'addDocuments',
+        vectorBucketName: 'b',
+        indexName: 'i',
+      }),
+    ).toEqual({ genre: 'scifi' });
   });
 
   it('throws when document metadata already contains the reserved page-content key', () => {
@@ -26,9 +42,26 @@ describe('buildPutMetadata', () => {
       pageContent: 'hello',
       metadata: { [PAGE_CONTENT_KEY]: 'user value', genre: 'scifi' },
     });
-    expect(() => buildPutMetadata(doc, PAGE_CONTENT_KEY, 'addDocuments')).toThrow(
-      `reserved key '${PAGE_CONTENT_KEY}'`,
-    );
+    expect(() =>
+      buildPutMetadata(doc, {
+        pageContentMetadataKey: PAGE_CONTENT_KEY,
+        nonFilterableKeys: [PAGE_CONTENT_KEY],
+        operation: 'addDocuments',
+        vectorBucketName: 'b',
+        indexName: 'i',
+      }),
+    ).toThrow(`reserved key '${PAGE_CONTENT_KEY}'`);
+    // The remedy matters more than the diagnosis: a caller whose documents
+    // already carry that field has two ways out, and neither is obvious.
+    expect(() =>
+      buildPutMetadata(new Document({ pageContent: 'x', metadata: { [PAGE_CONTENT_KEY]: 'y' } }), {
+        pageContentMetadataKey: PAGE_CONTENT_KEY,
+        nonFilterableKeys: [],
+        operation: 'addVectors',
+        vectorBucketName: 'b',
+        indexName: 'i',
+      }),
+    ).toThrow('Rename this metadata field or configure a different `pageContentMetadataKey`');
   });
 });
 
@@ -62,9 +95,9 @@ describe('createDocument', () => {
     expect(doc.metadata).toEqual({});
   });
 
-  it('deep-copies metadata when deepCopyMetadata is true', () => {
+  it('deep-copies metadata always, so no returned document can alias another', () => {
     const shared = { genre: 'scifi' };
-    const doc = createDocument({ key: 'id-5', metadata: shared }, null, true);
+    const doc = createDocument({ key: 'id-5', metadata: shared }, null);
     (doc.metadata as { genre: string }).genre = 'mutated';
     expect(shared.genre).toBe('scifi');
   });
@@ -79,8 +112,22 @@ describe('createDocument', () => {
 describe('buildPutMetadata / createDocument — prototype-chain safety', () => {
   it('buildPutMetadata does not treat an inherited Object.prototype member as an existing key', () => {
     const doc = new Document({ pageContent: 'hello', metadata: { genre: 'scifi' } });
-    expect(() => buildPutMetadata(doc, 'constructor', 'addDocuments')).not.toThrow();
-    const result = buildPutMetadata(doc, 'constructor', 'addDocuments');
+    expect(() =>
+      buildPutMetadata(doc, {
+        pageContentMetadataKey: 'constructor',
+        nonFilterableKeys: ['constructor'],
+        operation: 'addDocuments',
+        vectorBucketName: 'b',
+        indexName: 'i',
+      }),
+    ).not.toThrow();
+    const result = buildPutMetadata(doc, {
+      pageContentMetadataKey: 'constructor',
+      nonFilterableKeys: ['constructor'],
+      operation: 'addDocuments',
+      vectorBucketName: 'b',
+      indexName: 'i',
+    });
     expect(result['constructor']).toBe('hello');
     expect(result['genre']).toBe('scifi');
   });
@@ -97,7 +144,7 @@ describe('createDocument — structuredClone safety', () => {
     const vector = { key: 'v1', metadata: { fn: () => 'not cloneable' } };
     let thrown: unknown;
     try {
-      createDocument(vector, '_page_content', true, 'getByIds');
+      createDocument(vector, '_page_content', 'getByIds');
       throw new Error('should have thrown');
     } catch (error: unknown) {
       thrown = error;
@@ -105,14 +152,53 @@ describe('createDocument — structuredClone safety', () => {
     expect(isS3VectorsError(thrown)).toBe(true);
     expect((thrown as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect((thrown as S3VectorsError).message).toContain("vector 'v1'");
+    // Says what kind of value broke it and what the caller must do, since a
+    // structuredClone failure names nothing on its own.
+    expect((thrown as S3VectorsError).message).toContain(
+      'structured-cloned (e.g. a function or symbol)',
+    );
+    expect((thrown as S3VectorsError).message).toContain(
+      'Ensure vector metadata contains only structured-cloneable values',
+    );
   });
 
   it('still deep-copies cloneable metadata correctly (regression, unaffected by the try/catch)', () => {
     const shared = { nested: { value: 'original' } };
-    const doc1 = createDocument({ key: 'v1', metadata: shared }, null, true);
-    const doc2 = createDocument({ key: 'v1', metadata: shared }, null, true);
+    const doc1 = createDocument({ key: 'v1', metadata: shared }, null);
+    const doc2 = createDocument({ key: 'v1', metadata: shared }, null);
     (doc1.metadata['nested'] as { value: string }).value = 'mutated';
     expect((doc2.metadata['nested'] as { value: string }).value).toBe('original');
+  });
+});
+
+describe('createDocument — a null page-content key reads no metadata at all', () => {
+  it('leaves a metadata key literally named "null" where it is', () => {
+    // `null` disables the round-trip entirely. It must not degrade into a
+    // lookup for the *string* "null", which is what property access would
+    // coerce it to — a document carrying that field would otherwise have it
+    // silently moved into pageContent and deleted from metadata.
+    const doc = createDocument({ key: 'k', metadata: { null: 'not page content' } }, null);
+    expect(doc.pageContent).toBe('');
+    expect(doc.metadata).toEqual({ null: 'not page content' });
+  });
+
+  it('returns empty page content and the metadata untouched for an ordinary document', () => {
+    const doc = createDocument({ key: 'k', metadata: { _page_content: 'stored', tag: 'a' } }, null);
+    expect(doc.pageContent).toBe('');
+    expect(doc.metadata).toEqual({ _page_content: 'stored', tag: 'a' });
+  });
+});
+
+describe('createDocument — the operation it names when the caller supplies none', () => {
+  it('defaults to its own name, so the error still says what was running', () => {
+    const uncloneable = { fn: () => undefined } as unknown as Record<string, unknown>;
+    let thrown: unknown;
+    try {
+      createDocument({ key: 'v1', metadata: uncloneable }, null);
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect((thrown as S3VectorsError).context.operation).toBe('createDocument');
   });
 });
 

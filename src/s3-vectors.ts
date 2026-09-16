@@ -1,59 +1,53 @@
-import { randomUUID } from 'node:crypto';
-
-import {
-  S3VectorsClient,
-  CreateIndexCommand,
-  GetIndexCommand,
-  PutVectorsCommand,
-  DeleteVectorsCommand,
-  DeleteIndexCommand,
-  GetVectorsCommand,
-  QueryVectorsCommand,
-  type EncryptionConfiguration,
-} from '@aws-sdk/client-s3vectors';
+import { S3VectorsClient, type EncryptionConfiguration } from '@aws-sdk/client-s3vectors';
 import type { Callbacks } from '@langchain/core/callbacks/manager';
 import { Document, type DocumentInterface } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 import { VectorStore, type MaxMarginalRelevanceSearchOptions } from '@langchain/core/vectorstores';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
-import { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './relevance-scores.js';
-import { chunk, offsetBatches } from './shared/batching.js';
-import { isAbortError } from './shared/errors/aws-abort.js';
-import { isAwsConflictException } from './shared/errors/aws-conflict.js';
-import { isAwsNotFoundException } from './shared/errors/aws-not-found.js';
-import { isAwsValidationException } from './shared/errors/aws-validation.js';
-import { S3VectorsErrorCode } from './shared/errors/error-code.js';
+import { addDocuments, addVectors } from './actions/add.js';
+import { deleteVectors } from './actions/delete.js';
+import { getByIds } from './actions/get-by-ids.js';
+import { listDocuments, listVectors } from './actions/list.js';
+import { assertMmrParameters, mmrSearch } from './actions/mmr.js';
+import { searchByVector, selectRelevanceScoreFn } from './actions/search.js';
+import { validateFilter } from './internal/filter.js';
 import {
-  isS3VectorsError,
-  S3VectorsError,
-  type S3VectorsErrorContext,
-} from './shared/errors/s3-vectors-error.js';
-import { toError, wrapAwsError } from './shared/errors/wrap-error.js';
-import { buildPutMetadata, createDocument } from './shared/metadata.js';
+  assertK,
+  assertOptionsBag,
+  rejectSignalInCallbacksSlot,
+  validationError,
+} from './internal/guards.js';
+import {
+  createIndexLifecycle,
+  nonFilterableKeys,
+  type IndexLifecycle,
+} from './internal/index-lifecycle.js';
+import { putBatch } from './internal/put-batch.js';
+import { checkAborted } from './internal/signals.js';
+import {
+  AmazonS3VectorsRetriever,
+  createRetriever,
+  type AmazonS3VectorsRetrieverFields,
+} from './retriever.js';
+import { renderValue } from './shared/describe.js';
+import { attachInstance } from './shared/errors/decorate.js';
+import { S3VectorsErrorCode } from './shared/errors/error-code.js';
+import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
+import { wrapAwsError } from './shared/errors/wrap-error.js';
+import { isObjectLike } from './shared/objects.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
-import { assertValidIndexConfig } from './shared/validation.js';
+import { assertValidConfig, assertValidIndexConfig, resolveClient } from './shared/validation.js';
 import type {
   AmazonS3VectorsConfig,
   DistanceMetric,
-  S3OutputVector,
+  S3VectorsDeleteIndexParams,
   S3VectorsDeleteParams,
+  S3VectorsListParams,
+  S3VectorsRecord,
   VectorDataType,
 } from './types.js';
 
-/** Default batch sizes matching the Python implementation. */
-const DEFAULT_PUT_BATCH_SIZE = 200;
-const DEFAULT_DELETE_BATCH_SIZE = 500;
-const DEFAULT_GET_BATCH_SIZE = 100;
-/**
- * Per-call ceilings enforced by AWS itself (confirmed live: exceeding these
- * fails with a `ValidationException` naming the same limit). Checked
- * locally so an oversized `batchSize` fails fast with a clear message
- * instead of an AWS round trip.
- */
-const MAX_PUT_BATCH_SIZE = 500;
-const MAX_DELETE_BATCH_SIZE = 500;
-const MAX_GET_BATCH_SIZE = 100;
 /**
  * Default cap on batch AWS calls (PutVectors/DeleteVectors/GetVectors) in
  * flight at once. Overridable per store via
@@ -61,98 +55,8 @@ const MAX_GET_BATCH_SIZE = 100;
  */
 const DEFAULT_MAX_CONCURRENT_BATCH_CALLS = 10;
 
-/**
- * Consecutive result-less `QueryVectors` pages tolerated before a search is
- * judged non-converging. Reset by any page that returns at least one vector.
- *
- * This — not a flat page count — is what actually separates the pathology
- * this guard exists for ("a response that keeps returning `nextToken`
- * without ever satisfying `k`") from a legitimately sparse search. An empty
- * page carrying a `nextToken` is a conforming response with real results
- * still to come, so a handful in a row is tolerated; an unbroken run of them
- * is not progress by any definition.
- */
-const MAX_EMPTY_QUERY_PAGES = 10;
-
-/**
- * Absolute ceiling on `QueryVectors` pages per search. Deliberately a
- * runaway backstop with generous headroom, **not** a tight bound on what a
- * legitimate search needs.
- *
- * AWS publishes the page size as "Results per page in a QueryVectors
- * response: **up to** 100" — a maximum, not a guarantee — so a short page is
- * a conforming response and the number of pages needed to collect `k` is not
- * `k / 100`. A previous version of this constant was exactly
- * `MAX_TOP_K / 100` (100 pages), which left zero headroom: a single 99-result
- * page anywhere in a `k = 10,000` search pushed it to 101 pages and failed a
- * completely valid query. This value is 10x the all-pages-full minimum for
- * the largest `k` AWS accepts.
- *
- * @see https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html
- */
-const MAX_QUERY_PAGES = 1_000;
-
-/** AWS's own ceiling for `topK` (confirmed live: `QueryVectors` rejects anything above this). */
-const MAX_TOP_K = 10_000;
-
 /** Default metadata key to store page_content in. */
 const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
-
-/**
- * True for a plain key/value filter object — an object literal or an
- * `Object.create(null)` dictionary. False for arrays, `Map`/`Set`, `Date`,
- * class instances, and primitives.
- *
- * Deliberately not `proto === Object.prototype`: an object literal built in
- * another realm (a `vm` context, a worker's `structuredClone`d message, a
- * JSDOM window, a plugin sandbox) has that realm's `Object.prototype`, which
- * is a different object — so an identity check rejected perfectly valid
- * filters with a message blaming the caller. A plain object is instead
- * recognised structurally: its prototype is either `null` or itself a
- * prototype-less object (every realm's `Object.prototype` is), whereas a
- * class instance, `Map`, `Date`, etc. sit at least one link further down.
- */
-function isPlainFilterObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const proto: unknown = Object.getPrototypeOf(value);
-  return proto === null || Object.getPrototypeOf(proto) === null;
-}
-
-/**
- * True for an `AbortSignal`-shaped value. Duck-typed rather than
- * `instanceof` (banned in this codebase, and unreliable across realms).
- * Used only to recognise a signal mistakenly passed in the `Callbacks`
- * slot — neither a `CallbackManager` nor a handler array carries a boolean
- * `aborted`, so the two can't be confused.
- */
-function isAbortSignalLike(value: unknown): value is AbortSignal {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as { aborted?: unknown; addEventListener?: unknown };
-  return typeof candidate.aborted === 'boolean' && typeof candidate.addEventListener === 'function';
-}
-
-/**
- * "a"/"an" for the given word, so error messages don't read "a Error
- * instance". Letter-based, not pronunciation-based — correct for the
- * realistic constructor names this reaches (Error, Array, Map, a custom
- * class, ...), but not for a "long U" name like Uint8Array or URIError
- * ("a Uint8Array" is the grammatically correct one there, despite the
- * leading vowel letter). Not worth a pronunciation table for an
- * already-uncommon error-message edge case.
- */
-function articleFor(word: string): 'a' | 'an' {
-  return /^[aeiou]/i.test(word) ? 'an' : 'a';
-}
-
-/** Describe a rejected filter value for the validation error message. */
-function describeFilterValue(value: unknown): string {
-  const type = typeof value;
-  if (type !== 'object') return `${articleFor(type)} ${type}`;
-  const ctorName = (value as { constructor?: { name?: string } })?.constructor?.name;
-  return ctorName && ctorName !== 'Object'
-    ? `${articleFor(ctorName)} ${ctorName} instance`
-    : 'a non-plain object';
-}
 
 /**
  * LangChain vector store backed by **Amazon S3 Vectors**.
@@ -167,14 +71,24 @@ function describeFilterValue(value: unknown): string {
  * is `true` (the default).
  *
  * Documents are embedded per batch to keep peak memory usage low for
- * large document sets, matching the Python `langchain-aws` implementation.
+ * large document sets.
  *
  * Throttling and transient (5xx) failures are retried automatically by the
  * AWS SDK; tune this via the `maxAttempts` and `retryMode` config options.
  *
- * Maximal Marginal Relevance (`maxMarginalRelevanceSearch`) is intentionally
- * not implemented, matching the Python `langchain-aws` reference — use metadata
- * pre-filtering or client-side re-ranking if you need diversity.
+ * Maximal Marginal Relevance (`maxMarginalRelevanceSearch`) is implemented:
+ * candidates come from `QueryVectors`, their embeddings from `GetVectors`, and
+ * the selection from `@langchain/core`'s own `maximalMarginalRelevance`.
+ *
+ * **Every method that takes an options bag refuses a non-object one** with
+ * `VALIDATION`, rather than reading each option in it as unset. `undefined`
+ * and `null` still mean "no options"; anything else — a string, a number, an
+ * array — is a mistake whose cost is silence: `deleteIndex('cancel-me')` would
+ * destroy the index with the signal dropped, and `addDocuments(docs, ids)`
+ * with the ids in the bag's place would write UUIDs nobody can find again. For
+ * the two enumeration methods the refusal arrives on the first `next()`, the
+ * same place an out-of-range `pageSize` arrives, so one `try` around the loop
+ * catches both.
  *
  * @example
  * ```ts
@@ -212,7 +126,7 @@ export class AmazonS3Vectors extends VectorStore {
    * it explicitly keeps that true even if the upstream default ever
    * changes; a regression test asserts no client internals serialize.
    */
-  lc_serializable = false;
+  override lc_serializable = false;
 
   // ── Config ────────────────────────────────────────────────────────────
 
@@ -227,41 +141,29 @@ export class AmazonS3Vectors extends VectorStore {
   readonly tags: Record<string, string> | undefined;
   readonly maxConcurrentBatchCalls: number;
 
-  private readonly _relevanceScoreFn: ((distance: number) => number) | undefined;
-  private readonly _queryEmbeddings: EmbeddingsInterface | undefined;
-  private readonly _client: S3VectorsClient;
-  private _ensureIndexPromise: Promise<{
-    existing: { dimension: number; distanceMetric: DistanceMetric } | null;
-    epoch: number;
-  }> | null = null;
+  readonly #relevanceScoreFn: ((distance: number) => number) | undefined;
+  readonly #queryEmbeddings: EmbeddingsInterface | undefined;
+  readonly #client: S3VectorsClient;
 
   /**
-   * Bumped every time {@link delete}'s `deleteAll` branch tears down the
-   * whole index. {@link _ensureIndexExists} captures this counter's value
-   * at the moment it actually creates a fresh memo (not per-joiner — a
-   * caller that later joins an already-in-flight memo inherits the epoch
-   * that memo started under), and the `createIndexIfNotExist: false` path
-   * in {@link _validateBeforeWrite} captures it the same way before its own
-   * `GetIndex` call. {@link _validateBeforeWrite} only commits a result
-   * into {@link _validatedIndexInfo} if this counter is still unchanged
-   * once that result comes back — so a `deleteAll` landing anywhere
-   * between a check starting and a write reading its result discards the
-   * now-stale result instead of letting it silently resurrect the clear.
+   * Existence tracking for this store's index. Owns the shared
+   * `GetIndex`/`CreateIndex` memo, and remembers only that the index exists —
+   * never its dimension or metric, because nothing asks: AWS enforces the
+   * dimension on every write and the metric is checked on every read.
    */
-  private _indexEpoch = 0;
+  readonly #lifecycle: IndexLifecycle;
 
   /**
-   * Cached dimension/metric of this instance's index, populated by the
-   * first successful write (via {@link _validateBeforeWrite}) regardless
-   * of {@link createIndexIfNotExist} — every write after that validates
-   * against this cache instead of paying for another `GetIndex` round
-   * trip, not just memoized per-call like {@link _ensureIndexPromise}.
-   * Cleared by {@link delete} when the whole index is deleted, so a later
-   * write re-fetches instead of validating against a now-stale index —
-   * see {@link _indexEpoch} for how a concurrent write's in-flight result
-   * is kept from undoing that clear.
+   * The index's non-filterable keys, merged with the page-content key exactly
+   * as index creation merges them, so the filterable-byte budget is measured
+   * against the same set the index was built with.
    */
-  private _validatedIndexInfo: { dimension: number; distanceMetric: DistanceMetric } | null = null;
+  readonly #nonFilterableKeys: readonly string[];
+
+  /** The bucket and index every error names. */
+  get #scope(): { vectorBucketName: string; indexName: string } {
+    return { vectorBucketName: this.vectorBucketName, indexName: this.indexName };
+  }
 
   // ── Constructor ───────────────────────────────────────────────────────
 
@@ -272,20 +174,36 @@ export class AmazonS3Vectors extends VectorStore {
    * @param config - Configuration options for the store
    * @param config.vectorBucketName - Name of an existing S3 vector bucket
    * @param config.indexName - Name of the vector index (3–63 chars)
-   * @param config.client - Optional pre-configured S3VectorsClient (takes precedence over region/credentials)
-   * @param config.region - AWS region (ignored when `client` is set)
-   * @param config.credentials - AWS credentials (ignored when `client` is set)
+   * @param config.client - Optional pre-configured S3VectorsClient. Exclusive
+   * with the five options that would configure one
+   * @param config.region - AWS region (not accepted together with `client`)
+   * @param config.credentials - AWS credentials (not accepted together with `client`)
    * @param config.distanceMetric - Distance metric: `"cosine"` (default) or `"euclidean"`
    * @param config.createIndexIfNotExist - Auto-create index on first write (default: `true`)
    * @param config.queryEmbeddings - Separate embedding model for queries only
    * @param config.nonFilterableMetadataKeys - Metadata keys excluded from query filters
-   * @param config.maxAttempts - Max attempts (initial + retries) for AWS requests (ignored when `client` is set)
-   * @param config.retryMode - AWS SDK retry mode: `"standard"` | `"adaptive"` | `"legacy"` (ignored when `client` is set)
+   * @param config.maxAttempts - Max attempts (initial + retries) for AWS requests (not accepted together with `client`)
+   * @param config.retryMode - AWS SDK retry mode: `"standard"` | `"adaptive"` | `"legacy"` (not accepted together with `client`)
    * @param config.encryptionConfiguration - Server-side encryption for an auto-created index (ignored for an existing index)
    * @param config.tags - Tags for an auto-created index (ignored for an existing index)
    * @param config.maxConcurrentBatchCalls - Cap on concurrent batch AWS calls (default: `10`)
+   * @returns A store bound to one index. Constructing it issues **no AWS
+   * request**: the index is checked, and created, on the first write that
+   * needs it.
+   * @throws {S3VectorsError} `VALIDATION` for any option outside its
+   * documented set or shape — a bucket or index name that breaks AWS's naming
+   * rules, a `distanceMetric`, `dataType` or `sseType` outside the SDK's own
+   * enum, a `pageContentMetadataKey` that is neither `null` nor 1–63
+   * characters, a non-array `nonFilterableMetadataKeys`, a non-function
+   * `relevanceScoreFn`, malformed `tags`, a non-positive
+   * `maxConcurrentBatchCalls`, a `client` that is not an `S3VectorsClient`, or
+   * a `client` supplied alongside `region`, `credentials`, `endpoint`,
+   * `maxAttempts` or `retryMode`, which it would silently override.
    */
   constructor(embeddings: EmbeddingsInterface | undefined, config: AmazonS3VectorsConfig) {
+    // Before `super()`, which copies config onto `lc_kwargs`, and before any
+    // default is applied: a store that cannot work should not exist.
+    assertValidConfig(config);
     // LangChain's Serializable base copies its second argument onto
     // `this.lc_kwargs` verbatim. That field is enumerable, so
     // `util.inspect(store)` / `console.log(store)` — and therefore any
@@ -318,13 +236,14 @@ export class AmazonS3Vectors extends VectorStore {
     this.maxConcurrentBatchCalls =
       config.maxConcurrentBatchCalls ?? DEFAULT_MAX_CONCURRENT_BATCH_CALLS;
     if (!Number.isInteger(this.maxConcurrentBatchCalls) || this.maxConcurrentBatchCalls <= 0) {
-      throw this._validationError(
+      throw validationError(
         'constructor',
-        `config.maxConcurrentBatchCalls must be a positive integer (received ${String(config.maxConcurrentBatchCalls)}).`,
+        this.#scope,
+        `config.maxConcurrentBatchCalls must be a positive integer (received ${renderValue(config.maxConcurrentBatchCalls)}).`,
       );
     }
-    this._relevanceScoreFn = config.relevanceScoreFn;
-    this._queryEmbeddings = config.queryEmbeddings;
+    this.#relevanceScoreFn = config.relevanceScoreFn;
+    this.#queryEmbeddings = config.queryEmbeddings;
 
     // A value check on config.serviceId, not a prototype-chain check —
     // survives a bundler duplicating @aws-sdk/client-s3vectors across a
@@ -346,30 +265,40 @@ export class AmazonS3Vectors extends VectorStore {
     // credential chain and default region — so a caller who passed an
     // explicit but wrong client could silently read and write against a
     // different AWS account or region than they intended.
-    const suppliedClient = config.client ?? undefined;
-    if (suppliedClient !== undefined && suppliedClient.config?.serviceId !== 'S3Vectors') {
-      throw this._validationError(
-        'constructor',
-        'config.client is not an S3VectorsClient from "@aws-sdk/client-s3vectors" (its ' +
-          'config.serviceId is not "S3Vectors"). Pass a real S3VectorsClient, or omit `client` ' +
-          'entirely and supply `region`/`credentials`/`endpoint` instead — falling back ' +
-          'silently could point this store at a different AWS account or region.',
-      );
-    }
+    this.#client = resolveClient(config, this.#scope);
 
-    this._client =
-      suppliedClient ??
-      new S3VectorsClient({
-        region: config.region,
-        credentials: config.credentials,
-        endpoint: config.endpoint,
-        maxAttempts: config.maxAttempts,
-        retryMode: config.retryMode,
-      });
+    this.#nonFilterableKeys = nonFilterableKeys({
+      dataType: this.dataType,
+      distanceMetric: this.distanceMetric,
+      pageContentMetadataKey: this.pageContentMetadataKey,
+      nonFilterableMetadataKeys: this.nonFilterableMetadataKeys,
+    });
+
+    this.#lifecycle = createIndexLifecycle(
+      {
+        client: this.#client,
+        vectorBucketName: this.vectorBucketName,
+        indexName: this.indexName,
+      },
+      {
+        dataType: this.dataType,
+        distanceMetric: this.distanceMetric,
+        pageContentMetadataKey: this.pageContentMetadataKey,
+        nonFilterableMetadataKeys: this.nonFilterableMetadataKeys,
+        encryptionConfiguration: this.encryptionConfiguration,
+        tags: this.tags,
+      },
+    );
   }
 
   // ── Getters ───────────────────────────────────────────────────────────
 
+  /**
+   * The store type `@langchain/core` records on traces and retriever tags.
+   *
+   * @returns `'amazonS3Vectors'`, stable for `1.x`
+   * @throws Nothing.
+   */
   _vectorstoreType(): string {
     return 'amazonS3Vectors';
   }
@@ -413,49 +342,18 @@ export class AmazonS3Vectors extends VectorStore {
     documents: DocumentInterface[],
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
-    this._validateIsArray('addVectors', 'vectors', vectors);
-    this._validateIsArray('addVectors', 'documents', documents);
-    this._validateIdsOption('addVectors', options?.ids);
-    if (vectors.length !== documents.length) {
-      throw this._validationError(
-        'addVectors',
-        `Number of vectors (${vectors.length}) must match number of documents (${documents.length})`,
-      );
-    }
-    // Checked before the empty-batch short-circuit below — a caller passing
-    // a stale/mismatched `ids` array alongside an empty `vectors` array is
-    // still a real caller mistake and shouldn't be silently swallowed into
-    // a no-op success.
-    const ids = this._resolveWriteIds(documents, options?.ids);
-    if (ids.length !== vectors.length) {
-      throw this._validationError(
-        'addVectors',
-        `Number of IDs (${ids.length}) must match number of vectors (${vectors.length})`,
-      );
-    }
-    this._assertIdsWellFormed('addVectors', ids, options?.ids !== undefined);
-    if (vectors.length === 0) return [];
-
-    const batchSize = options?.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
-    this._validateBatchSize('addVectors', batchSize, MAX_PUT_BATCH_SIZE);
-    const signal = options?.signal;
-
-    await this._runBatchesConcurrently(
-      'addVectors',
-      chunk(vectors, batchSize),
-      ids,
-      (batch, offset) =>
-        this._ensureIndexAndPut(
-          'addVectors',
-          offset,
-          batch,
-          documents.slice(offset, offset + batch.length),
-          ids.slice(offset, offset + batch.length),
-          signal,
-        ),
-    );
-
-    return ids;
+    assertOptionsBag('addVectors', this.#scope, options);
+    this.#checkAborted('addVectors', options?.signal);
+    return await addVectors({
+      vectors,
+      documents,
+      ids: options?.ids,
+      batchSize: options?.batchSize,
+      maxConcurrent: this.maxConcurrentBatchCalls,
+      signal: options?.signal,
+      putBatch: this.#putBatch.bind(this),
+      ...this.#scope,
+    });
   }
 
   /**
@@ -463,8 +361,8 @@ export class AmazonS3Vectors extends VectorStore {
    *
    * @remarks
    * Documents are embedded **per batch, one batch at a time** to keep peak
-   * embedding-provider load low for large document sets (matching the
-   * Python `langchain-aws` implementation) — `embedDocuments` is never
+   * embedding-provider load low for large document sets —
+   * `embedDocuments` is never
    * called concurrently for two batches, since most embedding providers
    * rate-limit aggressively and this library gives no retry/backoff
    * guarantee for that call. Embedding and writing are **pipelined**: once
@@ -512,208 +410,17 @@ export class AmazonS3Vectors extends VectorStore {
     documents: DocumentInterface[],
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
-    this._validateIsArray('addDocuments', 'documents', documents);
-    this._validateIdsOption('addDocuments', options?.ids);
-    // Checked before the empty-batch short-circuit below — a caller passing
-    // a stale/mismatched `ids` array alongside an empty `documents` array is
-    // still a real caller mistake and shouldn't be silently swallowed into
-    // a no-op success.
-    const ids = this._resolveWriteIds(documents, options?.ids);
-    if (ids.length !== documents.length) {
-      throw this._validationError(
-        'addDocuments',
-        `Number of IDs (${ids.length}) must match number of documents (${documents.length})`,
-      );
-    }
-    this._assertIdsWellFormed('addDocuments', ids, options?.ids !== undefined);
-    if (documents.length === 0) return [];
-
-    const batchSize = options?.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
-    this._validateBatchSize('addDocuments', batchSize, MAX_PUT_BATCH_SIZE);
-    const signal = options?.signal;
-
-    const embeddings = this._getIndexEmbeddings();
-    const embedBatch = async (batchDocs: DocumentInterface[]): Promise<number[][]> => {
-      const batchVectors = await embeddings.embedDocuments(batchDocs.map((d) => d.pageContent));
-
-      // An embeddings model that drops or adds entries (e.g. one that
-      // silently skips empty strings) would otherwise re-pair a vector with
-      // the wrong document/id below, via the shared index-based zip in
-      // _ensureIndexAndPut — addVectors already guards this exact invariant
-      // for caller-supplied vectors; this is the same guard for the
-      // embeddings-model-supplied case.
-      if (batchVectors.length !== batchDocs.length) {
-        throw this._validationError(
-          'addDocuments',
-          `Embeddings model returned ${batchVectors.length} vectors for ${batchDocs.length} documents — it must return exactly one vector per document.`,
-        );
-      }
-      return batchVectors;
-    };
-    const putBatch = (batch: DocumentInterface[], offset: number, batchVectors: number[][]) =>
-      this._ensureIndexAndPut(
-        'addDocuments',
-        offset,
-        batchVectors,
-        batch,
-        ids.slice(offset, offset + batch.length),
-        signal,
-      );
-
-    // documents.length === 0 already returned above, so chunk() here always
-    // yields at least one non-empty batch — batches[0] is never undefined.
-    const batches = chunk(documents, batchSize);
-    const firstBatch = batches[0]!;
-
-    // The first batch is embedded and put alone, awaited before anything
-    // else starts — it's the one that creates or validates the index
-    // (batchOffset === 0 inside _ensureIndexAndPut), so every later batch
-    // depends on it having already happened. writtenIds tracks every id
-    // confirmed durably written so far, so a failure anywhere below can
-    // report exactly what's already landed instead of losing that
-    // information the moment the error propagates.
-    let writtenIds: string[] = [];
-    // embedDocuments has no signal support, so it can't self-cancel the
-    // way _send()'s AWS calls do — check explicitly before spending an
-    // expensive, uncancellable call on a batch nobody wants anymore.
-    this._checkAborted('addDocuments', signal);
-    try {
-      await putBatch(firstBatch, 0, await embedBatch(firstBatch));
-      writtenIds = ids.slice(0, firstBatch.length);
-    } catch (error: unknown) {
-      throw this._attachPartialIds(error, 'addDocuments', 'writtenIds', writtenIds);
-    }
-
-    const rest = offsetBatches(batches.slice(1), firstBatch.length);
-
-    // Sliding-window pipeline. Embedding stays strictly sequential (one
-    // embedDocuments call at a time — most providers rate-limit
-    // aggressively and this library gives no retry/backoff guarantee for
-    // that call), but each batch's PutVectors call is dispatched the moment
-    // its vectors are back and the *next* batch is embedded while it runs.
-    // The window of un-settled puts is capped at maxConcurrentBatchCalls;
-    // when it is full, embedding pauses until one settles. This is what
-    // makes a large ingest embed-bound rather than embed-plus-put-bound.
-    //
-    // Bookkeeping is deliberately allSettled-shaped: a failure anywhere
-    // stops new work from starting, but the error is thrown only after
-    // every put already in flight has settled, so writtenIds is complete
-    // (a slower sibling that succeeds after another one rejects is never
-    // lost from that report). Per-batch ids are recorded by batch index
-    // and flattened in order at the end, so writtenIds keeps document
-    // order regardless of the order in which puts happen to complete.
-    const inFlight = new Set<Promise<void>>();
-    const settledIds: (string[] | undefined)[] = [];
-    // The first failure from either side — an embedDocuments throw / abort
-    // on the embedding side, or a rejected PutVectors on the put side — is
-    // the one reported; whichever lands first wins. The separate flag is
-    // needed because `unknown` can't rule out a rejection reason of
-    // null/undefined.
-    let firstError: unknown;
-    let hasError = false;
-    const recordError = (error: unknown): void => {
-      if (!hasError) {
-        hasError = true;
-        firstError = error;
-      }
-    };
-
-    const launchPut = (
-      batchIndex: number,
-      batch: DocumentInterface[],
-      batchOffset: number,
-      vectors: number[][],
-    ): void => {
-      const tracked: Promise<void> = putBatch(batch, batchOffset, vectors)
-        .then(() => {
-          settledIds[batchIndex] = ids.slice(batchOffset, batchOffset + batch.length);
-        }, recordError)
-        .finally(() => {
-          inFlight.delete(tracked);
-        });
-      inFlight.add(tracked);
-    };
-
-    for (let i = 0; i < rest.length && !hasError; i++) {
-      const { batch, offset: batchOffset } = rest[i]!;
-      let vectors: number[][];
-      try {
-        // Checked per batch. embedDocuments has no signal support, so it
-        // can't self-cancel the way _send()'s AWS calls do — an abort must
-        // be noticed here, before the next expensive, uncancellable,
-        // billable embedding call is spent on a batch nobody wants anymore.
-        this._checkAborted('addDocuments', signal);
-        vectors = await embedBatch(batch);
-        // And again after: a signal that fired *during* the embed call
-        // must stop this batch's PutVectors from ever starting — the
-        // documented abort contract — rather than rely on the SDK to
-        // reject an already-aborted request on the caller's behalf.
-        this._checkAborted('addDocuments', signal);
-      } catch (error: unknown) {
-        recordError(error);
-        break;
-      }
-      // A sibling put may have failed while this batch was being embedded;
-      // don't start writing more after a known failure.
-      if (hasError) break;
-      launchPut(i, batch, batchOffset, vectors);
-      if (inFlight.size >= this.maxConcurrentBatchCalls) {
-        // Tracked promises never reject (recordError absorbs the
-        // rejection), so racing them only ever waits for one to settle.
-        await Promise.race(inFlight);
-      }
-    }
-
-    // Drain the window before reporting anything — see the bookkeeping
-    // note above. Tracked promises never reject, so `all` cannot throw.
-    await Promise.all(inFlight);
-    for (const batchIds of settledIds) {
-      if (batchIds !== undefined) writtenIds.push(...batchIds);
-    }
-
-    if (hasError) {
-      throw this._attachPartialIds(firstError, 'addDocuments', 'writtenIds', writtenIds);
-    }
-
-    return ids;
-  }
-
-  /**
-   * Add texts (with optional metadata) to the vector store.
-   *
-   * @remarks
-   * Convenience method that wraps each text/metadata pair into a
-   * {@link Document} and delegates to {@link addDocuments}.
-   *
-   * @param texts - Array of text strings to embed and store
-   * @param metadatas - Optional array of metadata objects (one per text)
-   * @param options - Optional settings
-   * @param options.ids - Custom IDs for each vector (auto-generated if omitted)
-   * @param options.batchSize - Number of documents per batch (default: 200)
-   * @param options.signal - Forwarded to {@link addDocuments}.
-   * @returns The IDs assigned to each stored vector
-   * @throws Error if count of metadatas doesn't match count of texts
-   */
-  async addTexts(
-    texts: string[],
-    metadatas?: Record<string, unknown>[],
-    options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
-  ): Promise<string[]> {
-    this._validateIsArray('addTexts', 'texts', texts);
-    if (metadatas) {
-      this._validateIsArray('addTexts', 'metadatas', metadatas);
-    }
-    if (metadatas && metadatas.length !== texts.length) {
-      throw this._validationError(
-        'addTexts',
-        `Number of metadatas (${metadatas.length}) must match number of texts (${texts.length})`,
-      );
-    }
-    this._validateIdsOption('addTexts', options?.ids);
-    const docs = texts.map(
-      (text, i) => new Document({ pageContent: text, metadata: metadatas?.[i] ?? {} }),
-    );
-    return this.addDocuments(docs, options);
+    assertOptionsBag('addDocuments', this.#scope, options);
+    return await addDocuments({
+      documents,
+      ids: options?.ids,
+      batchSize: options?.batchSize,
+      maxConcurrent: this.maxConcurrentBatchCalls,
+      signal: options?.signal,
+      embeddings: this.#getIndexEmbeddings(),
+      putBatch: this.#putBatch.bind(this),
+      ...this.#scope,
+    });
   }
 
   /**
@@ -741,44 +448,20 @@ export class AmazonS3Vectors extends VectorStore {
     filter?: this['FilterType'],
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
-    const outputVectors = await this._queryVectors(
-      'similaritySearchVectorWithScore',
+    return await searchByVector({
+      client: this.#client,
+      operation: 'similaritySearchVectorWithScore',
+      distanceMetric: this.distanceMetric,
+      queryVector: query,
       k,
-      {
-        queryVector: { float32: query },
-        filter: filter as __DocumentType | undefined,
-        returnMetadata: true,
-        returnDistance: true,
-      },
+      filter,
+      pageContentMetadataKey: this.pageContentMetadataKey,
       signal,
-    );
-
-    return outputVectors.map((v) => {
-      // typeof narrows for TypeScript; Number.isFinite additionally rejects
-      // NaN and ±Infinity. A guard testing only `=== undefined` let an
-      // explicit null through, and `1.0 - null` coerces to 1.0 — the exact
-      // best-possible-score misranking 0.7.0 set out to close, reached by a
-      // different value.
-      if (typeof v.distance !== 'number' || !Number.isFinite(v.distance)) {
-        throw new S3VectorsError(
-          `QueryVectors response for index "${this.indexName}" returned a result without a ` +
-            'usable numeric distance, even though this call requested returnDistance: true. ' +
-            'Cannot compute a reliable relevance score for it — the response may be ' +
-            'malformed, come from an incompatible SDK version, or a non-conforming custom ' +
-            'client.',
-          S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-          {
-            operation: 'similaritySearchVectorWithScore',
-            vectorBucketName: this.vectorBucketName,
-            indexName: this.indexName,
-          },
-        );
-      }
-      return [createDocument(v, this.pageContentMetadataKey), v.distance] as [Document, number];
+      ...this.#scope,
     });
   }
 
-  // ── Additional public API (parity with Python) ────────────────────────
+  // ── Public API beyond the VectorStore base class ──────────────────────
 
   /**
    * Run a text-based similarity search and return documents with scores.
@@ -787,16 +470,22 @@ export class AmazonS3Vectors extends VectorStore {
    * {@link similaritySearchVectorWithScore} is called.
    *
    * @remarks
-   * Validates `k` before embedding — an invalid `k` shouldn't cost a
-   * billable `embedQuery` call before failing.
+   * Validates `k`, the filter and the callbacks slot before embedding — a
+   * rejected argument shouldn't cost a billable `embedQuery` call first.
    *
    * @param _callbacks - Accepted and ignored, per `@langchain/core`'s
    * `VectorStore` signature. Passing an `AbortSignal` here throws a coded
    * `VALIDATION` error rather than silently running the search uncancelled —
    * the signal belongs in the fifth argument.
    * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
+   * @returns `[document, distance]` pairs, nearest first, at most `k` of them.
+   * Fewer than `k` is normal for a filtered search over a sparse index.
+   * @throws {S3VectorsError} `EMBEDDINGS_MISSING` when no query-side model is
+   * configured; `VALIDATION` for `k`, the filter, or a signal in the
+   * callbacks slot — all before the billable `embedQuery`; otherwise whatever
+   * {@link similaritySearchVectorWithScore} raises.
    */
-  async similaritySearchWithScore(
+  override async similaritySearchWithScore(
     query: string,
     k = 4,
     filter?: this['FilterType'],
@@ -809,17 +498,56 @@ export class AmazonS3Vectors extends VectorStore {
     // not cost an embedding round trip before failing. _validateFilter runs
     // again inside _queryVectors for the direct-vector entry points;
     // running it twice here is free.
-    this._rejectSignalInCallbacksSlot('similaritySearchWithScore', _callbacks);
-    this._validateK('similaritySearchWithScore', k);
-    this._validateFilter('similaritySearchWithScore', filter as __DocumentType | undefined);
+    rejectSignalInCallbacksSlot('similaritySearchWithScore', this.#scope, _callbacks);
+    return await this.#textSearch('similaritySearchWithScore', query, k, filter, signal);
+  }
+
+  /**
+   * The text-search path all three public text searches share.
+   *
+   * @param operation - The public method the caller invoked. Passed down so
+   * every error names that, not this helper and not whichever sibling
+   * happened to delegate here — `context.operation` is how a caller finds the
+   * call site, and a delegate's name sends them to the wrong one.
+   * @param query - The text to embed and search with
+   * @param k - Results wanted
+   * @param filter - Metadata filter
+   * @param signal - Abort, checked before the billable embed call
+   * @returns `[document, distance]` pairs, nearest first
+   * @throws {S3VectorsError} `VALIDATION` for `k` or the filter, `ABORTED`
+   * for an already-fired signal — all before `embedQuery`, which is billable
+   * and cannot be cancelled; otherwise whatever the vector search raises.
+   */
+  async #textSearch(
+    operation: string,
+    query: string,
+    k: number,
+    filter: this['FilterType'] | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<[Document, number][]> {
+    // Everything cheap and synchronous runs before the billable — and
+    // uncancellable — embedQuery call: an invalid k, an invalid filter, or a
+    // signal that already fired should not cost an embedding round trip
+    // before failing.
+    assertK(operation, this.#scope, k);
+    validateFilter(filter, operation, this.#scope);
     // embedQuery has no signal support (LangChain's EmbeddingsInterface
-    // doesn't accept one), so it can't self-cancel the way _send()'s AWS
-    // calls do — check explicitly, matching addDocuments's guard before its
-    // own embedDocuments call. Only the QueryVectors call after it can be
-    // cancelled mid-flight.
-    this._checkAborted('similaritySearchWithScore', signal);
-    const queryVector = await this._getQueryEmbeddings().embedQuery(query);
-    return this.similaritySearchVectorWithScore(queryVector, k, filter, signal);
+    // doesn't accept one), so it can't self-cancel the way an AWS call does —
+    // check explicitly. Only the QueryVectors call after it can be cancelled
+    // mid-flight.
+    this.#checkAborted(operation, signal);
+    const queryVector = await this.#embedQuery(operation, query);
+    return await searchByVector({
+      client: this.#client,
+      operation,
+      distanceMetric: this.distanceMetric,
+      queryVector,
+      k,
+      filter,
+      pageContentMetadataKey: this.pageContentMetadataKey,
+      signal,
+      ...this.#scope,
+    });
   }
 
   /**
@@ -836,8 +564,12 @@ export class AmazonS3Vectors extends VectorStore {
    * `VALIDATION` error rather than silently running the search uncancelled —
    * the signal belongs in the fifth argument.
    * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
+   * @returns The documents, nearest first, at most `k` of them.
+   * @throws {S3VectorsError} Whatever {@link similaritySearchWithScore}
+   * raises; this adds no failure of its own beyond rejecting a signal in the
+   * callbacks slot.
    */
-  async similaritySearch(
+  override async similaritySearch(
     query: string,
     k = 4,
     filter?: this['FilterType'],
@@ -847,45 +579,22 @@ export class AmazonS3Vectors extends VectorStore {
     // Checked here as well as in the delegate: this forwards `undefined`
     // into that slot, so the delegate's own check can never see what this
     // caller actually passed.
-    this._rejectSignalInCallbacksSlot('similaritySearch', _callbacks);
-    return (await this.similaritySearchWithScore(query, k, filter, undefined, signal)).map(
+    rejectSignalInCallbacksSlot('similaritySearch', this.#scope, _callbacks);
+    return (await this.#textSearch('similaritySearch', query, k, filter, signal)).map(
       ([doc]) => doc,
     );
-  }
-
-  /**
-   * Return documents most similar to a raw embedding vector (no scores).
-   *
-   * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
-   */
-  async similaritySearchByVector(
-    embedding: number[],
-    k = 4,
-    filter?: this['FilterType'],
-    signal?: AbortSignal,
-  ): Promise<Document[]> {
-    const outputVectors = await this._queryVectors(
-      'similaritySearchByVector',
-      k,
-      {
-        queryVector: { float32: embedding },
-        filter: filter as __DocumentType | undefined,
-        returnMetadata: true,
-        returnDistance: false,
-      },
-      signal,
-    );
-
-    return outputVectors.map((v) => createDocument(v, this.pageContentMetadataKey));
   }
 
   /**
    * Run a text-based similarity search and return documents with
    * *relevance scores* (higher is better), converted from S3 Vectors'
    * raw distance via {@link AmazonS3VectorsConfig.relevanceScoreFn} when
-   * configured, otherwise the built-in function for the configured
-   * {@link distanceMetric} (`cosineRelevanceScoreFn` /
-   * `euclideanRelevanceScoreFn`, both exported).
+   * configured, otherwise `cosineRelevanceScoreFn` — which is the exact
+   * inverse of what a cosine index returns. A **euclidean** index has no
+   * built-in conversion and raises `VALIDATION` here unless
+   * `relevanceScoreFn` is configured: euclidean distance is unbounded above,
+   * so no fixed formula maps it to a comparable score without knowing the
+   * embedding's scale.
    *
    * @param callbacks - The `Callbacks` slot every text-based method on this
    * class reserves in this position, accepted and ignored exactly as in
@@ -895,6 +604,12 @@ export class AmazonS3Vectors extends VectorStore {
    * 0.x this method honored a signal in this position, where earlier
    * versions expected it; 1.0 aligned it with the rest of the class.)
    * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
+   * @returns `[document, score]` pairs, most relevant first, at most `k` of
+   * them. Higher is better, which is the opposite direction from the raw
+   * distance {@link similaritySearchWithScore} returns.
+   * @throws {S3VectorsError} `VALIDATION` on a euclidean index with no
+   * `relevanceScoreFn` — there is no correct conversion to fall back to;
+   * otherwise whatever {@link similaritySearchWithScore} raises.
    */
   async similaritySearchWithRelevanceScores(
     query: string,
@@ -903,159 +618,156 @@ export class AmazonS3Vectors extends VectorStore {
     callbacks?: Callbacks,
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
-    this._rejectSignalInCallbacksSlot('similaritySearchWithRelevanceScores', callbacks);
-    const scoreFn = this._selectRelevanceScoreFn();
-    const results = await this.similaritySearchWithScore(query, k, filter, undefined, signal);
-    return results.map(([doc, distance]) => [doc, scoreFn(distance)]);
+    rejectSignalInCallbacksSlot('similaritySearchWithRelevanceScores', this.#scope, callbacks);
+    const scoreFn = this.#selectRelevanceScoreFn();
+    const results = await this.#textSearch(
+      'similaritySearchWithRelevanceScores',
+      query,
+      k,
+      filter,
+      signal,
+    );
+    return results.map(([doc, distance]) => [doc, this.#score(scoreFn, distance)]);
   }
 
   /**
-   * Maximal Marginal Relevance (MMR) search — **not supported** by this store.
+   * Maximal Marginal Relevance search: relevance traded against diversity.
+   *
+   * Accepts:
+   * - `options.k` — documents to return (default 4).
+   * - `options.fetchK` — candidates considered before selecting (default 20).
+   *   Below `k` is not an error: at most that many candidates exist.
+   * - `options.lambda` — 0 to 1 inclusive, 0 favouring diversity entirely and
+   *   1 relevance entirely (default 0.5).
+   * - `callbacks` — core's `Callbacks` slot, accepted and ignored. A signal
+   *   here is rejected; it belongs in the fourth argument.
+   * - `signal` — a fourth parameter this package adds. Core declares three
+   *   (`@langchain/core@1.2.11` `dist/vectorstores.d.ts:528`) and passes no
+   *   config to `_getRelevantDocuments`, so a retriever-scoped signal has no
+   *   other route to the underlying requests. Absent behaves exactly as core's
+   *   three-parameter call.
+   *
+   * @returns At most `k` documents, most relevant first, each distinct. Fewer
+   * than `k` when the index holds fewer candidates than asked for.
+   * @throws {S3VectorsError} `VALIDATION` for `k`, `fetchK` or `lambda`, before
+   * the billable `embedQuery`; otherwise whatever the search and fetch raise.
+   */
+  override async maxMarginalRelevanceSearch(
+    query: string,
+    options: MaxMarginalRelevanceSearchOptions<this['FilterType']>,
+    callbacks?: Callbacks,
+    signal?: AbortSignal,
+  ): Promise<Document[]> {
+    rejectSignalInCallbacksSlot('maxMarginalRelevanceSearch', this.#scope, callbacks);
+    assertOptionsBag('maxMarginalRelevanceSearch', this.#scope, options);
+    if (options === undefined || options === null) {
+      throw validationError(
+        'maxMarginalRelevanceSearch',
+        this.#scope,
+        'maxMarginalRelevanceSearch requires an options object; `k`, `fetchK` and `lambda` ' +
+          'each have a default, but the argument itself is not optional.',
+      );
+    }
+    const k = options.k ?? 4;
+    const fetchK = options.fetchK ?? 20;
+    const lambda = options.lambda ?? 0.5;
+
+    // Before the embed, not after it. `mmrSearch` checks these too and checks
+    // them first, but the store calls it *after* embedding — so an impossible
+    // `k` cost a billable, uncancellable round trip before failing, which is
+    // exactly what this method's own documentation promised it would not.
+    assertMmrParameters(k, fetchK, lambda, 'maxMarginalRelevanceSearch', this.#scope);
+    validateFilter(options.filter, 'maxMarginalRelevanceSearch', this.#scope);
+
+    // embedQuery has no signal support, so it cannot self-cancel — check
+    // before spending a billable, uncancellable call.
+    this.#checkAborted('maxMarginalRelevanceSearch', signal);
+    const queryVector = await this.#embedQuery('maxMarginalRelevanceSearch', query);
+
+    return mmrSearch({
+      client: this.#client,
+      operation: 'maxMarginalRelevanceSearch',
+      distanceMetric: this.distanceMetric,
+      queryVector,
+      k,
+      fetchK,
+      lambda,
+      filter: options.filter,
+      pageContentMetadataKey: this.pageContentMetadataKey,
+      maxConcurrent: this.maxConcurrentBatchCalls,
+      signal,
+      ...this.#scope,
+    });
+  }
+
+  /**
+   * Delete vectors by id.
    *
    * @remarks
-   * `AmazonS3Vectors` intentionally does not implement real MMR, matching
-   * the Python `langchain-aws` reference — use metadata pre-filtering or
-   * client-side re-ranking if you need result diversity. Unlike Python's
-   * `VectorStore.max_marginal_relevance_search` (a concrete base-class
-   * method that raises `NotImplementedError` by default), `@langchain/core`'s
-   * JS `VectorStore` only *types* this method as optional with no runtime
-   * default — so this store defines it explicitly, purely to throw this
-   * library's own coded {@link S3VectorsError} instead of a raw `TypeError`.
+   * This removes vectors and nothing else. `@langchain/core` describes the
+   * interface method as "remove stored documents by ID", and S3 Vectors has no
+   * truncate operation, so there is no reading of `delete` under which it
+   * destroys an index. That is {@link deleteIndex}, which has to be named to
+   * be called — a flag meaning "everything" is how a production index gets
+   * destroyed by a typo.
    *
-   * @throws {S3VectorsError} Always, with code `NOT_IMPLEMENTED`.
+   * Deleting an id that is not there succeeds: AWS accepts absent keys
+   * (`docs/evidence/delete-absent.md`), so a blind retry of the full list
+   * after an ambiguous network failure is safe.
+   *
+   * @param params - Deletion parameters
+   * @param params.ids - The vector ids to delete. Required.
+   * @param params.batchSize - Ids per `DeleteVectors` call, 1–500 (default 500)
+   * @param params.signal - Abort an in-progress delete. Cancels the call in
+   * flight and stops further batches from starting.
+   * @returns Nothing. A complete delete removed everything asked for; a
+   * partial one reports what it managed via `context.deletedIds`.
+   * @throws {S3VectorsError} `VALIDATION` when `ids` is missing or not an
+   * array, when the legacy `deleteAll` flag is passed, or for a batch size
+   * outside 1–500; `ABORTED` for a fired signal; otherwise the class the
+   * `DeleteVectors` failure maps to, carrying `context.deletedIds`.
    */
-  async maxMarginalRelevanceSearch(
-    _query: string,
-    _options: MaxMarginalRelevanceSearchOptions<this['FilterType']>,
-    _callbacks?: Callbacks,
-  ): Promise<Document[]> {
-    throw new S3VectorsError(
-      'maxMarginalRelevanceSearch is not supported by AmazonS3Vectors, matching the Python ' +
-        'langchain-aws reference — use metadata pre-filtering or client-side re-ranking if you ' +
-        'need result diversity.',
-      S3VectorsErrorCode.NOT_IMPLEMENTED,
-      {
-        operation: 'maxMarginalRelevanceSearch',
-        vectorBucketName: this.vectorBucketName,
-        indexName: this.indexName,
-      },
-    );
+  override async delete(params: S3VectorsDeleteParams): Promise<void> {
+    assertOptionsBag('delete', this.#scope, params);
+    await deleteVectors({
+      client: this.#client,
+      ...(params as { ids: string[] }),
+      maxConcurrent: this.maxConcurrentBatchCalls,
+      ...this.#scope,
+    });
   }
 
   /**
-   * Delete vectors by ID, or delete the entire index.
+   * Delete the index itself.
    *
-   * @param params - Deletion parameters
-   * @param params.ids - Vector IDs to delete
-   * @param params.batchSize - Number of IDs per `DeleteVectors` call (default: 500)
-   * @param params.deleteAll - Must be `true` (with `ids` omitted) to delete the
-   * entire **index** — the `DeleteIndex` API, not a bulk `DeleteVectors`.
-   * Everything attached to the index goes with it: its encryption
-   * configuration, tags, and non-filterable-metadata configuration, plus
-   * any IAM policy statements scoped to the index ARN keep pointing at a
-   * resource that no longer exists. A later write with
-   * `createIndexIfNotExist: true` re-creates the index from *this store's*
-   * configuration (`dimension` from the first vector, `distanceMetric`,
-   * `nonFilterableMetadataKeys`, `encryptionConfiguration`, `tags`), which
-   * may differ from how the original was provisioned. If the index must
-   * survive, delete vectors by id instead — S3 Vectors has no
-   * "truncate" API.
-   * @param params.signal - Abort an in-progress delete. Cancels the
-   * `DeleteVectors`/`DeleteIndex` call currently in flight and stops any
-   * further batches from starting.
-   * @throws Error if both `ids` and `deleteAll` are omitted — a safety guard against an
-   * accidentally-`undefined` `ids` array silently wiping the whole index — or if both `ids`
-   * and `deleteAll` are passed together. On a partial-delete failure (a
-   * later batch fails after earlier ones already succeeded), the thrown
-   * {@link S3VectorsError}'s `context.deletedIds` lists every id confirmed
-   * deleted before the failure — deleting is idempotent, so a blind retry
-   * of the full `ids` list is always safe regardless, but `deletedIds`
-   * tells you exactly what already happened.
+   * @remarks
+   * This calls `DeleteIndex`. It removes the **index**, not its contents:
+   * everything attached to it goes too — its encryption configuration, its
+   * tags, its non-filterable-metadata configuration — and any IAM statement
+   * scoped to the index ARN is left pointing at a resource that no longer
+   * exists. Because an index's configuration is immutable, what a later write
+   * re-creates under the same name is a different index that happens to share
+   * it: `dimension` comes from the first vector written, and the rest from
+   * *this store's* configuration, which may not be how the original was
+   * provisioned.
+   *
+   * It is idempotent: deleting an index that is already gone resolves cleanly,
+   * so a retry after an ambiguous network failure is safe.
+   *
+   * If the index must survive, delete vectors by id instead — S3 Vectors has
+   * no truncate operation.
+   *
+   * @param options - Optional settings
+   * @param options.signal - Abort the deletion. An already-fired signal
+   * rejects before any request; one that fires while an index creation is
+   * being awaited ends this caller's wait without cancelling that shared work.
+   * @returns Nothing.
+   * @throws {S3VectorsError} `ABORTED` for a fired signal; otherwise the class
+   * the `DeleteIndex` failure maps to. A missing index is not a failure.
    */
-  async delete(params?: S3VectorsDeleteParams): Promise<void> {
-    const ids = params?.ids;
-    const deleteAll = params?.deleteAll === true;
-    const signal = params?.signal;
-
-    // Both validation checks up front, flat — everything below this point
-    // is action dispatch, not validation.
-    if (ids !== undefined && deleteAll) {
-      throw this._validationError(
-        'delete',
-        'delete() cannot take both `ids` and `deleteAll: true` — pass one or the other.',
-      );
-    }
-    if (ids === undefined && !deleteAll) {
-      throw this._validationError(
-        'delete',
-        'delete() with no `ids` would delete the entire index. Pass `{ deleteAll: true }` ' +
-          'to confirm, or pass `ids` to delete specific vectors.',
-      );
-    }
-
-    if (ids === undefined) {
-      try {
-        await this._send('DeleteIndex', () =>
-          this._client.send(
-            new DeleteIndexCommand({
-              vectorBucketName: this.vectorBucketName,
-              indexName: this.indexName,
-            }),
-            { abortSignal: signal },
-          ),
-        );
-      } catch (error: unknown) {
-        // An index that's already gone is exactly the state this call is
-        // asking for, so resolve cleanly rather than surfacing a generic
-        // AWS_REQUEST_FAILED — matching `delete({ ids })`'s documented
-        // idempotency, and making a retry after an ambiguous network
-        // failure (whose first attempt actually succeeded server-side)
-        // safe. Confirmed against real AWS: DeleteIndex on a missing index
-        // returns NotFoundException, the same shape `_getIndex` already
-        // special-cases. `_send` wraps the AWS error, so the original sits
-        // at `.cause` — the same place `_ensureIndexExists` reads its
-        // ConflictException from. An aborted call carries an AbortError
-        // cause instead and is correctly rethrown here.
-        const cause = (error as { cause?: unknown }).cause;
-        if (!isAwsNotFoundException(cause)) throw error;
-      }
-      // Reached whether the index was deleted just now or was already gone.
-      // Either way it no longer exists, and a cached compatibility check
-      // against it would validate a later write against a missing index —
-      // so a stale cache from an earlier write on this instance gets
-      // reconciled in both cases, not only on a successful delete.
-      // Bumping the epoch additionally invalidates any write already past
-      // this point (mid `_ensureIndexExists`/`_getIndex`), so its
-      // now-stale result can't be written into the cache after this clear
-      // — see `_indexEpoch`.
-      this._validatedIndexInfo = null;
-      this._indexEpoch++;
-    } else {
-      this._validateIsArray('delete', 'ids', ids);
-      const batchSize = params?.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
-      this._validateBatchSize('delete', batchSize, MAX_DELETE_BATCH_SIZE);
-      const deletedIds: string[] = [];
-      for (const group of chunk(chunk(ids, batchSize), this.maxConcurrentBatchCalls)) {
-        await this._settleGroup(
-          group.map(
-            (batchIds) => () =>
-              this._send('DeleteVectors', () =>
-                this._client.send(
-                  new DeleteVectorsCommand({
-                    vectorBucketName: this.vectorBucketName,
-                    indexName: this.indexName,
-                    keys: batchIds,
-                  }),
-                  { abortSignal: signal },
-                ),
-              ).then(() => batchIds),
-          ),
-          'delete',
-          'deletedIds',
-          deletedIds,
-        );
-      }
-    }
+  async deleteIndex(options?: S3VectorsDeleteIndexParams): Promise<void> {
+    assertOptionsBag('deleteIndex', this.#scope, options);
+    await this.#lifecycle.deleteIndex(options?.signal, 'deleteIndex');
   }
 
   /**
@@ -1066,15 +778,13 @@ export class AmazonS3Vectors extends VectorStore {
    * When duplicate IDs are present, metadata is deep-copied (via `structuredClone`)
    * to prevent shared-reference mutations between returned documents.
    *
-   * **Missing ids throw** (`NOT_FOUND`) rather than being skipped. This
-   * matches the Python `langchain-aws` `AmazonS3Vectors.get_by_ids`, but is
-   * stricter than `@langchain/core`'s generic `VectorStore.getByIds`
-   * contract, which allows a store to return fewer documents than ids. An
-   * id that is not there is treated as a data-integrity signal, not a
-   * normal outcome — the throwing behaviour means a caller can never
-   * misalign a shorter result array against its id list. To tolerate
-   * missing ids, catch the error and read `context.foundIds`, or check
-   * existence first.
+   * **A missing id yields `undefined` in its slot**, never a shorter array.
+   * `GetVectors` returns neither an entry nor an error for a key that is not
+   * there (`docs/evidence/get-vectors-absent-keys.md`), so absence is an
+   * ordinary answer and the result stays aligned with the id list — the
+   * caller reads `result[i]` for `ids[i]` without tracking which ones
+   * survived. This is the `@langchain/core` `VectorStore.getByIds`
+   * contract's `(Document | undefined)[]` and not a stricter one.
    *
    * @param ids - Array of vector IDs to retrieve
    * @param options - Optional settings
@@ -1083,8 +793,9 @@ export class AmazonS3Vectors extends VectorStore {
    * `GetVectors` calls currently in flight and stops any further batches
    * from starting.
    * @returns Array of documents in the same order as the input IDs
-   * @throws Error if any ID is not found in the vector store, or if a
-   * `GetVectors` batch call fails. Either way, the thrown
+   * @throws {S3VectorsError} if a `GetVectors` batch call fails — **not** if an
+   * id is absent, which is reported as `undefined` in that id's slot, as the
+   * remarks above describe. The thrown
    * {@link S3VectorsError}'s `context.foundIds` lists every id already
    * confirmed found before the failure — including one found by a
    * concurrent batch that succeeded alongside the one that failed — so a
@@ -1093,121 +804,158 @@ export class AmazonS3Vectors extends VectorStore {
   async getByIds(
     ids: string[],
     options?: { batchSize?: number; signal?: AbortSignal },
-  ): Promise<Document[]> {
-    this._validateIsArray('getByIds', 'ids', ids);
-    const batchSize = options?.batchSize ?? DEFAULT_GET_BATCH_SIZE;
-    this._validateBatchSize('getByIds', batchSize, MAX_GET_BATCH_SIZE);
-    const signal = options?.signal;
-    const batches = chunk(ids, batchSize);
-
-    // Bound the number of in-flight GetVectors calls: process batches in
-    // groups, running each group concurrently but awaiting it before
-    // starting the next. Order is preserved — groups run in sequence, and
-    // results are read back by index, same order as `.map`.
-    const docs: Document[] = [];
-    const foundIds: string[] = [];
-    for (const group of chunk(batches, this.maxConcurrentBatchCalls)) {
-      // allSettled, not all — waiting out every sibling in the group before
-      // reporting a failure is what makes foundIds (and docs) accurate: a
-      // slower sibling that succeeds *after* another one rejects would
-      // otherwise never make it into the reported set. Mirrors delete's
-      // deletedIds / addVectors's and addDocuments's writtenIds tracking.
-      const results = await Promise.allSettled(
-        group.map((batchIds) =>
-          this._send('GetVectors', () =>
-            this._client.send(
-              new GetVectorsCommand({
-                vectorBucketName: this.vectorBucketName,
-                indexName: this.indexName,
-                keys: batchIds,
-                returnData: false,
-                returnMetadata: true,
-              }),
-              { abortSignal: signal },
-            ),
-          ),
-        ),
-      );
-
-      // firstError needs the separate hasError flag since `unknown` can't
-      // rule out a legitimate rejection reason of null/undefined; a
-      // null-sentinel is fine below for firstMissingId since ids are
-      // always non-null strings.
-      let firstError: unknown;
-      let hasError = false;
-      let firstMissingId: string | null = null;
-      for (let i = 0; i < group.length; i++) {
-        const result = results[i]!;
-        if (result.status === 'rejected') {
-          if (!hasError) {
-            hasError = true;
-            firstError = result.reason;
-          }
-          continue;
-        }
-
-        const batchIds = group[i]!;
-        // Same guarantee as the query path: a nullish GetVectors response
-        // from a non-conforming client must not surface as a raw TypeError
-        // on the property read below.
-        this._assertResponseObject(result.value, 'getByIds', 'GetVectors');
-        const outputVectors = (result.value.vectors ?? []) as S3OutputVector[];
-        const vectorMap = new Map<string, S3OutputVector>();
-        for (const v of outputVectors) {
-          vectorMap.set(v.key, v);
-        }
-
-        // When duplicate IDs are present, deep-copy metadata to prevent
-        // shared-reference mutations (matches Python behaviour). Compared
-        // against a Set of the requested ids, not the response map's size:
-        // the latter also shrinks when an id is simply missing from the
-        // response, which triggered a structuredClone on a result the
-        // missing-id throw below discards anyway.
-        const hasDuplicateIds = new Set(batchIds).size < batchIds.length;
-
-        // Preserve input order. Note (but don't stop at) a missing id — a
-        // later id in the same batch that IS found must still count toward
-        // foundIds even if an earlier one in the batch was missing.
-        for (const id of batchIds) {
-          const v = vectorMap.get(id);
-          if (!v) {
-            if (firstMissingId === null) firstMissingId = id;
-            continue;
-          }
-          docs.push(createDocument(v, this.pageContentMetadataKey, hasDuplicateIds, 'getByIds'));
-          foundIds.push(id);
-        }
-      }
-
-      if (hasError) {
-        throw this._attachPartialIds(firstError, 'getByIds', 'foundIds', foundIds);
-      }
-      if (firstMissingId !== null) {
-        throw this._attachPartialIds(
-          new S3VectorsError(
-            `Id '${firstMissingId}' not found in vector store.`,
-            S3VectorsErrorCode.NOT_FOUND,
-            {
-              operation: 'getByIds',
-              vectorBucketName: this.vectorBucketName,
-              indexName: this.indexName,
-            },
-          ),
-          'getByIds',
-          'foundIds',
-          foundIds,
-        );
-      }
-    }
-
-    return docs;
+  ): Promise<(Document | undefined)[]> {
+    assertOptionsBag('getByIds', this.#scope, options);
+    return await getByIds({
+      client: this.#client,
+      ids,
+      batchSize: options?.batchSize,
+      maxConcurrent: this.maxConcurrentBatchCalls,
+      pageContentMetadataKey: this.pageContentMetadataKey,
+      signal: options?.signal,
+      ...this.#scope,
+    });
   }
 
   /**
-   * Static factory: create an {@link AmazonS3Vectors} instance, embed
-   * the given texts, and add them to the store.
+   * Every document in the index, one at a time.
+   *
+   * @remarks
+   * `ListVectors` takes no filter and promises no order, so this is an audit
+   * and export primitive, not a query one — use {@link similaritySearch} to
+   * find documents. It is an async generator, so memory stays bounded by one
+   * page however large the index, and breaking out of the loop issues no
+   * further request.
+   *
+   * Requires **`s3vectors:ListVectors` and `s3vectors:GetVectors`**: the
+   * listing asks for metadata, and AWS answers a metadata or data request made
+   * without `s3vectors:GetVectors` with `403 Forbidden`.
+   *
+   * @param options - Optional settings
+   * @param options.pageSize - Vectors per `ListVectors` call, an integer
+   * 1–1000 (service default 500). Advisory: AWS ends a page at 1 MB of
+   * processed data regardless, so short pages are normal and only an absent
+   * `nextToken` ends the listing.
+   * @param options.signal - Abort an in-progress listing. Checked before each
+   * page and threaded into the request.
+   * @returns An async generator of documents, mapped exactly as
+   * {@link getByIds} maps them.
+   * @throws {S3VectorsError} `VALIDATION` for `pageSize`, before any request;
+   * `ABORTED`; `ACCESS_DENIED` naming the missing permission; otherwise the
+   * class the failure maps to, carrying `pagesScanned` and the number already
+   * yielded — items already yielded have been consumed, so a listing is not
+   * atomic and does not pretend to be.
    */
-  static async fromTexts(
+  async *listDocuments(options?: S3VectorsListParams): AsyncGenerator<Document> {
+    // A generator, not a plain method, so a malformed bag fails on the first
+    // `next()` — exactly where an out-of-range `pageSize` fails. Throwing
+    // synchronously from a method documented to return a generator would make
+    // one of the two validations escape a `try` wrapped around the loop.
+    assertOptionsBag('listDocuments', this.#scope, options);
+    yield* listDocuments({
+      client: this.#client,
+      operation: 'listDocuments',
+      pageContentMetadataKey: this.pageContentMetadataKey,
+      pageSize: options?.pageSize,
+      signal: options?.signal,
+      ...this.#scope,
+    });
+  }
+
+  /**
+   * Every vector in the index with its embedding, one at a time.
+   *
+   * @remarks
+   * The migration primitive. An index's `dimension` and `distanceMetric` are
+   * fixed at creation, so changing either means copying every record into a
+   * new index; this yields exactly what {@link addVectors} takes back.
+   *
+   * Costs an order of magnitude more round trips than {@link listDocuments}:
+   * the 1 MB page cap is reached at roughly 40 vectors of 1,536 dimensions,
+   * against the 500-row default a metadata-only page reaches comfortably. Two
+   * methods rather than one flag, so that difference is visible at the call
+   * site.
+   *
+   * Requires the same two permissions as {@link listDocuments}.
+   *
+   * @param options - Optional settings, as {@link listDocuments} takes them
+   * @returns An async generator of `{ id, vector, document }`
+   * @throws {S3VectorsError} What {@link listDocuments} throws, plus
+   * `AWS_INVALID_RESPONSE` if a record arrives without data despite this call
+   * requesting it — a record whose embedding is missing is not skipped,
+   * because a migration that dropped records silently would produce a target
+   * index that looks complete and is not.
+   */
+  async *listVectors(options?: S3VectorsListParams): AsyncGenerator<S3VectorsRecord> {
+    // See {@link listDocuments} for why this is a generator.
+    assertOptionsBag('listVectors', this.#scope, options);
+    yield* listVectors({
+      client: this.#client,
+      operation: 'listVectors',
+      pageContentMetadataKey: this.pageContentMetadataKey,
+      pageSize: options?.pageSize,
+      signal: options?.signal,
+      ...this.#scope,
+    });
+  }
+
+  /**
+   * Build a retriever over this store.
+   *
+   * @remarks
+   * Returns an {@link AmazonS3VectorsRetriever} — core's `VectorStoreRetriever`
+   * plus a `signal` field. Everything core documents works unchanged, the
+   * numeric `asRetriever(4)` form included.
+   *
+   * **Which signal does what.** A signal passed here, as a retriever field,
+   * reaches `QueryVectors` and `GetVectors` and cancels the AWS request. A
+   * signal passed to `invoke(query, { signal })` ends that invocation only:
+   * core's `BaseRetriever.invoke` never hands the config to
+   * `_getRelevantDocuments` (`@langchain/core@1.2.11`
+   * `dist/retrievers/index.js:81`, `:85`), so no subclass can route it to the
+   * request. Both may be given at once.
+   *
+   * @param kOrFields - Documents to retrieve, or a fields object
+   * (`k`, `filter`, `searchType`, `searchKwargs`, `signal`, `tags`,
+   * `metadata`, `verbose`, `callbacks`)
+   * @param filter - Metadata filter, for the numeric form
+   * @param callbacks - Callbacks, for the numeric form
+   * @param tags - Run tags, for the numeric form. This store's type is
+   * appended to whatever is given, as core does
+   * @param metadata - Run metadata, for the numeric form
+   * @param verbose - Verbose logging, for the numeric form
+   * @returns A retriever bound to this store
+   * @throws Nothing. Building a retriever issues no request and validates
+   * nothing: its `k` and `filter` are checked when it runs a search, by the
+   * same guards a direct call goes through.
+   */
+  override asRetriever(
+    kOrFields?: number | AmazonS3VectorsRetrieverFields<this>,
+    filter?: this['FilterType'],
+    callbacks?: Callbacks,
+    tags?: string[],
+    metadata?: Record<string, unknown>,
+    verbose?: boolean,
+  ): AmazonS3VectorsRetriever<this> {
+    return createRetriever(this, kOrFields, filter, callbacks, tags, metadata, verbose);
+  }
+
+  /**
+   * Create a store, embed the given texts and add them to it.
+   *
+   * @param texts - The texts to store, one document each
+   * @param metadatas - One object per text, a single object broadcast to every
+   * text, or omitted entirely — which gives each document `{}`
+   * @param embeddings - The model used to embed them
+   * @param config - The store configuration, plus the `ids`, `batchSize` and
+   * `signal` the write takes
+   * @returns The constructed store, after the write
+   * @throws {S3VectorsError} `VALIDATION` when `texts` is not an array or the
+   * metadata array's length disagrees with it; otherwise whatever
+   * {@link fromDocuments} raises, including the constructed instance on
+   * `context.instance`.
+   */
+  static override async fromTexts(
     texts: string[],
     metadatas: Record<string, unknown>[] | Record<string, unknown>,
     embeddings: EmbeddingsInterface,
@@ -1218,34 +966,62 @@ export class AmazonS3Vectors extends VectorStore {
         operation: 'fromTexts',
       });
     }
-    if (Array.isArray(metadatas) && metadatas.length !== texts.length) {
-      throw new S3VectorsError(
-        `Number of metadatas (${metadatas.length}) must match number of texts (${texts.length})`,
-        S3VectorsErrorCode.VALIDATION,
-        { operation: 'fromTexts' },
+    const fail = (message: string): never => {
+      throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, { operation: 'fromTexts' });
+    };
+    texts.forEach((text: unknown, index: number) => {
+      if (typeof text !== 'string') {
+        fail(`texts[${index}] must be a string (received ${renderValue(text)}).`);
+      }
+    });
+    if (Array.isArray(metadatas)) {
+      if (metadatas.length !== texts.length) {
+        fail(
+          `Number of metadatas (${metadatas.length}) must match number of texts (${texts.length})`,
+        );
+      }
+      metadatas.forEach((metadata: unknown, index: number) => {
+        if (metadata !== undefined && metadata !== null && !isObjectLike(metadata)) {
+          fail(`metadatas[${index}] must be an object (received ${renderValue(metadata)}).`);
+        }
+      });
+    } else if (metadatas !== undefined && metadatas !== null && !isObjectLike(metadatas)) {
+      // Not an array, so it would be broadcast to every document — and a string
+      // broadcast that way was spread into one metadata key per character and
+      // written.
+      fail(
+        `metadatas must be an array of objects, or a single object to apply to every text ` +
+          `(received ${renderValue(metadatas)}).`,
       );
     }
 
     const metaArray = Array.isArray(metadatas) ? metadatas : texts.map(() => metadatas);
 
+    // `?? {}` rather than a non-null assertion: an untyped caller may omit
+    // `metadatas` entirely, and this pins the empty-object answer here instead
+    // of leaning on what `Document` happens to do with `undefined`.
     const documents = texts.map(
-      (text, i) => new Document({ pageContent: text, metadata: metaArray[i]! }),
+      (text, i) => new Document({ pageContent: text, metadata: metaArray[i] ?? {} }),
     );
 
     return AmazonS3Vectors.fromDocuments(documents, embeddings, config);
   }
 
   /**
-   * Static factory: create an {@link AmazonS3Vectors} instance and add
-   * the given documents to the store.
+   * Create a store and add the given documents to it.
    *
+   * @param docs - The documents to store
+   * @param embeddings - The model used to embed them
+   * @param config - The store configuration, plus the `ids`, `batchSize` and
+   * `signal` the write takes
+   * @returns The constructed store, after the write
    * @throws If the write fails — including partway through a multi-batch
    * write — the thrown {@link S3VectorsError}'s `context.instance` carries
    * the constructed (and possibly partially-written) store, so the caller
    * can act on `context.writtenIds` without reconstructing an equivalent
    * instance from the same embeddings/config.
    */
-  static async fromDocuments(
+  static override async fromDocuments(
     docs: DocumentInterface[],
     embeddings: EmbeddingsInterface,
     config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number; signal?: AbortSignal },
@@ -1253,33 +1029,111 @@ export class AmazonS3Vectors extends VectorStore {
     const instance = new AmazonS3Vectors(embeddings, config);
     try {
       await instance.addDocuments(docs, {
-        ids: config.ids,
-        batchSize: config.batchSize,
-        signal: config.signal,
+        // Omitted rather than passed as `undefined`, so the options bag says
+        // "not given" the way an absent property does.
+        ...(config.ids === undefined ? {} : { ids: config.ids }),
+        ...(config.batchSize === undefined ? {} : { batchSize: config.batchSize }),
+        ...(config.signal === undefined ? {} : { signal: config.signal }),
       });
     } catch (error: unknown) {
-      throw instance._attachInstance(error, 'fromDocuments');
+      throw attachInstance(error, 'fromDocuments', instance.#scope, instance);
     }
     return instance;
   }
 
   // ── Protected / internal helpers ──────────────────────────────────────
 
-  /** @internal Select the correct relevance-score function. */
-  _selectRelevanceScoreFn(): (distance: number) => number {
-    if (this._relevanceScoreFn) return this._relevanceScoreFn;
-
-    if (this.distanceMetric === 'euclidean') {
-      return euclideanRelevanceScoreFn;
-    }
-    return cosineRelevanceScoreFn;
+  /**
+   * The distance-to-relevance conversion this store uses.
+   *
+   * @internal Called by `@langchain/core`'s
+   * `similaritySearchWithRelevanceScores`, not by application code.
+   *
+   * @returns The configured `relevanceScoreFn`, else `cosineRelevanceScoreFn`
+   * for a cosine index
+   * @throws {S3VectorsError} `VALIDATION` for a euclidean index with no
+   * `relevanceScoreFn`: euclidean distance is unbounded above, so there is no
+   * correct fixed conversion to fall back to.
+   */
+  #selectRelevanceScoreFn(): (distance: number) => number {
+    return selectRelevanceScoreFn(this.distanceMetric, this.#scope, this.#relevanceScoreFn);
   }
 
   // ── Private helpers ───────────────────────────────────────────────────
 
+  /** Bind this store's configuration to one {@link putBatch} call. */
+  #putBatch(
+    operation: string,
+    batchOffset: number,
+    vectors: number[][],
+    documents: DocumentInterface[],
+    ids: string[],
+    signal?: AbortSignal,
+  ): Promise<void> {
+    return putBatch({
+      client: this.#client,
+      operation,
+      batchOffset,
+      vectors,
+      documents,
+      ids,
+      distanceMetric: this.distanceMetric,
+      pageContentMetadataKey: this.pageContentMetadataKey,
+      nonFilterableKeys: this.#nonFilterableKeys,
+      ensureIndex: this.createIndexIfNotExist
+        ? (dimension, abort) => this.#lifecycle.ensureExists(dimension, abort, operation)
+        : undefined,
+      onIndexAbsent: () => {
+        this.#lifecycle.markAbsent();
+      },
+      signal,
+      ...this.#scope,
+    });
+  }
+
+  /**
+   * Embed a query, surfacing a provider failure as a coded error.
+   *
+   * The write path has always done this: an `embedDocuments` that throws comes
+   * back as `UNEXPECTED_ERROR`. Every read path let the same failure through
+   * untouched, so the most likely production failure on a read — the embeddings
+   * provider rate-limiting or falling over — was the one a `catch` branching on
+   * `isS3VectorsError` would miss.
+   *
+   * An `EMBEDDINGS_MISSING` raised by the lookup passes through unchanged:
+   * `wrapAwsError` returns an error that is already ours.
+   */
+  async #embedQuery(operation: string, query: string): Promise<number[]> {
+    try {
+      return await this.#getQueryEmbeddings().embedQuery(query);
+    } catch (error: unknown) {
+      throw wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, {
+        operation,
+        ...this.#scope,
+      });
+    }
+  }
+
+  /**
+   * Apply the relevance-score conversion, surfacing a failure as a coded error.
+   *
+   * `relevanceScoreFn` is caller-supplied code called once per result, so it
+   * fails the same way any other caller code does and is wrapped the same way.
+   */
+  #score(scoreFn: (distance: number) => number, distance: number): number {
+    try {
+      return scoreFn(distance);
+    } catch (error: unknown) {
+      throw wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, {
+        operation: 'similaritySearchWithRelevanceScores',
+        ...this.#scope,
+      });
+    }
+  }
+
   /** Return the query-embedding model, falling back to the indexing model. */
-  private _getQueryEmbeddings(): EmbeddingsInterface {
-    const emb = this._queryEmbeddings ?? this.embeddings;
+  #getQueryEmbeddings(): EmbeddingsInterface {
+    const emb = this.#queryEmbeddings ?? this.embeddings;
     if (isStubEmbeddings(emb)) {
       throw new S3VectorsError(
         'No embedding model available for queries. ' +
@@ -1292,7 +1146,7 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /** Return the indexing-embedding model, throwing a coded error if none is configured. */
-  private _getIndexEmbeddings(): EmbeddingsInterface {
+  #getIndexEmbeddings(): EmbeddingsInterface {
     if (isStubEmbeddings(this.embeddings)) {
       throw new S3VectorsError(
         'No embedding model configured for indexing. Provide `embeddings` in the config.',
@@ -1307,1140 +1161,16 @@ export class AmazonS3Vectors extends VectorStore {
     return this.embeddings;
   }
 
-  /** Build a {@link S3VectorsError} for a caller-input validation failure. */
-  private _validationError(operation: string, message: string): S3VectorsError {
-    return new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, {
-      operation,
-      vectorBucketName: this.vectorBucketName,
-      indexName: this.indexName,
-    });
-  }
-
-  /**
-   * Reject a non-array value before any array method is called on it. The
-   * type system already requires an array here for a typed caller, but an
-   * untyped JS caller (or a cast past the type system) can still reach
-   * this with e.g. `null` — without this check that surfaces as a raw,
-   * uncoded `TypeError` instead of this library's own coded
-   * {@link S3VectorsError}.
-   */
-  private _validateIsArray(operation: string, paramName: string, value: unknown): void {
-    if (!Array.isArray(value)) {
-      throw this._validationError(operation, `${paramName} must be an array.`);
-    }
-  }
-
-  /**
-   * Reject a non-array `ids` option before it is ever used as one. Shared
-   * by all three write methods rather than inlined three times: a string of
-   * the right length (`'abc'` alongside three vectors) otherwise passes the
-   * count check below and is then sliced and indexed exactly like an array,
-   * silently writing each *character* as a vector key and returning the
-   * string itself as the caller's id list — wrong ids committed to AWS with
-   * no error at all.
-   */
-  private _validateIdsOption(operation: string, ids: string[] | undefined): void {
-    if (ids !== undefined) {
-      this._validateIsArray(operation, 'ids', ids);
-    }
-  }
-
-  /**
-   * The id list a write will use: the caller's `options.ids` when given,
-   * otherwise each document's own `id`, with a fresh UUID only for a
-   * document that has no `id` at all (`undefined`/`null`). An empty-string
-   * `id` is deliberately *not* replaced — it is kept so
-   * {@link _assertIdsWellFormed} can reject it as the caller-data problem
-   * it almost always is (an empty id column in a CSV, an unset field on an
-   * ORM row), rather than silently minting an unrelated key for it.
-   */
-  private _resolveWriteIds(documents: DocumentInterface[], ids: string[] | undefined): string[] {
-    return ids ?? documents.map((doc) => doc.id ?? randomUUID().replace(/-/g, ''));
-  }
-
-  /**
-   * Reject a write whose id list contains anything other than unique,
-   * non-empty strings — before any batch is built or any AWS call made.
-   *
-   * @remarks
-   * S3 Vectors keys must be non-empty strings; an empty one, or a
-   * non-string that slipped past the type system from an untyped caller,
-   * would otherwise fail inside `PutVectors` with AWS's generic
-   * `ValidationException` naming a batch rather than an index. A
-   * duplicate key within a single call is worse: AWS accepts it, and the
-   * later vector silently overwrites the earlier one — the caller gets
-   * back an id list of the right length with no sign that one document
-   * was lost. (Duplicates *across* calls are a legitimate upsert and are
-   * not affected.) A whole-call `Set` costs O(n) per write and is
-   * negligible next to embedding and network time.
-   */
-  private _assertIdsWellFormed(operation: string, ids: string[], idsSupplied: boolean): void {
-    const source = idsSupplied
-      ? 'options.ids'
-      : "the documents' own `id` fields (a UUID is generated only for a document with no id at all)";
-    const seen = new Set<string>();
-    for (let i = 0; i < ids.length; i++) {
-      const id: unknown = ids[i];
-      if (typeof id !== 'string' || id.length === 0) {
-        throw this._validationError(
-          operation,
-          `Vector id at index ${i} is ${id === '' ? 'an empty string' : describeFilterValue(id)}, ` +
-            `but every id must be a non-empty string. Ids were taken from ${source}.`,
-        );
-      }
-      if (seen.has(id)) {
-        throw this._validationError(
-          operation,
-          `Duplicate vector id "${id}" at index ${i} — each id may appear only once per call, ` +
-            'since S3 Vectors would silently overwrite the earlier vector with the later one. ' +
-            `Ids were taken from ${source}. To overwrite an existing vector, write it in a separate call.`,
-        );
-      }
-      seen.add(id);
-    }
-  }
-
-  /**
-   * Reject an `AbortSignal` handed to the `Callbacks` parameter slot.
-   *
-   * @remarks
-   * `@langchain/core`'s `VectorStore` reserves the fourth argument of
-   * {@link similaritySearch}, {@link similaritySearchWithScore} and
-   * {@link similaritySearchWithRelevanceScores} for `Callbacks`, which this
-   * store accepts and ignores; the `AbortSignal` belongs in the fifth. A
-   * signal passed in the fourth was silently discarded — the search ran to
-   * completion, having spent a billable `embedQuery` call, and the caller's
-   * cancellation simply never happened.
-   *
-   * Silently dropping a cancellation is the one outcome this library treats
-   * as unacceptable elsewhere (it refuses to guess at a missing distance,
-   * and refuses to return a short result set), so this fails closed and
-   * names the right slot instead. Through 0.x,
-   * {@link similaritySearchWithRelevanceScores} was the exception — it had
-   * historically taken the signal there, so it kept honoring it; 1.0 made
-   * it match its siblings.
-   *
-   * Safe to duck-type: neither `CallbackManager` nor `BaseCallbackHandler`
-   * carries a boolean `aborted` alongside an `addEventListener`.
-   */
-  private _rejectSignalInCallbacksSlot(operation: string, value: unknown): void {
-    if (isAbortSignalLike(value)) {
-      throw this._validationError(
-        operation,
-        'An AbortSignal was passed as the 4th argument, which is the Callbacks slot — it ' +
-          'would be ignored and the search would run uncancelled. Pass the signal as the 5th ' +
-          `argument instead: ${operation}(query, k, filter, undefined, signal).`,
-      );
-    }
-  }
-
-  /**
-   * Reject a non-positive batchSize before it can drive an infinite loop,
-   * and one that exceeds AWS's own per-call limit for this operation
-   * before spending a round trip to discover the same thing from AWS.
-   */
-  private _validateBatchSize(operation: string, batchSize: number, max: number): void {
-    if (!Number.isInteger(batchSize) || batchSize <= 0) {
-      throw this._validationError(operation, 'batchSize must be a positive integer');
-    }
-    if (batchSize > max) {
-      throw this._validationError(
-        operation,
-        `batchSize (${batchSize}) exceeds AWS's limit of ${max} per call for this operation.`,
-      );
-    }
-  }
-
-  /**
-   * Reject a non-positive k before it can drive excessive QueryVectors
-   * pagination, and one above AWS's own `topK` ceiling before spending a
-   * round trip to discover the same thing from AWS.
-   */
-  private _validateK(operation: string, k: number): void {
-    if (!Number.isInteger(k) || k <= 0) {
-      throw this._validationError(operation, 'k must be a positive integer');
-    }
-    if (k > MAX_TOP_K) {
-      throw this._validationError(operation, `k (${k}) exceeds AWS's topK limit of ${MAX_TOP_K}.`);
-    }
-  }
-
-  /**
-   * Reject a filter that isn't a plain object of metadata conditions
-   * before it reaches AWS: an array, a non-plain object (`Map`, `Set`, a
-   * class instance), or an empty object are all rejected, each with a
-   * distinct message. Confirmed live: S3 Vectors rejects `{}` with an
-   * opaque "Invalid filter" `ValidationException` rather than treating it
-   * as "no filter" — a caller building a filter dynamically (e.g. only
-   * adding conditions when a UI field is set) can easily end up passing
-   * `{}` by accident when no condition ends up applying. Omit the
-   * `filter` argument entirely (`undefined`, or `null`) to search without
-   * filtering.
-   */
-  private _validateFilter(operation: string, filter: __DocumentType | undefined): void {
-    if (filter === undefined || filter === null) return;
-
-    if (Array.isArray(filter)) {
-      throw this._validationError(
-        operation,
-        'filter must be a plain object of metadata conditions (e.g. { genre: "scifi" }) — ' +
-          'arrays are not a valid filter shape. Omit the filter argument entirely to search ' +
-          'without filtering.',
-      );
-    }
-
-    if (!isPlainFilterObject(filter)) {
-      throw this._validationError(
-        operation,
-        'filter must be a plain object of metadata conditions (e.g. { genre: "scifi" }) — ' +
-          `received ${describeFilterValue(filter)}, which AWS's filter syntax does not accept.`,
-      );
-    }
-
-    if (Object.keys(filter).length === 0) {
-      throw this._validationError(
-        operation,
-        'filter cannot be an empty object ({}) — AWS rejects this as an invalid filter. ' +
-          'Omit the filter argument entirely to search without filtering.',
-      );
-    }
-  }
-
-  /**
-   * Run every thunk in `group` concurrently via `Promise.allSettled`,
-   * pushing the ids each successful one resolved with onto `collectedIds`
-   * once the whole group has settled, in group order (not completion
-   * order). If any thunk rejected, throws — via {@link _attachPartialIds}
-   * — only after every sibling in the group has settled, with everything
-   * collected so far attached under
-   * `context[key]`: a slower sibling that succeeds *after* another one
-   * rejects must never be lost from that reporting. Shared by every
-   * batched write/delete method; `getByIds` doesn't use this since it
-   * needs to do more per successful result than just collect an id list
-   * (build `Document`s, track a separate not-found case).
-   */
-  private async _settleGroup(
-    group: (() => Promise<string[]>)[],
-    operation: string,
-    key: 'writtenIds' | 'deletedIds',
-    collectedIds: string[],
-  ): Promise<void> {
-    const results = await Promise.allSettled(group.map((thunk) => thunk()));
-    let firstError: unknown;
-    let hasError = false;
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        collectedIds.push(...result.value);
-      } else if (!hasError) {
-        hasError = true;
-        firstError = result.reason;
-      }
-    }
-    if (hasError) {
-      throw this._attachPartialIds(firstError, operation, key, collectedIds);
-    }
-  }
-
-  /**
-   * Normalize `error` into an `S3VectorsError`, unchanged if it already is
-   * one (so the layer nearest the failure keeps ownership of message and
-   * code) — otherwise wrapped as `UNEXPECTED_ERROR`. Shared by every place
-   * that attaches extra context (partial ids, a factory's constructed
-   * instance) to whatever an operation actually threw.
-   *
-   * @remarks
-   * This method itself is reached constantly with AWS-originated errors —
-   * every AWS call in this class wraps its own failures into a coded
-   * `S3VectorsError` first ({@link _send}, plus `_getIndex`'s own inline
-   * `wrapAwsError`), so those simply take the pass-through branch below.
-   * Only the *wrapping* branch is unreachable for an AWS-originated value:
-   * it exists for a raw throw from caller-supplied code (an
-   * `embedDocuments` call in {@link addDocuments}) or caller input that
-   * bypassed validation (a malformed argument to {@link fromDocuments}).
-   * Neither is actually "an AWS request failed", which is why that branch
-   * uses its own code instead of reusing `AWS_REQUEST_FAILED`.
-   */
-  private _normalizeToS3VectorsError(error: unknown, operation: string): S3VectorsError {
-    return isS3VectorsError(error)
-      ? error
-      : wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, {
-          operation,
-          vectorBucketName: this.vectorBucketName,
-          indexName: this.indexName,
-        });
-  }
-
-  /**
-   * Rebuild `base` with a new message and context while keeping the stack
-   * that points at the code which actually failed.
-   *
-   * @remarks
-   * Every path that decorates an error — partial ids, a factory's
-   * constructed instance, pagination state — has to construct a new
-   * `S3VectorsError`, because `message` and `context` are readonly once set.
-   * A fresh `Error` captures a fresh stack, so the decorator became the
-   * apparent origin: an abort raised in `_checkAborted` reported
-   * `at AmazonS3Vectors._attachPartialIds` as its top frame, hiding the one
-   * thing a stack exists to show. The frames are therefore carried over from
-   * `base` under the rebuilt error's own header line.
-   *
-   * Falls back to the rebuilt error's own stack if `base` has none, or if
-   * its stack isn't in the `\n    at ` frame format this splices on — no
-   * engine-specific format is assumed to be present, only recognised.
-   */
-  private _rebuildWithContext(
-    base: S3VectorsError,
-    message: string,
-    context: S3VectorsErrorContext,
-  ): S3VectorsError {
-    const rebuilt = new S3VectorsError(message, base.code, context, base.cause);
-    const framesStart = base.stack?.indexOf('\n    at ') ?? -1;
-    if (base.stack !== undefined && framesStart !== -1) {
-      rebuilt.stack = `${rebuilt.name}: ${message}${base.stack.slice(framesStart)}`;
-    }
-    return rebuilt;
-  }
-
-  /**
-   * Wrap `error` (normalized via {@link _normalizeToS3VectorsError}) with
-   * the ids already confirmed (durably written, durably deleted, or
-   * already found, per `key`) before this failure, so a
-   * partial-batch-operation failure never silently loses track of progress
-   * already made — especially auto-generated write ids, which have no
-   * other way to be discovered again afterward.
-   */
-  private _attachPartialIds(
-    error: unknown,
-    operation: string,
-    key: 'writtenIds' | 'deletedIds' | 'foundIds',
-    ids: string[],
-  ): S3VectorsError {
-    const base = this._normalizeToS3VectorsError(error, operation);
-    const phrase =
-      key === 'writtenIds'
-        ? 'were already durably written'
-        : key === 'deletedIds'
-          ? 'were already durably deleted'
-          : 'were already retrieved';
-    const message =
-      ids.length > 0
-        ? `${base.message} ${ids.length} vector(s) ${phrase} before this failure — see error.context.${key}.`
-        : base.message;
-    return this._rebuildWithContext(base, message, { ...base.context, [key]: ids });
-  }
-
-  /**
-   * Wrap `error` (normalized via {@link _normalizeToS3VectorsError}) from
-   * a `fromDocuments`/`fromTexts` factory failure with the instance
-   * already constructed (and possibly partially written to), so the
-   * caller isn't left to manually reconstruct an equivalent instance from
-   * the same embeddings/config just to act on `context.writtenIds`.
-   */
-  private _attachInstance(error: unknown, operation: string): S3VectorsError {
-    const base = this._normalizeToS3VectorsError(error, operation);
-    // Non-enumerable on purpose: `instance` is a live handle for
-    // programmatic recovery, not diagnostic data. Enumerable, it rode along
-    // into every `JSON.stringify(error.context)`, `util.inspect(error)` and
-    // structured-logger dump — pulling the SDK client (and, before lc_kwargs
-    // was redacted, the caller's credentials) into log output. Direct
-    // access (`error.context.instance`) is unaffected.
-    const context: S3VectorsErrorContext = { ...base.context };
-    Object.defineProperty(context, 'instance', {
-      value: this,
-      enumerable: false,
-      configurable: true,
-      writable: false,
-    });
-    return this._rebuildWithContext(base, base.message, context);
-  }
-
   /**
    * Throw an `ABORTED` error if `signal` has already fired. Used before a
    * step the AWS SDK can't cancel on its own (embedding a batch of
    * documents), so an aborted operation doesn't pay for one more expensive,
    * uncancellable call it no longer needs.
    */
-  private _checkAborted(operation: string, signal: AbortSignal | undefined): void {
-    if (!signal?.aborted) return;
-    throw new S3VectorsError(
-      `${operation} was aborted.`,
-      S3VectorsErrorCode.ABORTED,
-      { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
-      signal.reason,
-    );
-  }
-
-  /**
-   * Reject a nullish AWS response before any field is read off it.
-   *
-   * @remarks
-   * {@link _send} wraps only the AWS call itself, so the property reads that
-   * follow a successful `send` sit outside its `catch`. A client that
-   * resolves with `undefined`/`null` — a mock, a stub, an incompatible SDK
-   * version, a custom transport — therefore produced a raw, uncoded
-   * `TypeError` there, breaking this library's guarantee that every failure
-   * arrives as a coded {@link S3VectorsError}. Takes `unknown` so the
-   * nullish comparison stays legal against the SDK's non-nullable output
-   * types.
-   */
-  private _assertResponseObject(value: unknown, operation: string, commandName: string): void {
-    if (typeof value !== 'object' || value === null) {
-      throw new S3VectorsError(
-        `${commandName} for index "${this.indexName}" resolved without a response object (got ` +
-          `${JSON.stringify(value) ?? String(value)}). The response may be malformed, or come ` +
-          'from an incompatible SDK version or a mocked/stubbed client.',
-        S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-        { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
-      );
-    }
-  }
-
-  /**
-   * Add pagination context to a `QueryVectors` failure that happened on a
-   * continuation page.
-   *
-   * @remarks
-   * A continuation request carries a `nextToken`, and AWS documents those as
-   * remaining valid for only "several minutes", with re-issuing the original
-   * query as the documented remedy — so a mid-pagination failure has a
-   * specific, actionable cause that a generic `AWS_REQUEST_FAILED` hides.
-   * Deliberately keyed on a fact this library knows for certain (the failing
-   * call was a continuation, not the first page) rather than on an exception
-   * name: AWS publishes no dedicated expired-token exception for this
-   * operation, so matching one would be a guess.
-   *
-   * The first page can't have an expired token, and an abort is the caller's
-   * own doing rather than anything to re-issue — both are returned unchanged.
-   */
-  private _explainPaginationFailure(
-    error: unknown,
-    operation: string,
-    pageCount: number,
-    resultsCollected: number,
-    k: number,
-  ): S3VectorsError {
-    const base = this._normalizeToS3VectorsError(error, operation);
-    if (pageCount === 0 || base.code === S3VectorsErrorCode.ABORTED) return base;
-    return this._rebuildWithContext(
-      base,
-      `${base.message} This failed while fetching page ${pageCount + 1} of a paginated ` +
-        `QueryVectors search, with ${resultsCollected} of the ${k} requested result(s) already ` +
-        'collected. Pagination tokens stay valid for only a few minutes — if the search ran ' +
-        'long, re-issue the original query to start a new pagination session.',
-      {
-        ...base.context,
-        pagesScanned: pageCount,
-        resultsCollected,
-      },
-    );
-  }
-
-  /**
-   * Run an AWS call, surfacing any failure as a coded {@link S3VectorsError}.
-   * An `AbortSignal` firing before or during the call surfaces as `ABORTED`
-   * rather than `AWS_REQUEST_FAILED` — it wasn't AWS that failed, the caller
-   * cancelled. The signal itself is threaded into the AWS request by the
-   * caller (via `{ abortSignal: signal }` in the `send` closure); the AWS
-   * SDK's HTTP handler already rejects immediately, without a network call,
-   * for a signal that's already aborted by the time a request is issued.
-   */
-  private async _send<T>(operation: string, send: () => Promise<T>): Promise<T> {
-    try {
-      return await send();
-    } catch (error: unknown) {
-      const code = isAbortError(error)
-        ? S3VectorsErrorCode.ABORTED
-        : S3VectorsErrorCode.AWS_REQUEST_FAILED;
-      throw wrapAwsError(error, code, {
-        operation,
-        vectorBucketName: this.vectorBucketName,
-        indexName: this.indexName,
-      });
-    }
-  }
-
-  /**
-   * Runs `QueryVectors`, following AWS's `nextToken` pagination until `k`
-   * vectors are collected or the result set is exhausted.
-   *
-   * @remarks
-   * AWS returns **up to** 100 results per `QueryVectors` response even when
-   * `topK` (`k`) is larger (`topK` itself caps at 10,000). Without paging
-   * through `nextToken`, a caller requesting `k > 100` would silently get
-   * back fewer than `k` documents. Note the published limit is a maximum,
-   * not a fixed page size — a short page is a conforming response, so the
-   * number of pages a legitimate search needs is not simply `k / 100`.
-   *
-   * Also validates the queried index's distance metric — returned on every
-   * `QueryVectors` response — against this store's configured
-   * {@link AmazonS3VectorsConfig.distanceMetric}. Unlike the write path
-   * (which calls `GetIndex` and can check this before ever touching the
-   * index), a read never calls `GetIndex`, so this is the only point that
-   * can catch a metric mismatch before silently computing a relevance
-   * score against the wrong metric. Fails closed: confirmed live that
-   * `distanceMetric` is present on every response (empty index, filtered
-   * to zero results, and a normal match all included it), so if a future
-   * response is ever missing it, that's treated as "can't verify" and
-   * rejected rather than silently skipping the check.
-   *
-   * Bounded by progress rather than by a flat page count: a run of
-   * {@link MAX_EMPTY_QUERY_PAGES} consecutive result-less pages ends the
-   * search, with {@link MAX_QUERY_PAGES} as an absolute runaway backstop.
-   * A single empty-but-`nextToken`-bearing page deliberately does *not*
-   * stop it — AWS's own documented pagination contract and generated
-   * paginator don't treat an empty page as end-of-results either, and a
-   * heavily-filtered query is a plausible way to get one legitimately,
-   * with real results still on a later page. Either guard firing raises
-   * `QUERY_PAGE_LIMIT_EXCEEDED` rather than returning a short result set.
-   */
-  private async _queryVectors(
-    operation: string,
-    k: number,
-    input: {
-      queryVector: { float32: number[] };
-      filter: __DocumentType | undefined;
-      returnMetadata: boolean;
-      returnDistance: boolean;
-    },
-    signal?: AbortSignal,
-  ): Promise<S3OutputVector[]> {
-    this._validateK(operation, k);
-    // Both vector-search entry points funnel through here, so one check
-    // covers both — and it also catches an embeddings model that returned a
-    // non-array from embedQuery on the text-search path.
-    this._validateIsArray(operation, 'query vector', input.queryVector.float32);
-    this._validateFilter(operation, input.filter);
-
-    const results: S3OutputVector[] = [];
-    let nextToken: string | undefined;
-    let pageCount = 0;
-    let emptyPageStreak = 0;
-
-    do {
-      let response;
-      try {
-        response = await this._send('QueryVectors', () =>
-          this._client.send(
-            new QueryVectorsCommand({
-              vectorBucketName: this.vectorBucketName,
-              indexName: this.indexName,
-              topK: k,
-              nextToken,
-              ...input,
-            }),
-            { abortSignal: signal },
-          ),
-        );
-      } catch (error: unknown) {
-        throw this._explainPaginationFailure(error, operation, pageCount, results.length, k);
-      }
-
-      // The response object itself, not only its fields. `_send` wraps just
-      // the AWS call, so every property read below happens outside its catch
-      // — a nullish response surfaced as a raw, uncoded TypeError, breaking
-      // this library's guarantee that every failure is a coded
-      // S3VectorsError. Same population the field-level guards defend
-      // against: a mocked, stubbed or otherwise non-conforming client.
-      this._assertResponseObject(response, operation, 'QueryVectors');
-
-      if (pageCount === 0) {
-        // A positive shape check, not `=== undefined`: an explicit null (or
-        // any unrecognised string) otherwise reached _assertMetricMatches and
-        // produced a misleading `uses distance metric "null"` mismatch error.
-        // It also narrows the value to this library's DistanceMetric for the
-        // call below. A *valid* metric that disagrees with this store's
-        // configuration is a genuine INDEX_CONFIG_MISMATCH and is still
-        // reported as one, by _assertMetricMatches.
-        if (response.distanceMetric !== 'cosine' && response.distanceMetric !== 'euclidean') {
-          throw new S3VectorsError(
-            `QueryVectors response for index "${this.indexName}" did not include a recognisable ` +
-              `distanceMetric (got ${JSON.stringify(response.distanceMetric)}) — cannot verify ` +
-              `it matches this store's configured "${this.distanceMetric}". Relevance scores ` +
-              'would be computed against an unverified metric.',
-            S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-            { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
-          );
-        }
-        this._assertMetricMatches(response.distanceMetric, operation);
-      }
-
-      const page = (response.vectors ?? []) as S3OutputVector[];
-      results.push(...page);
-      // Progress, not raw page count, is what distinguishes a legitimately
-      // sparse search from one that will never converge — a page that
-      // delivered results is progress no matter how many pages preceded it.
-      emptyPageStreak = page.length === 0 ? emptyPageStreak + 1 : 0;
-      nextToken = response.nextToken;
-      pageCount++;
-    } while (
-      nextToken &&
-      results.length < k &&
-      emptyPageStreak < MAX_EMPTY_QUERY_PAGES &&
-      pageCount < MAX_QUERY_PAGES
-    );
-
-    // The loop exits for exactly four reasons, and this combination — more
-    // pages still available, fewer than k collected — can only mean one of
-    // the two safety guards stopped it. Returning short here would be
-    // indistinguishable from a search that legitimately exhausted its
-    // matches, so it fails closed instead, matching how this file already
-    // refuses to guess at a missing distance. Truthiness, not `!== undefined`,
-    // so this agrees exactly with the loop's own condition for an
-    // empty-string token.
-    if (nextToken && results.length < k) {
-      const reason =
-        emptyPageStreak >= MAX_EMPTY_QUERY_PAGES
-          ? `${MAX_EMPTY_QUERY_PAGES} consecutive pages returned no results at all`
-          : `this library's ${MAX_QUERY_PAGES}-page ceiling was reached`;
-      throw new S3VectorsError(
-        `QueryVectors for index "${this.indexName}" stopped after ${pageCount} page(s) having ` +
-          `collected ${results.length} of the ${k} requested result(s), with more pages still ` +
-          `available: ${reason}. Narrow the metadata filter or lower k — a result set this ` +
-          'sparse cannot be satisfied within the page limit.',
-        S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED,
-        {
-          operation,
-          vectorBucketName: this.vectorBucketName,
-          indexName: this.indexName,
-          pagesScanned: pageCount,
-          resultsCollected: results.length,
-        },
-      );
-    }
-
-    return results.slice(0, k);
-  }
-
-  /**
-   * Run a per-batch write `action` across pre-chunked batches. The FIRST
-   * batch is always awaited alone — it's the one that creates or validates
-   * the index (`batchOffset === 0` inside {@link _ensureIndexAndPut}), so
-   * every later batch's write depends on it having already happened. Every
-   * batch after that is independent and is dispatched concurrently, in
-   * groups of at most {@link maxConcurrentBatchCalls} in flight at once
-   * — the same concurrency pattern {@link delete} and {@link getByIds}
-   * already use for `DeleteVectors`/`GetVectors`.
-   *
-   * Each group of batches is run through {@link _settleGroup}, so a group
-   * failure still reports every id confirmed written so far — from this
-   * batch's earlier groups and from any group siblings that succeeded
-   * alongside the one that failed.
-   *
-   * @internal Used by `addVectors`. `addDocuments` needs its embedding
-   * step to stay strictly sequential across batches and pipelined against
-   * the puts (unlike this helper's grouped dispatch of ready-made
-   * batches), so it doesn't route through here — see its own
-   * sliding-window loop.
-   */
-  private async _runBatchesConcurrently<T>(
-    operation: string,
-    batches: T[][],
-    ids: string[],
-    action: (batch: T[], offset: number) => Promise<void>,
-  ): Promise<void> {
-    // addVectors (this helper's only caller) returns early on an empty
-    // vectors array before ever reaching here, so batches is never empty.
-    const firstBatch = batches[0]!;
-    let writtenIds: string[] = [];
-    try {
-      await action(firstBatch, 0);
-      writtenIds = ids.slice(0, firstBatch.length);
-    } catch (error: unknown) {
-      throw this._attachPartialIds(error, operation, 'writtenIds', writtenIds);
-    }
-
-    const rest = offsetBatches(batches.slice(1), firstBatch.length);
-
-    for (const group of chunk(rest, this.maxConcurrentBatchCalls)) {
-      await this._settleGroup(
-        group.map(
-          ({ batch, offset: batchOffset }) =>
-            () =>
-              action(batch, batchOffset).then(() =>
-                ids.slice(batchOffset, batchOffset + batch.length),
-              ),
-        ),
-        operation,
-        'writtenIds',
-        writtenIds,
-      );
-    }
-  }
-
-  /**
-   * Auto-create the index (on the first batch) and send a single PutVectors batch.
-   *
-   * @internal Shared helper extracted from `addVectors` / `addDocuments`.
-   */
-  private async _ensureIndexAndPut(
-    operation: string,
-    batchOffset: number,
-    vectors: number[][],
-    documents: DocumentInterface[],
-    ids: string[],
-    signal?: AbortSignal,
-  ): Promise<void> {
-    // Validate metadata (and build the PutVectors payload) BEFORE ever touching
-    // AWS — a collision must not leave a freshly-created, now-permanently-
-    // misconfigured index behind.
-    const putVectors = vectors.map((vec, j) => {
-      const doc = documents[j]!;
-      const id = ids[j]!;
-      const metadata = buildPutMetadata(doc, this.pageContentMetadataKey, operation);
-
-      return {
-        key: id,
-        data: { float32: vec },
-        metadata: metadata as __DocumentType,
-      };
+  #checkAborted(operation: string, signal: AbortSignal | undefined): void {
+    checkAborted(operation, signal, {
+      vectorBucketName: this.vectorBucketName,
+      indexName: this.indexName,
     });
-
-    // Checked for every batch, not just the first — a caller's own empty or
-    // internally-inconsistent batch must never be blamed on a different,
-    // concurrently-racing caller (or vice versa), and a later batch's
-    // vectors must be internally consistent too. Previously only batch 0
-    // was checked, so a dimension mismatch inside batch 1+ reached
-    // PutVectors unchecked instead of failing with this library's coded
-    // INDEX_CONFIG_MISMATCH.
-    const firstVector = vectors[0];
-    if (!firstVector || firstVector.length === 0) {
-      throw this._validationError(
-        operation,
-        "Cannot determine this batch's vector dimension — the batch has no vectors, or its " +
-          'first vector is empty ([]). Every vector must have at least one dimension.',
-      );
-    }
-
-    // Every vector in this batch must share the first vector's dimension —
-    // that's the dimension this batch is validated against (or, for a
-    // brand-new index, created with) just below for batch 0.
-    for (let i = 1; i < vectors.length; i++) {
-      const vector = vectors[i]!;
-      if (vector.length !== firstVector.length) {
-        throw new S3VectorsError(
-          `Vector at index ${i} in this batch has dimension ${vector.length}, but this ` +
-            `batch's first vector has dimension ${firstVector.length}. All vectors in the ` +
-            'same batch must share the same dimension.',
-          S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
-          { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
-        );
-      }
-    }
-
-    if (batchOffset === 0) {
-      await this._validateBeforeWrite(firstVector, operation, signal);
-    } else if (this._validatedIndexInfo !== null) {
-      // Batch 0 already established (or created) the index and cached its
-      // dimension/metric, so later batches can be checked against that cache
-      // for free — no extra GetIndex round trip. Without this, a
-      // uniformly-wrong-dimension later batch passes the within-batch
-      // consistency check above and reaches PutVectors, surfacing AWS's
-      // generic ValidationException instead of the coded
-      // INDEX_CONFIG_MISMATCH the identical mistake gets in batch 0.
-      //
-      // The cache is null only when a concurrent deleteAll cleared it, in
-      // which case there is nothing to validate against and the write
-      // proceeds to fail naturally against the deleted index, exactly as
-      // it already did.
-      this._assertIndexCompatible(this._validatedIndexInfo, firstVector, operation);
-    }
-
-    try {
-      await this._send('PutVectors', () =>
-        this._client.send(
-          new PutVectorsCommand({
-            vectorBucketName: this.vectorBucketName,
-            indexName: this.indexName,
-            vectors: putVectors,
-          }),
-          { abortSignal: signal },
-        ),
-      );
-    } catch (error: unknown) {
-      throw this._reconcileCacheAfterPutFailure(error, operation);
-    }
-  }
-
-  /**
-   * Drop the cached index configuration when a `PutVectors` failure says
-   * the index no longer matches it.
-   *
-   * @remarks
-   * {@link _validatedIndexInfo} is only ever refreshed by *this* instance's
-   * own `deleteAll`. An index deleted and re-created out of band — an ops
-   * script, another service, a different dimension — left the cache
-   * describing an index that no longer exists, so every later write
-   * skipped `GetIndex`, passed the local dimension check against stale
-   * data, and failed at `PutVectors` with AWS's `NotFoundException` or
-   * `ValidationException` **forever**, until the process restarted.
-   *
-   * Either exception on a put is treated as "the cache can no longer be
-   * trusted": it is cleared and the epoch bumped (so an in-flight
-   * `GetIndex` result from before this point can't re-populate it), and
-   * the error is rethrown with a note that the *next* write will re-check
-   * the index — and, with `createIndexIfNotExist`, re-create a missing
-   * one. The write itself is not retried here: a `ValidationException`
-   * may equally be the caller's own bad payload, and one extra `GetIndex`
-   * on the next write is the cheapest correct response to both. No
-   * dedicated `NotFoundException`-only branch: the index-vs-bucket
-   * distinction AWS makes is not reliably encoded in the exception name.
-   */
-  private _reconcileCacheAfterPutFailure(error: unknown, operation: string): S3VectorsError {
-    // _send always throws a coded S3VectorsError, so this is a pass-through;
-    // normalizing keeps the guarantee explicit rather than assumed.
-    const base = this._normalizeToS3VectorsError(error, operation);
-    const { cause } = base;
-    if (!isAwsNotFoundException(cause) && !isAwsValidationException(cause)) return base;
-    if (this._validatedIndexInfo === null) return base;
-
-    this._validatedIndexInfo = null;
-    this._indexEpoch++;
-    return this._rebuildWithContext(
-      base,
-      `${base.message} This store's cached index configuration (dimension/distance metric) ` +
-        'was discarded because of this failure — if the index was deleted or re-created outside ' +
-        'this process, the next write re-checks it via GetIndex (and, with createIndexIfNotExist, ' +
-        're-creates a missing index) instead of trusting the stale cache.',
-      { ...base.context, indexCacheInvalidated: true },
-    );
-  }
-
-  /**
-   * Validate the first batch's vector against the index's actual
-   * dimension/distance metric before any write — checked regardless of
-   * {@link createIndexIfNotExist}, so a caller relying on an
-   * externally-managed index (`createIndexIfNotExist: false`) still gets
-   * an early, friendly `INDEX_CONFIG_MISMATCH` instead of an opaque AWS
-   * error when the index's actual configuration doesn't match this
-   * store's.
-   *
-   * @remarks
-   * {@link _validatedIndexInfo} is checked first regardless of
-   * {@link createIndexIfNotExist} — once any write has confirmed the
-   * index's dimension/metric (whether by finding it already there,
-   * creating it, or recovering from a cross-process creation race), every
-   * later write on this instance reuses that cached value instead of
-   * re-fetching. Only the very first write (or the first write after
-   * {@link delete}'s `deleteAll` clears the cache) pays for a `GetIndex`
-   * (or `GetIndex`+`CreateIndex`) round trip; every one after that is a
-   * single `PutVectors` call, for both `createIndexIfNotExist: true` and
-   * `false`. When `createIndexIfNotExist` is `false` and the index
-   * genuinely doesn't exist yet, this deliberately does *not* throw —
-   * `PutVectors` still fails naturally below, matching this flag's
-   * pre-existing behavior for a missing index (it never auto-creates one).
-   */
-  private async _validateBeforeWrite(
-    firstVector: number[],
-    operation: string,
-    signal: AbortSignal | undefined,
-  ): Promise<void> {
-    if (this._validatedIndexInfo !== null) {
-      this._assertIndexCompatible(this._validatedIndexInfo, firstVector, operation);
-      return;
-    }
-
-    if (this.createIndexIfNotExist) {
-      // _raceAbort takes a thunk (not an already-started promise)
-      // specifically so its own abort check runs before _ensureIndexExists
-      // is ever called — see _raceAbort's remarks for why that ordering
-      // matters.
-      const { existing, epoch } = await this._raceAbort(
-        () => this._ensureIndexExists(firstVector),
-        signal,
-        operation,
-      );
-      if (existing !== null) {
-        if (this._indexEpoch === epoch) {
-          this._validatedIndexInfo = existing;
-        }
-        // A caller that joins this memo while it spans a concurrent
-        // `deleteAll` still validates `firstVector` against the pre-delete
-        // `existing` it returned — the epoch guard above only stops that
-        // stale info from being cached, not from being used for this one
-        // write's own validation. Its `PutVectors` call then fails
-        // naturally against the now-deleted index, same as any other
-        // write racing a `deleteAll` it didn't itself trigger.
-        this._assertIndexCompatible(existing, firstVector, operation);
-      }
-      return;
-    }
-
-    const epoch = this._indexEpoch;
-    const existing = await this._getIndex(signal);
-    if (existing !== null) {
-      if (this._indexEpoch === epoch) {
-        this._validatedIndexInfo = existing;
-      }
-      this._assertIndexCompatible(existing, firstVector, operation);
-    }
-  }
-
-  /**
-   * Ensure the configured index exists, creating it if needed, and return
-   * its dimension/distance metric plus the epoch (see {@link _indexEpoch})
-   * it was computed under — from the pre-existing index, from the index
-   * this call just created, or (after losing a cross-process creation
-   * race) re-fetched so the winning process's actual committed
-   * dimension/metric is still known. `existing` is only `null` if that
-   * post-race re-fetch itself finds nothing (the index was deleted again
-   * in the brief window since the conflict).
-   *
-   * In-flight creation attempts are memoized so concurrent callers share
-   * one GetIndex/CreateIndex sequence instead of racing (same-process
-   * safety); a `ConflictException` from CreateIndex itself (another
-   * process won the race) is tolerated as success (cross-process safety).
-   * The memo is cleared once the attempt settles, so a later top-level
-   * call still re-verifies existence.
-   *
-   * @remarks
-   * This memo's `GetIndex`/`CreateIndex` calls are never tied to any
-   * caller's `AbortSignal` — a caller can only make its own wait for this
-   * memo return early (via {@link _raceAbort}), never cancel the shared
-   * work other concurrent callers depend on. Only the existence-check/
-   * creation is memoized — never compatibility validation itself; callers
-   * must run {@link _assertIndexCompatible} themselves against the
-   * returned value and their own vector. `firstVector` is only actually
-   * used by whichever caller's invocation wins the race to start this
-   * memo; later concurrent callers get the already-in-flight promise back
-   * before their own arguments are ever consulted. Callers must validate
-   * their own vector is non-empty *before* calling this.
-   */
-  private _ensureIndexExists(firstVector: number[]): Promise<{
-    existing: { dimension: number; distanceMetric: DistanceMetric } | null;
-    epoch: number;
-  }> {
-    if (this._ensureIndexPromise) return this._ensureIndexPromise;
-
-    const epoch = this._indexEpoch;
-    this._ensureIndexPromise = (async () => {
-      try {
-        const existing = await this._getIndex();
-        if (existing !== null) {
-          return { existing, epoch };
-        }
-
-        try {
-          await this._createIndex(firstVector.length);
-        } catch (error: unknown) {
-          const cause = (error as { cause?: unknown }).cause;
-          if (!isAwsConflictException(cause)) throw error;
-          // Another process created the index between our GetIndex and
-          // CreateIndex calls. Fetch what it actually committed — without
-          // this, every caller sharing this memo would skip validation
-          // entirely, exactly the race this method exists to close.
-          return { existing: await this._getIndex(), epoch };
-        }
-        return {
-          existing: { dimension: firstVector.length, distanceMetric: this.distanceMetric },
-          epoch,
-        };
-      } finally {
-        this._ensureIndexPromise = null;
-      }
-    })();
-
-    return this._ensureIndexPromise;
-  }
-
-  /**
-   * Let `signal` make the caller's own wait for `factory()`'s promise
-   * reject early — with the same coded `ABORTED` error {@link _checkAborted}
-   * throws elsewhere — without cancelling that promise itself. Used so one
-   * caller's `AbortSignal` can never cancel, or get blamed for, a sibling
-   * caller's dependency on {@link _ensureIndexExists}'s shared
-   * GetIndex/CreateIndex memo.
-   *
-   * @remarks
-   * Takes a factory rather than an already-started promise so the check
-   * below runs *before* `factory()` is ever called: a plain promise
-   * argument is evaluated before this function's own body starts, which
-   * would let an already-aborted signal still create/join a shared memo
-   * and dispatch a real AWS call before anything had a chance to reject.
-   */
-  private _raceAbort<T>(
-    factory: () => Promise<T>,
-    signal: AbortSignal | undefined,
-    operation: string,
-  ): Promise<T> {
-    if (!signal) return factory();
-    this._checkAborted(operation, signal);
-
-    const promise = factory();
-    return new Promise<T>((resolve, reject) => {
-      const onAbort = (): void => {
-        try {
-          this._checkAborted(operation, signal);
-        } catch (error: unknown) {
-          reject(toError(error));
-        }
-      };
-      signal.addEventListener('abort', onAbort, { once: true });
-      promise.then(
-        (value) => {
-          signal.removeEventListener('abort', onAbort);
-          resolve(value);
-        },
-        (error: unknown) => {
-          signal.removeEventListener('abort', onAbort);
-          reject(toError(error));
-        },
-      );
-    });
-  }
-
-  /**
-   * Reject a write against an existing index whose dimension or distance
-   * metric doesn't match this store's configuration — otherwise a dimension
-   * mismatch surfaces later as an opaque `PutVectors` error, and a metric
-   * mismatch would silently compute relevance scores against the wrong metric.
-   */
-  private _assertIndexCompatible(
-    existing: { dimension: number; distanceMetric: DistanceMetric },
-    firstVector: number[],
-    operation: string,
-  ): void {
-    if (existing.dimension !== firstVector.length) {
-      throw new S3VectorsError(
-        `Index "${this.indexName}" has dimension ${existing.dimension}, but the vector being written has dimension ${firstVector.length}.`,
-        S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
-        { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
-      );
-    }
-    this._assertMetricMatches(existing.distanceMetric, operation);
-  }
-
-  /**
-   * Reject a mismatch between an actual (existing-index or query-response)
-   * distance metric and this store's configured one. Shared by the write
-   * path ({@link _assertIndexCompatible}) and the read path
-   * ({@link _queryVectors}) — a metric mismatch would silently compute
-   * relevance scores against the wrong metric either way.
-   */
-  private _assertMetricMatches(actualMetric: DistanceMetric, operation: string): void {
-    if (actualMetric !== this.distanceMetric) {
-      throw new S3VectorsError(
-        `Index "${this.indexName}" uses distance metric "${actualMetric}", but this store is configured for "${this.distanceMetric}". Relevance scores would be computed against the wrong metric.`,
-        S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
-        { operation, vectorBucketName: this.vectorBucketName, indexName: this.indexName },
-      );
-    }
-  }
-
-  /** Check whether the configured index already exists, returning its dimension/metric if so. */
-  private async _getIndex(
-    signal?: AbortSignal,
-  ): Promise<{ dimension: number; distanceMetric: DistanceMetric } | null> {
-    try {
-      const result = await this._client.send(
-        new GetIndexCommand({
-          vectorBucketName: this.vectorBucketName,
-          indexName: this.indexName,
-        }),
-        { abortSignal: signal },
-      );
-      const { index } = result;
-      // `index?.dimension` covers undefined, null, and a non-numeric
-      // dimension in one condition. A bare `index === undefined` check let a
-      // literal null through to `index.dimension`, producing a TypeError that
-      // was wrapped as AWS_REQUEST_FAILED with raw internal text instead of
-      // the diagnosis below.
-      if (
-        typeof index?.dimension !== 'number' ||
-        (index.distanceMetric !== 'cosine' && index.distanceMetric !== 'euclidean')
-      ) {
-        throw new S3VectorsError(
-          `GetIndex for "${this.indexName}" resolved without the expected index attributes ` +
-            '(dimension/distanceMetric). The response may be malformed, or come from an ' +
-            'incompatible SDK version or a mocked/stubbed client.',
-          S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-          {
-            operation: 'GetIndex',
-            vectorBucketName: this.vectorBucketName,
-            indexName: this.indexName,
-          },
-        );
-      }
-      return { dimension: index.dimension, distanceMetric: index.distanceMetric };
-    } catch (error: unknown) {
-      if (isAwsNotFoundException(error)) return null;
-      const code = isAbortError(error)
-        ? S3VectorsErrorCode.ABORTED
-        : S3VectorsErrorCode.AWS_REQUEST_FAILED;
-      throw wrapAwsError(error, code, {
-        operation: 'GetIndex',
-        vectorBucketName: this.vectorBucketName,
-        indexName: this.indexName,
-      });
-    }
-  }
-
-  /**
-   * Create the vector index with the given dimension.
-   *
-   * @throws {S3VectorsError} If auto-adding {@link pageContentMetadataKey}
-   * to {@link nonFilterableMetadataKeys} would exceed AWS's 10-key cap.
-   * @remarks
-   * This must throw rather than silently create the index with page
-   * content left out of the non-filterable list: page content would then
-   * count as *filterable* metadata, capped at 2048 bytes per vector by AWS —
-   * and S3 Vectors has no `UpdateIndex`, so a document over that size
-   * would only fail at write time, against an index that can never be
-   * fixed without deleting it (and every vector already in it).
-   *
-   * Deliberately takes no `AbortSignal`. Its only caller is
-   * {@link _ensureIndexExists}, whose GetIndex/CreateIndex work is shared
-   * across concurrent writers — no single caller may cancel it out from
-   * under the others. A parameter here would imply a cancellability that
-   * does not exist.
-   */
-  private async _createIndex(dimension: number): Promise<void> {
-    const MAX_NON_FILTERABLE_KEYS = 10;
-    const configuredKeys = this.nonFilterableMetadataKeys ?? [];
-    const withPageContentKey =
-      this.pageContentMetadataKey === null
-        ? this.nonFilterableMetadataKeys
-        : [...new Set([...configuredKeys, this.pageContentMetadataKey])];
-
-    // Scoped to "adding the page-content key specifically is what pushes
-    // this over the cap" — a caller-configured list that already exceeds
-    // the cap on its own (pageContentMetadataKey: null, or the key already
-    // present in the caller's list, included) is a different, pre-existing
-    // user error that AWS's own CreateIndex validation already rejects
-    // clearly; this message would be misleading for that case since no
-    // page-content key is being added.
-    if (
-      this.pageContentMetadataKey !== null &&
-      !configuredKeys.includes(this.pageContentMetadataKey) &&
-      withPageContentKey &&
-      withPageContentKey.length > MAX_NON_FILTERABLE_KEYS
-    ) {
-      throw this._validationError(
-        'createIndex',
-        `Cannot add pageContentMetadataKey ("${this.pageContentMetadataKey}") to ` +
-          `nonFilterableMetadataKeys — that would exceed AWS's ${MAX_NON_FILTERABLE_KEYS}-key ` +
-          `cap (currently ${configuredKeys.length} configured). Reduce ` +
-          `nonFilterableMetadataKeys, or set pageContentMetadataKey: null to store page content ` +
-          `as filterable metadata instead (capped at 2048 bytes per vector by AWS).`,
-      );
-    }
-
-    await this._send('CreateIndex', () =>
-      this._client.send(
-        new CreateIndexCommand({
-          vectorBucketName: this.vectorBucketName,
-          indexName: this.indexName,
-          dataType: this.dataType,
-          dimension,
-          distanceMetric: this.distanceMetric,
-          ...(withPageContentKey && withPageContentKey.length > 0
-            ? { metadataConfiguration: { nonFilterableMetadataKeys: withPageContentKey } }
-            : {}),
-          ...(this.encryptionConfiguration !== undefined
-            ? { encryptionConfiguration: this.encryptionConfiguration }
-            : {}),
-          ...(this.tags !== undefined ? { tags: this.tags } : {}),
-        }),
-      ),
-    );
   }
 }

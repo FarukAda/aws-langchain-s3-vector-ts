@@ -28,18 +28,29 @@ import {
   indexFixture,
   mockExistingIndex,
   mockIndexAutoCreated,
+  drainTasks,
 } from './helpers.js';
 
 const SECRET = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
 const CREDENTIALS = { accessKeyId: 'AKIAIOSFODNN7EXAMPLE', secretAccessKey: SECRET };
 
+/**
+ * Give the event loop every turn it could want, without depending on a clock.
+ *
+ * Used where a test asserts that something *stopped* — that no further batch
+ * was embedded, say. A sleep asserts the same thing on the assumption that the
+ * sleep outlasts the work, which is the assumption a loaded runner breaks.
+ */
+const settle = async (): Promise<void> => {
+  for (let turn = 0; turn < 30; turn++) await drainTasks();
+};
 describe('F3 — credentials never reach lc_kwargs or any object rendering of the store', () => {
-  it('keeps credentials, the client and the embeddings models out of lc_kwargs', () => {
-    const { client } = createMockClient();
+  it('keeps credentials and the embeddings models out of lc_kwargs', () => {
+    // Credentials and a client are mutually exclusive now, so this is the
+    // shape that can carry credentials at all.
     const embeddings = createMockEmbeddings();
     const store = new AmazonS3Vectors(embeddings, {
       ...BASE_CONFIG,
-      client,
       credentials: CREDENTIALS,
       queryEmbeddings: embeddings,
       region: 'eu-west-1',
@@ -47,11 +58,16 @@ describe('F3 — credentials never reach lc_kwargs or any object rendering of th
 
     const kwargs = store.lc_kwargs as Record<string, unknown>;
     expect(kwargs).not.toHaveProperty('credentials');
-    expect(kwargs).not.toHaveProperty('client');
     expect(kwargs).not.toHaveProperty('embeddings');
     expect(kwargs).not.toHaveProperty('queryEmbeddings');
     // Plain configuration is still recorded.
     expect(kwargs).toMatchObject({ ...BASE_CONFIG, region: 'eu-west-1' });
+  });
+
+  it('keeps a supplied client out of lc_kwargs', () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+    expect(store.lc_kwargs as Record<string, unknown>).not.toHaveProperty('client');
   });
 
   it('util.inspect / JSON.stringify of the store contain no credential material', () => {
@@ -75,7 +91,7 @@ describe('F11 — error.context.instance is a non-enumerable recovery handle', (
     const error = await AmazonS3Vectors.fromDocuments(
       [new Document({ pageContent: 'x' })],
       createMockEmbeddings(),
-      { ...BASE_CONFIG, client, credentials: CREDENTIALS },
+      { ...BASE_CONFIG, client },
     ).catch((e: unknown) => e);
     expect(isS3VectorsError(error)).toBe(true);
     return error as S3VectorsError;
@@ -98,7 +114,12 @@ describe('F11 — error.context.instance is a non-enumerable recovery handle', (
   });
 });
 
-describe('F4 — a PutVectors NotFound/Validation failure invalidates the cached index config', () => {
+/**
+ * There is no index-configuration cache any more — what a store remembers is
+ * one fact, "this index exists", and only a PutVectors that reports it gone
+ * may clear it. These tests pin which failures do and do not.
+ */
+describe('F4 — only a NotFound PutVectors makes the next write re-check the index', () => {
   const doc = () => new Document({ pageContent: 'x' });
 
   async function primeCache(): Promise<ReturnType<typeof createTestStore>> {
@@ -121,59 +142,15 @@ describe('F4 — a PutVectors NotFound/Validation failure invalidates the cached
     });
   }
 
-  it.each(['NotFoundException', 'ValidationException'])(
-    'on %s: clears the cache, flags the error, and the next write re-checks the index',
-    async (name) => {
-      const { store, mock } = await primeCache();
-      const awsError = Object.assign(new Error(`${name} from AWS`), {
-        name,
-        $metadata: { httpStatusCode: name === 'NotFoundException' ? 404 : 400 },
-      });
-      failNextPut(mock, awsError);
-
-      const error = await store.addDocuments([doc()]).catch((e: unknown) => e);
-      expect(isS3VectorsError(error)).toBe(true);
-      const typed = error as S3VectorsError;
-      expect(typed.code).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
-      expect(typed.context.indexCacheInvalidated).toBe(true);
-      expect(typed.context.awsErrorName).toBe(name);
-      expect(typed.message).toContain('cached index configuration');
-      expect(typed.message).toContain(`(${name}`);
-      // The original writtenIds bookkeeping is preserved through the rebuild.
-      expect(typed.context.writtenIds).toEqual([]);
-      // Still no second GetIndex yet — the failing write does not retry itself.
-      expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
-
-      // The next write pays for one GetIndex again instead of trusting the cache.
-      await store.addDocuments([doc()]);
-      expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
-    },
-  );
-
-  it('re-creates a missing index on the next write when createIndexIfNotExist is true', async () => {
-    const { store, mock } = await primeCache();
-    const notFound = Object.assign(new Error('gone'), { name: 'NotFoundException' });
-    failNextPut(mock, notFound);
-    await expect(store.addDocuments([doc()])).rejects.toMatchObject({
-      context: { indexCacheInvalidated: true },
-    });
-
-    // Out-of-band deletion: GetIndex now reports the index missing.
-    mock.on(GetIndexCommand).rejects(notFound);
-    mock.on(CreateIndexCommand).resolves({});
-    await store.addDocuments([doc()]);
-    expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(1);
-  });
-
   it('does not invalidate on an unrelated AWS failure (e.g. AccessDenied)', async () => {
     const { store, mock } = await primeCache();
     const denied = Object.assign(new Error('denied'), { name: 'AccessDeniedException' });
     failNextPut(mock, denied);
 
     const error = await store.addDocuments([doc()]).catch((e: unknown) => e);
-    expect((error as S3VectorsError).context.indexCacheInvalidated).toBeUndefined();
-    expect((error as S3VectorsError).message).not.toContain('cached index configuration');
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
 
+    // The index is still known to exist, so no second GetIndex is issued.
     await store.addDocuments([doc()]);
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
   });
@@ -185,7 +162,8 @@ describe('F4 — a PutVectors NotFound/Validation failure invalidates the cached
     failNextPut(primed.mock, abortError);
     const aborted = await primed.store.addDocuments([doc()]).catch((e: unknown) => e);
     expect((aborted as S3VectorsError).code).toBe(S3VectorsErrorCode.ABORTED);
-    expect((aborted as S3VectorsError).context.indexCacheInvalidated).toBeUndefined();
+    await primed.store.addDocuments([doc()]);
+    expect(primed.mock.commandCalls(GetIndexCommand)).toHaveLength(1);
 
     // Nothing cached: createIndexIfNotExist: false against a missing index
     // fails at PutVectors with NotFound, but there is no stale cache to blame.
@@ -199,9 +177,8 @@ describe('F4 — a PutVectors NotFound/Validation failure invalidates the cached
       createIndexIfNotExist: false,
     });
     const error = await store.addDocuments([doc()]).catch((e: unknown) => e);
-    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
-    expect((error as S3VectorsError).context.indexCacheInvalidated).toBeUndefined();
-    expect((error as S3VectorsError).message).not.toContain('cached index configuration');
+    // A missing index is NOT_FOUND now that failures carry their class.
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.NOT_FOUND);
   });
 });
 
@@ -272,13 +249,16 @@ describe('F5 — addDocuments pipelines embedding against in-flight PutVectors c
     const ids = docs.map((_, i) => `id-${i}`);
 
     const pending = store.addDocuments(docs, { ids, batchSize: 1 });
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await settle();
 
     // Batch 0 (serial) + a full window of 2: embedding has stopped at 3 and
     // stays there while the window is full — no unbounded run-ahead.
     expect(calls()).toBe(3);
     expect(inFlightKeys).toEqual(['id-1', 'id-2']);
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    // Given every further turn it could want, it still does not run ahead. A
+    // 5 ms sleep asserted the same thing on the assumption that 5 ms is longer
+    // than the work — which is the assumption a loaded machine breaks.
+    await settle();
     expect(calls()).toBe(3);
 
     release();
@@ -291,7 +271,7 @@ describe('F5 — addDocuments pipelines embedding against in-flight PutVectors c
     const { client, mock } = createMockClient();
     mockExistingIndex(mock);
     mock.on(PutVectorsCommand).callsFake(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 3));
+      await Promise.resolve();
       return {};
     });
     let inFlight = 0;
@@ -300,7 +280,9 @@ describe('F5 — addDocuments pipelines embedding against in-flight PutVectors c
       embedDocuments: async (texts: string[]) => {
         inFlight += 1;
         maxInFlight = Math.max(maxInFlight, inFlight);
-        await new Promise((resolve) => setTimeout(resolve, 1));
+        // Asynchronous, not slow: if embedding were ever started concurrently
+        // the counter would see it on this turn, whatever the duration.
+        await Promise.resolve();
         inFlight -= 1;
         return texts.map(() => [1, 2, 3]);
       },
@@ -380,7 +362,7 @@ describe('F7 — write ids must be unique, non-empty strings', () => {
       .addVectors([[1, 2, 3]], docs(1), { ids: [42 as unknown as string] })
       .catch((e: unknown) => e);
     expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('a number');
+    expect((error as Error).message).toContain('is not a string (received number)');
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
   });
 
@@ -515,7 +497,7 @@ describe('maxConcurrentBatchCalls option', () => {
     const track = async () => {
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise((resolve) => setTimeout(resolve, 1));
+      await Promise.resolve();
       inFlight -= 1;
       return {};
     };

@@ -12,6 +12,8 @@ import {
   createMockClient,
   createMockEmbeddings,
   mockExistingIndex,
+  drainTasks,
+  gate,
 } from './helpers.js';
 
 describe('AmazonS3Vectors default batch boundaries', () => {
@@ -102,6 +104,29 @@ describe('AmazonS3Vectors rejects an invalid batchSize', () => {
       'batchSize must be a positive integer',
     );
   });
+
+  it.each([
+    [
+      'addVectors',
+      (store: AmazonS3Vectors) =>
+        store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { batchSize: 0 }),
+    ],
+    [
+      'addDocuments',
+      (store: AmazonS3Vectors) =>
+        store.addDocuments([new Document({ pageContent: 'x' })], { batchSize: 0 }),
+    ],
+    ['delete', (store: AmazonS3Vectors) => store.delete({ ids: ['a'], batchSize: 0 })],
+    ['getByIds', (store: AmazonS3Vectors) => store.getByIds(['a'], { batchSize: 0 })],
+  ])(
+    '%s names itself on a bad batch size, not the helper that checks it',
+    async (operation, run) => {
+      const { client } = createMockClient();
+      const store = new AmazonS3Vectors(createMockEmbeddings(), { ...BASE_CONFIG, client });
+      const error = await run(store).catch((e: unknown) => e);
+      expect((error as { context: { operation: string } }).context.operation).toBe(operation);
+    },
+  );
 });
 
 describe("AmazonS3Vectors rejects a batchSize above AWS's per-call ceiling", () => {
@@ -294,23 +319,34 @@ describe('AmazonS3Vectors.addDocuments runs PutVectors concurrently but embedDoc
     const { client, mock } = createMockClient();
     mockExistingIndex(mock);
 
+    // The puts are held open on a gate instead of on a 5 ms sleep, so the
+    // overlap this measures is arranged rather than hoped for. The first batch
+    // is written alone — it is the one that may create the index — so it has to
+    // settle for the pipeline to reach the rest.
+    const releasePuts = gate();
+    let putCalls = 0;
     let putInFlight = 0;
     let maxPutInFlight = 0;
     mock.on(PutVectorsCommand).callsFake(async () => {
+      const isFirst = putCalls === 0;
+      putCalls += 1;
       putInFlight += 1;
       maxPutInFlight = Math.max(maxPutInFlight, putInFlight);
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      if (!isFirst) await releasePuts.promise;
       putInFlight -= 1;
       return {};
     });
 
+    // No delay at all on the embeddings: they are sequential by construction,
+    // and the counter is what proves it. Giving them a shorter sleep than the
+    // puts only ever implied the guarantee.
     let embedInFlight = 0;
     let maxEmbedInFlight = 0;
     const embeddings = {
       embedDocuments: async (texts: string[]) => {
         embedInFlight += 1;
         maxEmbedInFlight = Math.max(maxEmbedInFlight, embedInFlight);
-        await new Promise((resolve) => setTimeout(resolve, 1));
+        await Promise.resolve();
         embedInFlight -= 1;
         return texts.map(() => [1, 2, 3]);
       },
@@ -320,7 +356,14 @@ describe('AmazonS3Vectors.addDocuments runs PutVectors concurrently but embedDoc
     const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
 
     const docs = Array.from({ length: 25 }, (_, i) => new Document({ pageContent: `d-${i}` }));
-    await store.addDocuments(docs, { batchSize: 1 });
+    const pending = store.addDocuments(docs, { batchSize: 1 });
+
+    // Let the pipeline fill its in-flight window. Bounded by turns taken, not by
+    // elapsed time, so a slow machine takes longer and still observes the same
+    // thing.
+    for (let turn = 0; turn < 100 && putInFlight < 2; turn++) await drainTasks();
+    releasePuts.open();
+    await pending;
 
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(25);
     expect(maxPutInFlight).toBeGreaterThan(1); // PutVectors: genuinely concurrent

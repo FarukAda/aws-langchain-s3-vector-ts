@@ -7,9 +7,809 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.2] - 2026-09-16
+
+A contract-first rework of the whole package. Every function was specified
+before it was changed: the domain of each one enumerated as a table of
+distinguishable input states with a decided answer for every cell, each answer
+citing an AWS API reference, the `@aws-sdk/client-s3vectors` service model,
+`@langchain/core`'s own source, or a recorded live probe — and one test per
+cell, written from the contract rather than from the implementation. Nine
+behaviours AWS does not document were settled against the live service and
+recorded under [`docs/evidence/`](./docs/evidence/), each now guarded by a live
+test so a change on AWS's side fails a run rather than going unnoticed. Three of
+those reversed a decision that had been made on reasoning alone.
+
+No change to what is stored: everything written before this reads back
+identically, and the wire format is untouched.
+
+### Breaking
+
+- **`isAwsValidationException` is removed.** It had no caller in `src` — only a
+  test — and `classify.ts` already maps `ValidationException` by name, so it was
+  a second way to ask a question that already had one answer.
+
+- **Every internal is a `#private` field or method.** TypeScript's `private` is
+  erased, so `_client`, `_lifecycle`, `_queryEmbeddings`, `_nonFilterableKeys`,
+  `_relevanceScoreFn` and the private methods were all ordinary runtime members:
+  enumerable own properties or prototype entries, reachable by anyone who
+  looked. README claimed the store "never keeps `credentials` or the SDK
+  `client` in any enumerable field", which was not true of `_client`. It is now,
+  by construction rather than by care.
+
+- **`_selectRelevanceScoreFn` is gone from the runtime surface.** It carried
+  `@internal` and `stripInternal`, so it was absent from the published `.d.ts`
+  while remaining callable — and its own comment said `@langchain/core` calls it,
+  which core does not: this package's own `similaritySearchWithRelevanceScores`
+  does. It is `#private`, and typedoc no longer documents a method consumers
+  cannot see in the types.
+
+- **`error.code` and `error.context` are readonly at runtime,** which the class
+  has always documented and did not enforce. Both were reassignable, and
+  `context` was stored as the caller's own object, so whoever built an error
+  could rewrite what it reported afterwards. The context is now a frozen copy,
+  made from property descriptors so the deliberately non-enumerable
+  `context.instance` survives it.
+
+- **`exactOptionalPropertyTypes` and `noImplicitOverride` are on.** The README
+  described this package as built under strict TypeScript; `tsconfig.json`
+  explicitly disabled the first. Turning them on surfaced sixteen places handing
+  an explicit `undefined` to a property typed as optional-but-not-undefined —
+  every AWS `send` call's `abortSignal` among them — which is now a `sendOptions`
+  helper that omits the property instead. Consumer-visible only in that the
+  published types are stricter, and a consumer building under the same flag no
+  longer has to work around them.
+
+- **`delete` validates its ids the way a write does,** locally, before any
+  request: a `null`, an empty string, a number, an over-long key or a repeated
+  key is now refused rather than forwarded. All of them are refused by AWS too,
+  probed against the live service — `Member must have length between 1 and 1024`
+  for the empty string, and `Request must not contain duplicate keys` for the
+  repeat — so forwarding them only ever bought a round trip to be told what this
+  package already knew.
+
+  Duplicates are worth calling out: this looked like the one rule a delete could
+  safely relax, on the reasoning that deleting a key twice is idempotent. It is
+  not. `DeleteVectors` refuses the whole request.
+
+- **A query vector is validated the way a stored vector is.** Its components were
+  never checked, so `[NaN, 1, 2]`, `['1','2','3']`, `[]` and the zero vector all
+  went to AWS. Every one of them comes back as `Query vector contains invalid
+  values or is invalid for this index` — a message naming neither the component
+  nor the reason — so the round trip bought nothing this package could not say
+  itself, and say better.
+
+- **`fromTexts` checks the two arguments its types cannot police.** A `metadatas`
+  that is neither an array nor an object was broadcast to every document and then
+  spread into one metadata key per character; a `texts` entry that was not a
+  string became a `Document` with a non-string `pageContent` and failed later as
+  a raw `TypeError`. Both are refused by position now.
+
+- **A document must have a string `pageContent` and an object `metadata`.** A
+  number under `pageContent` was written as a number and read back as `''` with
+  the original left behind in metadata; a string under `metadata` was spread into
+  one key per character. Both wrote something, successfully, that nobody asked
+  for.
+
+- **A listing failure says how far it got.** The one failure the documentation
+  singles out — a `listVectors` record arriving without data — was raised outside
+  the generator that keeps the page and yield counters, so it was the only
+  listing failure unable to report them. It is raised inside it now, and an
+  empty `float32` is refused as well as a missing one: `[]` satisfied a check for
+  `undefined`, so a record with no embedding was yielded as though it had one,
+  and the migration case `listVectors` exists for would have written
+  dimensionless vectors into the target index and looked complete.
+
+- **`ResourceNotFoundException` is no longer read as an absent index.** Other AWS
+  services use that name; S3 Vectors declares thirteen exceptions and it is not
+  among them. The not-found predicate accepted it while `classify.ts` — whose
+  table is exactly those thirteen — called the same value an ordinary request
+  failure, so two modules disagreed about one value with nothing able to trigger
+  it. If it ever does arrive, from a proxy or a middleware, that is not evidence
+  an index is gone, and creating one on the strength of it is the wrong recovery.
+
+- **`ThrottlingException`, `InternalServerError` and `RequestTimeout` are gone
+  from the retryable set,** because S3 Vectors sends none of them. The real names
+  are `TooManyRequestsException`, `InternalServerException` and
+  `RequestTimeoutException`, and all three were already there. A new contract
+  test reads the thirteen names out of the SDK and fails on any the code acts on
+  that the service does not declare, so this cannot drift back.
+
+- **`delete` no longer destroys the index; `deleteIndex()` does.** `ids` is now
+  required, and `deleteAll` is refused with a message naming the replacement.
+  `@langchain/core` describes the interface method as "remove stored documents
+  by ID", S3 Vectors has no truncate operation, and a flag meaning "all of
+  them" is how a production index gets destroyed by a typo. Destroying an index
+  now has to be named to be called. `deleteIndex()` is idempotent and takes an
+  optional `signal`, exactly as the flag did.
+
+- **`getByIds` returns `(Document | undefined)[]`.** A missing id is now an
+  `undefined` slot in the id's position rather than a thrown `NOT_FOUND`.
+  `GetVectors` returns neither an entry nor an error for a key that is not
+  stored ([`docs/evidence/get-vectors-absent-keys.md`](./docs/evidence/get-vectors-absent-keys.md)),
+  so absence is an ordinary answer; keeping the slot means the result can never
+  be silently misaligned against the id list. A batch that genuinely fails still
+  throws, with `context.foundIds` listing what was already retrieved.
+- **`addTexts` and `similaritySearchByVector` are removed.** Neither is part of
+  `@langchain/core`'s `VectorStore`. `addTexts` duplicated the text-to-`Document`
+  mapping `fromTexts` performs; `similaritySearchByVector` was
+  `similaritySearchVectorWithScore` with the scores discarded. Use
+  `addDocuments` (or `fromTexts`) and `similaritySearchVectorWithScore`.
+- **`similaritySearchWithRelevanceScores` on a euclidean index with no
+  `relevanceScoreFn` now raises `VALIDATION`.** The previous heuristic divided a
+  squared distance by a linear scale and returned a number in a narrow band near
+  1 — comparable against nothing. Euclidean distance is unbounded above, so no
+  fixed conversion exists without knowing the embedding's scale. Supply
+  `relevanceScoreFn`, or read raw distances with `similaritySearchWithScore`.
+  `euclideanRelevanceScoreFn` is no longer exported.
+- **Supplying `client` together with `region`, `credentials`, `endpoint`,
+  `maxAttempts`, `retryMode`, `connectionTimeout`, `socketTimeout` or
+  `requestTimeout` is rejected.** Each of those configures the client this store
+  would otherwise build, and a supplied client carries its own — so they were
+  silently ignored, leaving a caller who passed `maxAttempts: 5` with the
+  client's retry policy and no indication. Pass one or the other.
+- **`S3VectorsErrorCode.NOT_IMPLEMENTED` is removed** (MMR is implemented), and
+  **`context.indexCacheInvalidated` is removed** (there is no index cache to
+  invalidate). A `ValidationException` from AWS is now `AWS_REJECTED` rather
+  than `AWS_REQUEST_FAILED`; see *Error classes* below.
+
+- **A non-object options bag is refused by every method that takes one,** not
+  read as an absent one. `assertOptionsBag` was written for exactly this and
+  wired into `addVectors` alone, so the other seven — `addDocuments`,
+  `getByIds`, `delete`, `deleteIndex`, `listDocuments`, `listVectors` and
+  `maxMarginalRelevanceSearch` — took a string, a number or a stray array in
+  the options position and read every option in it as unset. The cost is
+  silence in each case: `deleteIndex('cancel-me')` destroyed the index with the
+  caller's signal dropped, `addDocuments(docs, ids)` with the ids array in the
+  bag's place wrote generated UUIDs nobody could reconcile afterwards, and
+  `maxMarginalRelevanceSearch('q', 5)` — a plausible misreading of an API where
+  `similaritySearch('q', 5)` is right — ran with `k` defaulted to `4` and
+  returned four documents as though that had been asked for. `undefined` and
+  `null` still mean "no options", unchanged.
+
+  `listDocuments` and `listVectors` are now generators rather than methods that
+  return one, so the refusal arrives on the first `next()` — the same place an
+  out-of-range `pageSize` arrives, and inside any `try` wrapped around the loop.
+  Found by re-running the audit's own probes against the finished package
+  rather than against the tests written for each finding.
+
+### Internal
+
+- **Every AWS limit enforced from two places is stated once,** in
+  `shared/aws-limits.ts`. `MAX_TOP_K` lived in two files, the dimension bounds in
+  two, the metadata-key length under two different names, the tag bounds twice
+  over. Every copy agreed — and nothing would have failed if one had been updated
+  and the others left behind. A limit enforced in one place only stays with the
+  code that enforces it.
+
+- **The plain-object check is one module and two names.** Four functions were
+  called `isPlainObject`, and they did not agree: two walked the prototype chain
+  to reject `Date` and class instances, two accepted anything that was not an
+  array. A call site said `isPlainObject` and meant whichever its own file
+  defined. They are `isPlainObject` (strict, for data that will be stored) and
+  `isObjectLike` (loose, for an options bag) now, so picking between them is a
+  decision rather than an accident of which file you are in.
+
+- Both are held in place by a new contract test rather than by care. `jscpd`
+  reports zero clones on this package and always did: this duplication was
+  single-line constants in different files under names that do not match, which
+  is not a shape a clone detector can see.
+
+### Fixed
+
+- **MMR honours `maxConcurrentBatchCalls`.** Its `GetVectors` fan-out never
+  received the store's cap and fell back to the helper's own default of 10, so a
+  store configured for strictly sequential calls issued ten at once. A cap a
+  caller sets to bound their request rate against a shared account quota is not
+  advisory.
+
+- **MMR validates `k`, `fetchK`, `lambda` and the filter before embedding the
+  query.** They were validated first inside the search helper, which the store
+  calls *after* `embedQuery` — so an impossible `k` cost a billable,
+  uncancellable round trip before failing, which is the opposite of what the
+  method's own documentation promised. A `lambda` that is not a number is now
+  refused by a type check first, because `>=` and `<=` coerce and the comparison
+  itself could throw before the value was ever reported.
+
+- **`deleteIndex({ signal })` stops waiting for an in-flight index creation when
+  the signal fires,** as it was documented to. It awaited the shared creation
+  without racing the signal, so an abort did nothing until the creation finished
+  and `DeleteIndex` was then issued anyway with an already-aborted signal. The
+  creation itself is still not cancelled — it is shared, and not one caller's to
+  end — but this caller's wait is their own.
+
+- **No error message can throw while being built.** `String()` on an object
+  with a null prototype raises "Cannot convert object to primitive value", so
+  reporting a bad value could fail *while reporting it* — and the caller was
+  handed `UNEXPECTED_ERROR` about the formatting failure instead of
+  `VALIDATION` about their input. Fixed first for vector components, then for
+  every remaining site that reads a caller's value into a message: MMR's
+  bounds, `pageSize`, `batchSize`, `maxConcurrentBatchCalls`, the index
+  dimension, and `toError`'s own fallback. `toError` is documented as throwing
+  nothing and runs inside error handling, where a second failure replaces the
+  first.
+
+- **A write to an index that disagrees about non-filterable keys is refused
+  with `INDEX_CONFIG_MISMATCH`.** `nonFilterableMetadataKeys` decides two
+  different things — which keys a created index excludes from filters, and which
+  keys the local 2 KB filterable-metadata budget leaves out — and only the first
+  was ever checked against the index that was actually being written to.
+
+  When they disagree the budget is computed against the wrong set, and it fails
+  in both directions. Confirmed against the live service: the identical
+  3,000-byte value was rejected on an index that did not declare its key
+  non-filterable and accepted on one that did. So a store whose list ran longer
+  than the index's sent writes AWS refuses, after the embedding was paid for.
+
+  The index is now checked where this package already reads it, on the
+  `GetIndex` that precedes a first write — the same way `distanceMetric` is
+  checked against every first query page, and for the same reason. Existence is
+  still proven by the response status alone, never by the body: a response this
+  package cannot read reports an existing index with an unknown configuration
+  rather than becoming an error.
+
+  The default configuration makes the disagreement easy to hit without noticing,
+  because the store adds `pageContentMetadataKey` to its own non-filterable set.
+  Pointing a default store at an index created by the console or the CLI now
+  fails immediately and says so, instead of silently spending the filterable
+  budget on page content.
+
+- **A store-built client now has timeouts.** The AWS SDK applies none by
+  default, so an endpoint that accepted a connection and then never answered
+  blocked `getByIds`, `addDocuments` and every search *forever* unless the
+  caller passed an `AbortSignal` — and nothing said so. New `connectionTimeout`
+  (5,000 ms) and `socketTimeout` (60,000 ms) options carry those defaults, and
+  `0` disables either.
+
+  `socketTimeout` is idle-based, which is why it is the one with a default: a
+  large batch that is still transferring never trips it, while a request that
+  has gone silent is ended. `requestTimeout` is also exposed but deliberately
+  *not* defaulted, because it is a total deadline and would cut short a
+  legitimately slow 500-vector upload; setting it also sets the SDK's
+  `throwOnRequestTimeout`, since without that flag the SDK merely logs a warning
+  and keeps waiting — the option would otherwise not mean what its name says.
+
+  A `TimeoutError` from either is reported as retryable, so the worst case
+  against a black-holed endpoint is `maxAttempts` times `socketTimeout` plus
+  backoff, not an unbounded wait. A caller-supplied `client` is untouched, and
+  these options are refused alongside one, like every other client option.
+
+- **`region`, `credentials`, `endpoint`, `maxAttempts`, `retryMode` and
+  `createIndexIfNotExist` are validated at construction,** which the README
+  already claimed. Until now `retryMode: 'bogus'` silently became `standard`,
+  `maxAttempts: -1` silently became a single attempt, `region: ''` surfaced as
+  the SDK's own uncoded `Error("Region is missing")` from inside the first
+  request, and `createIndexIfNotExist: 'false'` — the string an environment
+  variable produces — was truthy and **created the index**. The `credentials`
+  message describes the value by kind only and never echoes it.
+
+- **Every failure a read raises is now an `S3VectorsError`.** An embeddings
+  model that throws — a provider rate-limiting or falling over, the most likely
+  failure a read has — escaped unwrapped from `similaritySearch`,
+  `similaritySearchWithScore`, `similaritySearchWithRelevanceScores`,
+  `maxMarginalRelevanceSearch` and `retriever.invoke`, while the write path
+  wrapped the identical failure as `UNEXPECTED_ERROR`. A `catch` branching on
+  `isS3VectorsError`, as the documentation instructs, therefore missed exactly
+  the case it most needed to catch. A `relevanceScoreFn` that throws is wrapped
+  the same way; it is caller-supplied code called once per result.
+
+- **A value that is not an `AbortSignal` is refused.** It used to be read for
+  `.aborted`, found wanting, and ignored — so the operation ran, uncancellable,
+  while the caller believed otherwise — or, on the paths that reach `raceAbort`,
+  throw a raw `TypeError` from `addEventListener` after the AWS calls before it
+  had already been paid for. `null` now means "not provided" everywhere, as it
+  already did for `client` and `filter`.
+
+- **A nullish `config` or MMR `options` raises `VALIDATION`.** Both were
+  dereferenced by the first check that read them.
+
+- **A response entry that is not an object raises `AWS_INVALID_RESPONSE`.** The
+  three read paths cast `response.vectors` rather than checking it, so a
+  response carrying `[null]` passed through and failed later as a raw
+  `TypeError` from inside a `map`.
+
+- **A document that is not an object raises `VALIDATION`,** naming its position,
+  rather than escaping as "Cannot read properties of null (reading 'id')".
+
+- **`error.cause` is always an `Error`.** A client rejecting with a string, a
+  number or `null` is legal JavaScript and made the class's own documented
+  guarantee false.
+
+- **A write no longer re-reads the caller's arrays while it runs.** `ids`,
+  `documents` and `vectors` are snapshotted once, after validation, and every
+  batch is sliced from the snapshot. Previously the id list was validated up
+  front — uniqueness, length, type — and then re-read from the caller's own
+  array as each batch was dispatched, so mutating it while the promise was
+  pending wrote keys nothing had validated: duplicates, which S3 Vectors
+  resolves by silently overwriting the earlier vector, or `undefined`. Reusing
+  one buffer across batches, or handing the same array to two concurrent
+  writes, was enough to do it by accident.
+
+  `addVectors` and `addDocuments` also return **their own array** now rather
+  than the caller's instance when `ids` was supplied. The returned list is the
+  record of what was written; handing back the caller's array meant a later
+  mutation could rewrite that record, and meant two writes given the same array
+  shared one result.
+
+- **Metadata values that would not survive serialisation are refused.** A
+  non-finite number (`NaN`, `Infinity`, `-Infinity`), an array with a hole
+  (`[1, , 3]`) and an array holding `undefined` now raise `VALIDATION` instead
+  of being written. None of them were stored as passed. The AWS SDK's document
+  serialiser writes a non-finite number as the *string* `"NaN"` or
+  `"Infinity"`, so the field silently changed type and no numeric filter
+  matched it again; and it omits a missing array element rather than sending
+  `null` for it, so the array read back shorter with every later element
+  shifted into the wrong position. The local byte counter, which measures
+  `JSON.stringify`, disagreed with what was actually sent in both directions —
+  97 bytes counted against 106 sent for one payload, 117 against 114 for
+  another — so a write could be refused locally that AWS would have taken, or
+  accepted locally that AWS would refuse. With these values refused, the JSON
+  form and the wire form agree by construction and the counter is exact. An
+  embedding that can produce `NaN` should be fixed at the source; storing the
+  string `"NaN"` was never what the caller asked for.
+
+- **`pageContentMetadataKey: '__proto__'` is refused.** It satisfied the 1–63
+  character rule and then stored nothing at all: `__proto__` is an accessor on
+  every plain object rather than a storable key, so the write succeeded, the
+  page content was discarded in silence, and every document read back with an
+  empty `pageContent`. Page content is now written with `Object.defineProperty`
+  as well, so no configured key can swallow it.
+
+### Added
+
+- **Maximal Marginal Relevance, for real.** `maxMarginalRelevanceSearch(query,
+  { k, fetchK, lambda }, callbacks?, signal?)` takes `fetchK` candidates from
+  `QueryVectors`, fetches their embeddings with `GetVectors`, and selects with
+  `@langchain/core`'s own `maximalMarginalRelevance` — so the ranking is core's,
+  not a reimplementation. `asRetriever({ searchType: 'mmr' })` dispatches to it,
+  honouring `searchKwargs`. A candidate deleted between the two calls is skipped
+  rather than failing the search.
+- **Enumeration: `listDocuments(options?)` and `listVectors(options?)`**, both
+  async generators over `ListVectors`. An index's dimension, distance metric and
+  non-filterable keys are fixed at creation, so changing any of them requires
+  copying every vector to a new index — `listVectors` yields
+  `{ id, vector, document }`, which is exactly what `addVectors` takes back.
+  `listDocuments` is the cheaper audit form. Memory is bounded by one page
+  however large the index, breaking out of the loop issues no further request,
+  and `pageSize` (1–1,000) is advisory because AWS caps a page at 1 MB. Both
+  need `s3vectors:ListVectors` **and** `s3vectors:GetVectors`.
+- **`AmazonS3VectorsRetriever`**, returned by `asRetriever()`: core's
+  `VectorStoreRetriever` plus a `signal` field that genuinely cancels the AWS
+  request. Core's `BaseRetriever.invoke` never passes its config to
+  `_getRelevantDocuments`, so a config signal cannot reach the request; what it
+  can do it now does — an already-fired config signal rejects before any
+  embedding or AWS call, and one that fires mid-query rejects the invocation
+  instead of resolving with results. Previously an aborted retriever invocation
+  resolved with results, having paid for a billable `embedQuery` and a
+  `QueryVectors`.
+- **Error classes callers can branch on.** `AWS_REJECTED` (400
+  `ValidationException`, with `context.fieldList`), `THROTTLED` (429),
+  `SERVICE_UNAVAILABLE` (500/503/408), `ACCESS_DENIED` (403), `QUOTA_EXCEEDED`
+  (402), `CONFLICT` (409) and `KMS_ERROR` join the existing codes. Classification
+  is a lookup on the exception's `name`, which is a literal type on every
+  exception the service declares — never a substring match on a message.
+- **Configuration is validated at construction**, before any AWS call:
+  `distanceMetric`, `dataType` and `encryptionConfiguration.sseType` against the
+  SDK's own enum objects, and `pageContentMetadataKey`, `nonFilterableMetadataKeys`,
+  `relevanceScoreFn`, `tags` and the bucket/index names by shape and documented
+  bound. A non-function `relevanceScoreFn` used to surface as an uncoded
+  `TypeError` from inside a search.
+- **Metadata limits are enforced locally.** AWS counts the UTF-8 byte length of
+  the JSON serialisation plus a fixed 5-byte overhead — established by binary
+  search against the live service
+  ([`docs/evidence/metadata-limits.md`](./docs/evidence/metadata-limits.md)) —
+  so the 2,048-byte filterable and 40,960-byte total caps, the 50-key limit and
+  the documented value types are now checked before the round trip, naming the
+  key at fault. Nested objects and arrays of objects are rejected, which the
+  service does too ([`docs/evidence/metadata-value-types.md`](./docs/evidence/metadata-value-types.md)).
+- **`context.attemptedIds`** on a failed write: the full resolved id list, so a
+  retry with `{ ids: attemptedIds }` overwrites in place instead of minting
+  fresh UUIDs for documents that already committed.
+- **An evidence-guard live suite** (`test/integration/evidence-guards.test.ts`)
+  with one test per undocumented behaviour this package relies on, and a
+  rework suite covering enumeration, MMR, the retriever's two signals and the
+  new `getByIds` shape against the real service.
+
+### Changed
+
+- **The index-configuration cache is gone.** A store now remembers one fact —
+  that the index exists — and only when `createIndexIfNotExist` is on. Nothing
+  else needs caching: AWS enforces the dimension on every write, and the
+  distance metric is checked against the `QueryVectors` response on every read.
+  `createIndexIfNotExist: false` therefore issues no `GetIndex` at all, and such
+  a deployment needs no control-plane permission.
+- **A delete now waits for an index creation already in flight** before issuing
+  `DeleteIndex`, so a creation racing a delete can no longer land afterwards and
+  resurrect the index.
+- **Filter validation names what is wrong.** AWS answers every malformed filter
+  with the string `"Invalid filter"` and nothing else
+  ([`docs/evidence/filter-validation.md`](./docs/evidence/filter-validation.md)),
+  so the operator vocabulary is checked locally: an unknown `$`-prefixed key
+  (`$eg` for `$eq`) is rejected by name, as are the empty filter object and an
+  empty `$in` array — all three confirmed to be rejections AWS makes too.
+- **Search pagination is bounded only by the 1,000-page ceiling.** The
+  "ten consecutive empty pages" guard is removed: a filtered search over a large
+  index can legitimately produce long empty runs, and the ceiling already bounds
+  the worst case.
+- **Documents are always deep-copied on the way out**, not only when a duplicate
+  id was requested, so two documents built from one response never share mutable
+  metadata.
+- **`chunk(items, size)` rejects a size below 1** instead of looping forever.
+- **`raceAbort` is one helper** used by both the shared index creation and the
+  retriever: the caller's wait ends, the shared work continues for whoever else
+  is waiting on it, and the listener is removed on both settle paths.
+- **Both peer floors are raised**: `@aws-sdk/client-s3vectors` to `^3.1133.0`
+  and `@langchain/core` to `^1.2.11`, from `^3.1117.0` and `^1.2.9`. A consumer
+  on an older minor of either must update. Raising a floor is a documented
+  change of support, not a silent one, and the floors are what the
+  peer-floors CI job installs and runs the type
+  checks and the unit tier against — so the range this package promises is the
+  range it is tested at, rather than a wider one nothing exercises.
+- **Every dependency is at its current version**, including
+  `@aws-sdk/client-s3vectors` 3.1133.0, `@langchain/core` 1.2.11 and the whole
+  development set (jest 30.5.1, eslint 10.10.0, typescript-eslint 8.70.0, knip
+  6.35.1, jscpd 5.2.1, fast-check 4.10.1, `@types/node` 26.6.1,
+  eslint-plugin-perfectionist 5.11.1 and the rest). Every fact this package
+  cites out of the two peers was re-read against the new versions: the required
+  `distanceMetric` on `QueryVectorsOutput`, the literal exception names (still
+  thirteen), `ValidationExceptionField` at `models_0.d.ts:94`, the optional
+  `vectors` on `ListVectorsOutput`, core's retriever `invoke`, its MMR dispatch
+  and its `maximalMarginalRelevance` signature. All still hold, and the
+  citations name the versions they were re-read at.
+
+  The SDK floor moves with it, to `^3.1133.0`, because the floor, the
+  installed version and the cited version have to be one version here. The
+  peer-floors job installs the floor and runs the unit tier against it, and
+  `dependency-citations.test.ts` requires every citation to name the version
+  that is installed — so a floor left one release below the cited version fails
+  that job by construction. It did, which is how this was found.
+
+- **Every pinned GitHub Action is at its current release.**
+  `github/codeql-action` (`init`, `analyze`, `upload-sarif`) moves 4.37.9 →
+  4.38.0, and `softprops/action-gh-release` 3.0.2 → 3.0.3. Each is pinned by
+  commit SHA with the tag in a trailing comment, as every action in this
+  repository is; each SHA was resolved from the upstream annotated tag rather
+  than copied from a bump notification, and the method was checked by resolving
+  the tag already pinned and confirming it matched.
+- **The source is split by responsibility** — `actions/` (one operation each),
+  `internal/` (request-shaped helpers) and `shared/` (pure helpers) — with a
+  contract in the JSDoc of every exported function stating what it accepts,
+  returns, throws and guarantees.
+
+- **The scheduled live-AWS workflow is removed.**
+  `.github/workflows/integration-live.yml` ran the live suite every night
+  against whatever `main` happened to be, which is not the commit anyone was
+  looking at, and spent real money on every night the repository was untouched.
+  A green run nobody reads is not evidence. The live suite itself stays exactly
+  where it was — `npm run test:integration`, against a bucket created and
+  deleted for the run — and everything the workflow enforced still holds when
+  you run it: `RUN_LIVE_INTEGRATION=1` with no `AWS_VECTOR_BUCKET` is fatal
+  rather than a silent skip. `docs/evidence/` now says in as many words that
+  nothing re-runs these probes on a schedule, so a claim there is only as fresh
+  as the date it records. `release.yml` is unaffected: its CI gate counts the
+  check runs on the tagged commit, and a scheduled workflow never produced one.
+
+### Fixed (found by the verification work)
+
+- **A decided behaviour had never been implemented.** Auditing all 38 entries
+  of the design's decision log against the code found two that were decided and
+  then missed: `context.batchSize` on a write failure (D-24) and the split of
+  index deletion out of `delete` (D-10) — the latter chosen explicitly during
+  the design review. Both are now implemented; the other 36 check out.
+
+- **A 503 did not say how big the batch was.** The design decided that a write
+  failure would carry the batch size, because AWS answers an oversized batch
+  with the same `ServiceUnavailableException` it uses for genuine
+  unavailability and nothing else separates them. The decision was never
+  implemented. `context.batchSize` is now set on every `PutVectors`
+  failure, through the same decorator that preserves the original stack.
+
+- **MMR did not validate its filter.** `maxMarginalRelevanceSearch` checked it
+  in the store but `mmrSearch` did not, so the action was one refactor away
+  from sending an invalid filter to AWS. It now validates like
+  `searchByVector`, and the store no longer duplicates the check.
+- **A filter rejection told only half the callers what to do.** An array got
+  "Omit the filter argument entirely to search without filtering"; a `Map`, a
+  `Date` or a string got nothing. Same mistake, same remedy — now both say it.
+- **An unobservable abort check was removed** from `mmrSearch`: `queryPages`
+  checks before its first request and nothing billable happens in between, so
+  a second check there could not change any outcome.
+
+- **An error could name an internal step instead of the call the caller made.**
+  `addVectors` aborted with `operation: 'ensureIndexExists'`, and
+  `similaritySearch` and `similaritySearchWithRelevanceScores` both reported
+  `similaritySearchWithScore`, because they delegate. `context.operation` is
+  how a caller finds the call site, so a delegate's name sends them to the
+  wrong one. The three text searches now share one private path that is told
+  which public method it serves, `addVectors` checks its own signal, and the
+  index lifecycle takes the caller's operation so an abort while waiting on a
+  shared index creation still names the write.
+- **`delete({ ids })` did not reject an already-fired signal.** Every other
+  entry point refuses before any request; this one threaded the signal into
+  `DeleteVectors` and let the SDK reject each batch instead, issuing N
+  cancelled requests where the contract promises none.
+
+### Verification
+
+- **The contract is executable.** This is the change the rest of this release
+  hangs off. Every contract here was written, reviewed and linted, and none of
+  it was ever *run*: a doc block promising `S3VectorsError` passed every gate
+  there was while the function threw a raw `TypeError`, and 100 % coverage only
+  ever measured the lines the inputs we happened to choose reached. An audit of
+  the finished package found thirty defects living in exactly that gap.
+
+  `test/contract/registry/` closes it. Each public entry point is declared as
+  data — the closed set of codes that may escape it, the context each code must
+  carry, its accepted input domain, the AWS calls it makes and in what order,
+  and its concurrency ceiling. A shared corpus then drives every declaration on
+  two axes: 32 hostile input values, and 13 *ambient* conditions that are not
+  inputs at all — a provider that throws, a client that rejects with a string, a
+  malformed response, a throttled call, an access denial. Six properties run
+  over the result. The load-bearing one is P2: an input outside the accepted
+  domain must be refused **before any AWS call and before any billable embed**.
+  A property that only inspects what escapes cannot see a silent corruption, and
+  the silent findings never threw at all.
+
+  The known-gap ledger is enforced in both directions — an unlisted failure
+  fails the run, and so does an entry that has stopped reproducing, so it cannot
+  rot into a list of things nobody has looked at since. It is empty.
+
+- **Mutation-sampled, not just covered.** Over 1,100 mutations were applied
+  across every module in twenty-four rounds and the suite re-run for each —
+  comparison and logical flips, numeric and boundary changes, removed
+  `await`s, **deleted statements** and **altered string literals**. Every
+  survivor was a real gap and every one is fixed: an asserted branch whose
+  *output* nothing checked, a `&&` that could move a metadata field named
+  `"null"` into page content, stack-provenance tests that checked the old
+  stack was gone rather than that the new one had frames, a non-object
+  `$metadata` that let a non-AWS error be reported as a retryable AWS one, an
+  unpinned cause-walk depth bound, an abort check whose deletion would have
+  cost a billable embed, and an MMR filter that was validated only by its
+  caller. The last five rounds — roughly 275 mutants — produced no
+  behavioural survivor at all; the one mutant that still survives the unit
+  suite is type-level, and `tsc` rejects it.
+
+  That sampling was done before the audit remediation above, against code this
+  release then changed substantially, and the tooling is no longer in the
+  repository — so read it as how the suite was hardened, not as a standing
+  measurement of the code that ships. What stands is the conformance run.
+- **Every error message is read by a test.** 78 error-construction sites; an
+  audit found 61 whose message no assertion touched, so a refactor could have
+  swapped two messages — or dropped the half that says what to do — without
+  anything failing. The actionable half is now asserted wherever it exists:
+  the option to set, the limit exceeded, the permission missing, the field
+  holding the ids already written.
+- **Properties over whole domains** (`test/property/pure-functions.property.test.ts`):
+  `chunk` round-trips and never yields an empty or oversized batch; every
+  offset indexes back into the array it came from; `resolveWriteIds` returns
+  one id per document and prefers the caller's; `validateFilter` throws nothing
+  but a coded `VALIDATION` for *any* input at all and accepts every filter
+  built from documented operators; `classifyAwsError` is total; `toError`
+  always returns an `Error` and preserves an Error-shaped input's identity;
+  `createDocument` round-trips page content and never shares mutable metadata
+  between two documents built from one vector.
+
+- **The documentation is checked against the API** (`test/contract/documented-api.test.ts`):
+  every method, static factory, error code and package export a doc names must
+  exist. Verified against the three lies this rework actually had to correct —
+  a removed method, a removed error code and an export that never existed.
+- **Every error names what raised it** (`test/contract/error-operation.test.ts`),
+  for all eleven entry points, the retriever, the callbacks-slot guard and an
+  abort during a shared index wait. The rule is the one `internal/operation.ts`
+  states: `context.operation` is the caller's own method — `addDocuments`,
+  `similaritySearch` — except on a failure raised by an AWS request itself, where
+  it is that command (`PutVectors`, `DeleteVectors`, `GetIndex`, `CreateIndex`,
+  `DeleteIndex`), because that is the call that failed. This entry previously
+  claimed the public method in every case, which the code never did and was never
+  meant to.
+
+- **Two more gates, each verified against the defect it prevents**: an
+  unhandled promise rejection or a listener-leak warning now fails the test run
+  (this package is full of deliberately un-awaited promises — a shared index
+  memo, `allSettled` groups, a write window that settles out of order — and
+  Jest only prints those by default); and every link in the shipped
+  documentation must resolve, anchors included, which caught the badge-link
+  blind spot in the checker itself before it caught anything else.
+
+- **Every dependency citation is checked against the installed package**
+  (`test/contract/dependency-citations.test.ts`). A contract cites the fact it
+  rests on as `package@version path:line`; nothing re-read those when the
+  packages moved, so a bump silently turned evidence into decoration. All 17
+  citations must now name the version that is installed, and every file and line
+  they point at must exist and carry code. The same suite reads the exception
+  names out of `@aws-sdk/client-s3vectors`'s own service model and requires
+  `classifyAwsError` to map each one to something other than the catch-all, so
+  an exception added by a future SDK fails the build instead of being reported
+  as a generic request failure. Verified against all three: a stale version, a
+  line number that has slid off the end of a file, and a removed mapping.
+- **Every sample in the documentation is compiled** (`npm run check:docs`, run
+  in CI). The name checks above cannot see a signature: `delete` stayed a real
+  method when its parameters changed, so a README snippet calling it the old way
+  passed every gate there was. All 34 TypeScript samples in the README, the
+  guide, the stability policy (since removed) and this changelog are now
+  type-checked against `src/` — with the context a snippet assumes (`store`,
+  `embeddings`, …) supplied as ambient declarations of the real types, so only
+  the setup is elided, never the checking. One block is marked as illustrative,
+  with its reason, and the count of such marks is asserted. Verified against a
+  snippet rewritten to call the old `delete`, which it rejects. It found four
+  defects in the documentation on its first run: a block declaring `const store`
+  twice, a filter over an `ids` array the snippet never defined, an upsert round
+  trip that dereferenced a `getByIds` result the API documents may be
+  `undefined`, and a client built with an empty object for its credentials.
+- **The audits are gates now** (`test/contract/source-contracts.test.ts`).
+  Every exported function must carry a contract naming what it returns and
+  throws; every interface field must carry a doc line; no doc block may sit
+  immediately above another, which is what a contract left behind by a moved
+  function looks like; and the source must stay free of `TODO`, `any`,
+  `@ts-ignore`, `eslint-disable`, `console.*` and `instanceof`. Written after
+  exactly that drift happened twice during this rework — the checks find the
+  third instance, in `_selectRelevanceScoreFn`, on their first run.
+
+### Documentation
+
+- Every exported function, every private helper and all 139 interface fields
+  carry a contract or a doc line. The fields every action shares — the client,
+  the operation name, the signal, the batch size and the concurrency cap — are
+  documented once on `internal/operation.ts` and inherited, which removed 25
+  duplicate declarations rather than adding 25 duplicate comments.
+- The largest functions were split where the split had a name worth giving:
+  `assertValidConfig` (93 lines, cyclomatic 25) into eight per-option
+  validators, `fetchVectorsByKey` (78/21) into three, `validateFilter` (69/21)
+  into four, plus `queryPages`, `listPages`, `createIndexLifecycle`,
+  `assertCreatable`, `awsDiagnostics`, `mmrSearch` and the constructor. What is
+  left above the thresholds is a pagination loop and an optional-field
+  extractor, where the branches are the algorithm.
+- README and `src/guide.md` are rewritten against the new
+  behaviour: the error-code table, the `getByIds` contract, MMR, enumeration,
+  the two retriever signals, the IAM policy (now including
+  `s3vectors:ListVectors`) and what construction validates. Every reference to
+  the Python `langchain-aws` package is gone: this package is specified against
+  AWS's documentation and `@langchain/core`, not against another implementation.
+- `docs/evidence/` records each live probe with its raw request and response,
+  and the README says which claims rest on it.
+- **The documentation was audited against the code, and four claims it made
+  were wrong.** `createIndexIfNotExist`'s JSDoc said a `GetIndex` is issued on
+  every instance's first write "regardless of this flag", and that it validates
+  the index's dimension and metric; neither is true — `false` issues no
+  control-plane call at all, and `indexExists` reads no field of the response.
+  The `client` option and the options it is exclusive with were documented as
+  "ignored" when supplied together, which has been a rejection since this
+  rework. `S3OutputVector` was described as the input type of an exported
+  `createDocument` helper, which is not exported. The README's
+  *Non-Filterable Metadata Keys* section still said the metadata byte caps
+  "aren't checked locally" and that a local check was unsafe, contradicting its
+  own limits table and the evidence probe that settled the counting rule. Each
+  is corrected at the source, so the generated reference under `docs/` is
+  correct too.
+- **`src/guide.md` documented a relevance conversion that no longer exists.**
+  It listed a built-in euclidean formula (`1.0 - distance / √4096`) as one of
+  two; `euclideanRelevanceScoreFn` was removed above, and a euclidean index
+  with no `relevanceScoreFn` raises `VALIDATION`. The guide also described
+  `delete()` as having an "entire index" mode and put peak ingest memory at one
+  batch rather than the pipeline window.
+- **The README's *Metadata Value Types* section described the old behaviour.**
+  A `Date`, an `undefined`, a `null` and a nested object were documented as
+  silently converted, silently dropped, or rejected by AWS; all four are now
+  rejected locally with `VALIDATION` naming the key. `SUPPORT.md` still pointed
+  readers at `deleteAll`, and the IAM section attributed `s3vectors:DeleteIndex`
+  to `delete()` rather than to `deleteIndex()`.
+- `docs/STABILITY.md` is removed. What a consumer needs from it now lives where
+  it is read: the supported Node, module-format, TypeScript and peer ranges in
+  the README's *Runtime Requirements* and *Testing* sections, the storage
+  layout in *Metadata Value Types* and *Disabling Page-Content
+  Round-Tripping*, the error contract — append-only codes and the stable
+  `isS3VectorsError` brand — in *Errors*, and the semver and deprecation rules
+  in `CONTRIBUTING.md`'s *Release Process*.
+- `CONTRIBUTING.md` says where behaviour comes from — the S3 Vectors API
+  reference, the SDK service model, `@langchain/core`'s source, or a recorded
+  live probe with a test guarding it — replacing the section that told
+  contributors to track another implementation of this store and port its
+  fixes. The feature-request template asks for the primary source behind a
+  proposal instead of whether that package does the same. A test holds the rule
+  in place across the contributor documents and issue templates.
+
+- **`awsErrorName` and `retryable` are documented as what they are:** set on
+  every error whose cause is AWS-shaped, whatever code that error was given, not
+  only on `AWS_REQUEST_FAILED` and `NOT_FOUND`. `AWS_REJECTED` carries
+  `"ValidationException"`; `THROTTLED` carries `"TooManyRequestsException"`. The
+  `retryable` field no longer names an exception the service cannot send.
+- **`pagesScanned`** is documented as being set on every listing failure,
+  including one on the first page where it reads `0`, which is an answer rather
+  than an omission.
+- **`foundIds`** is documented as being set by MMR as well as `getByIds`, which
+  fetches its candidates the same way.
+- **`context.operation`** is described by the rule the code actually follows: the
+  caller's own method, except on a failure raised by an AWS request itself, where
+  it is that command. An earlier entry claimed the public method in every case,
+  which the code never did.
+
+- **The documented IAM policy was missing `s3vectors:TagResource`.** AWS
+  requires it in addition to `s3vectors:CreateIndex` to create an index with
+  tags (`CreateIndexInput.tags`), so a store configured with `tags` and the
+  README's policy — presented as the complete least-privilege set, "no
+  `s3vectors:*` wildcard" — failed its first write with an
+  `AccessDeniedException` naming a permission the reader had been told they did
+  not need. The action never appears in a log of its own, because tags travel
+  inside the `CreateIndex` request. `index-lifecycle.ts` had said so in a
+  comment since the option was added; the policy a reader actually pastes did
+  not.
+
+- **The `connectionTimeout`, `socketTimeout` and `requestTimeout` options were
+  absent from the README's configuration table.** They exist, are validated at
+  construction and change how a hung request behaves, and were reachable only by
+  reading the type definitions. The table also still described the constructed
+  client as built from "exactly `region`, `credentials`, `endpoint`,
+  `maxAttempts` and `retryMode`", which stopped being true when those three
+  options started setting a `requestHandler`.
+
+- **Ten further claims that the code contradicted are corrected.**
+  `pageContentMetadataKey: null` was documented as storing page content "as an
+  empty string" when no key is written at all; `nonFilterableMetadataKeys` was
+  documented with a 10-key exemption that does not exist (exceeding the cap is
+  refused, and the section two screens down said so); a lost index-creation race
+  was described as "re-validating against whichever writer actually won", when
+  nothing is re-read; `deleteIndex` was missing from the list of methods that
+  accept an `AbortSignal`; `similaritySearchVectorWithScore` was shown with an
+  optional `k` that is required, and `src/guide.md` showed the three text
+  searches with a required `k` that defaults to `4`; the `NOT_FOUND` and
+  `INDEX_CONFIG_MISMATCH` enum docs described conditions neither is raised for;
+  `getByIds`'s `@throws` contradicted its own remarks about absent ids;
+  `relevanceScoreFn` was documented as falling back to "a built-in function
+  selected based on the configured `distanceMetric`", when a euclidean index has
+  no built-in and fails closed instead; `AmazonS3VectorsConfig` presented
+  `embeddings` and `client` as alternatives to each other, which they are not;
+  and the issue template and CI workflow still referenced `addTexts` and a
+  stability policy that had both been removed.
+
+- **Two of those classes of drift now have a gate.**
+  `test/contract/documented-config.test.ts` derives the actions this package can
+  issue from the `new …Command(` sites in `src/` and asserts the README's IAM
+  policy grants exactly those, plus the permissions AWS requires without a call
+  of their own; it also asserts the configuration table has a row for every
+  field of `AmazonS3VectorsConfig`, which is what would have caught the missing
+  timeouts. `test/contract/documented-signatures.test.ts` parses each documented
+  signature and asserts its arity, and which arguments may be omitted, match the
+  method — the check that catches a `k?` that is required. Both were run against
+  the defects above and fail on each.
+
+- **The documentation was read end to end against the code, and eight more
+  claims were wrong.** The worst was in *Infrastructure Setup*: the
+  `aws s3vectors create-index` snippet a reader is told to run omitted
+  `--metadata-configuration`, and an index created that way reports an empty
+  non-filterable key list — which this store now refuses to write to with
+  `INDEX_CONFIG_MISMATCH`, and which cannot be corrected afterwards because the
+  list is fixed at creation. Verified by running the README's own command
+  against live AWS, writing through the library, and watching it fail; then
+  re-running with the flag and watching it pass. The CLI snippet, the console
+  steps and the CDK note now all state the rule.
+
+  The CDK note was stale in its own right: it said to use a raw `CfnResource`,
+  but `aws-cdk-lib` (checked at 2.269.0) ships typed L1 constructs for both
+  resources — `aws_s3vectors.CfnVectorBucket` and `aws_s3vectors.CfnIndex`. A
+  worked snippet replaces the advice. There are still no L2 constructs.
+
+  The rest: the *Retries* section named `ThrottlingException` as a name this
+  service sends, which is one of the three invented names removed from the code
+  in this release — S3 Vectors sends `TooManyRequestsException`; two code
+  comments still listed the five options `client` is exclusive with, which
+  became eight when the timeouts arrived; the guide's `INDEX_CONFIG_MISMATCH`
+  and `VALIDATION` rows described narrower conditions than the code raises; and
+  the project tree omitted three modules this release added
+  (`internal/output-vectors.ts`, `shared/objects.ts`, `shared/aws-limits.ts`)
+  while describing `actions/delete.ts` as still able to destroy the index and
+  `index-lifecycle.ts` as exporting an existence check.
+
+- **Two filter behaviours the README asserted now have evidence and a guard.**
+  A type-mismatched comparison (`{ popular: { $eq: 'true' } }` against a stored
+  boolean) matches nothing without erroring, and filtering on a non-filterable
+  key is rejected outright. Both were stated as "confirmed live" with nothing
+  re-checking them, which is the one thing `docs/evidence/README.md` says a
+  citable claim may not be. They are recorded as T3-12 and T3-13 with their raw
+  traffic, and the live suite now fails if AWS changes either answer.
+
 ## [1.0.0-rc.1] - 2026-09-02
 
-The 1.0.0 release candidate, published under the `next` dist-tag. Every finding of an in-depth pre-1.0 review of the package as a whole — source, public types, error surface, CI/release pipeline and documentation — against the bar of "safe to depend on in an enterprise production system" is fixed; the package ships an ESM and a CommonJS build; and [`docs/STABILITY.md`](./docs/STABILITY.md) states what every `1.x` release promises to keep. No wire-format or storage-format change: everything written by 0.9.0 reads back identically, and 0.9.0 reads everything this version writes.
+The 1.0.0 release candidate, published under the `next` dist-tag. Every finding of an in-depth pre-1.0 review of the package as a whole — source, public types, error surface, CI/release pipeline and documentation — against the bar of "safe to depend on in an enterprise production system" is fixed; the package ships an ESM and a CommonJS build; and `docs/STABILITY.md` stated what every `1.x` release promised to keep. No wire-format or storage-format change: everything written by 0.9.0 reads back identically, and 0.9.0 reads everything this version writes.
 
 ### Breaking
 
@@ -33,7 +833,7 @@ The 1.0.0 release candidate, published under the `next` dist-tag. Every finding 
 - **AWS diagnostics on every wrapped error.** `S3VectorsError.context` now carries `awsErrorName`, `httpStatusCode`, `requestId` and `retryable` when the cause is an AWS SDK error, and the message names them inline (`PutVectors failed (ThrottlingException, HTTP 429, requestId …): …`) so a log line alone is enough to open an AWS support case. `retryable` is derived from the SDK's `$retryable` marker, the documented transient exception names, and HTTP 429 / 5xx status, and is the intended input for a caller-side retry/backoff layer on top of the SDK's own retries.
 - **`maxConcurrentBatchCalls` config option** (default `10`, positive integer). Caps how many `PutVectors` / `DeleteVectors` / `GetVectors` calls the store keeps in flight at once. Lower it when sharing a bucket's request quota with other producers; raise it on dedicated buckets with high write volume.
 - **`addDocuments` pipelines embedding against upload.** Previously each concurrent group waited for *all* of its `embedDocuments` calls before issuing any `PutVectors`, so the upload path idled during embedding and vice versa. Batches are now embedded one at a time (preserving the sequential, rate-limit-friendly embedding behaviour) while previously embedded batches are already uploading, with at most `maxConcurrentBatchCalls` uploads in flight. Partial-failure semantics are unchanged: `context.writtenIds` still lists exactly what reached AWS, and an abort signal is still honoured between every batch — now also *after* an embed and before its upload.
-- **`docs/STABILITY.md`** states what every `1.x` release promises: the public export set, the layout of what the store writes to S3 Vectors, append-only error codes and the stable `isS3VectorsError` brand, the supported Node, TypeScript and peer ranges with the check that verifies each, the deprecation rule, and the Python-parity choices that are deliberate. `SUPPORT.md`, issue templates (bug report, feature request) and a pull-request template point at it. The README's Testing section now states what each test tier proves and what nothing proves, and its description of the live-AWS workflow matches what the workflow does (nightly, an ephemeral bucket, a zero-tests-ran guard). The JSDoc for `S3VectorsErrorContext.awsErrorName` named an `INDEX_NOT_FOUND` code that does not exist; it is `NOT_FOUND`.
+- **`docs/STABILITY.md`** (since removed) stated what every `1.x` release promises: the public export set, the layout of what the store writes to S3 Vectors, append-only error codes and the stable `isS3VectorsError` brand, the supported Node, TypeScript and peer ranges with the check that verifies each, the deprecation rule, and the Python-parity choices that are deliberate. `SUPPORT.md`, issue templates (bug report, feature request) and a pull-request template pointed at it. The README's Testing section now states what each test tier proves and what nothing proves, and its description of the live-AWS workflow matches what the workflow does (nightly, an ephemeral bucket, a zero-tests-ran guard). The JSDoc for `S3VectorsErrorContext.awsErrorName` named an `INDEX_NOT_FOUND` code that does not exist; it is `NOT_FOUND`.
 - README: a Non-goals section (no `ListVectors`, bucket lifecycle, retry layer or client-side metadata-size enforcement); a Rate Limits, Payload Limits and Cost section quantifying the per-call caps this store's batching is sized to and how they map to billing; a note that `asRetriever().invoke()` does not forward an `AbortSignal`; a section on the strict `getByIds` contract and recovering `context.foundIds`; and a list of which `S3VectorsClientConfig` fields are passed through when the store builds its own client.
 
 ### Repository hygiene
@@ -278,6 +1078,18 @@ Two findings cannot be reproduced against a correctly-functioning AWS endpoint, 
 
 - Stryker mutation-testing scaffold (`stryker.conf.json`, `test:mutate` / `test:mutate:quick` scripts, and the `@stryker-mutator/*` devDependencies).
 
+## [0.2.2] - 2026-05-26
+
+A maintenance release: dependency updates and the audit fixes they carried,
+with no change to the public API or to what is stored. Reconstructed from the
+tags and the npm registry while validating this file — 0.2.1 was tagged but
+never published, and 0.2.2 shipped without an entry here.
+
+### Changed
+
+- Dependencies updated across the tree, including the fixes `npm audit` flagged.
+- CI: `aws-actions/configure-aws-credentials` bumped from 5 to 6 (Dependabot).
+
 ## [0.2.0] - 2026-04-18
 
 ### Added
@@ -317,3 +1129,18 @@ Two findings cannot be reproduced against a correctly-functioning AWS endpoint, 
 ## [0.1.0] - 2026-03-22
 
 - Initial release.
+
+[Unreleased]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.2...HEAD
+[1.0.0-rc.2]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.1...v1.0.0-rc.2
+[1.0.0-rc.1]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.9.0...v1.0.0-rc.1
+[0.9.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.3.2...v0.4.0
+[0.3.2]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.2.2...v0.3.1
+[0.2.2]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.2.0...v0.2.2
+[0.2.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/releases/tag/v0.1.0

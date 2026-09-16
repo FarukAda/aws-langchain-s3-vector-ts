@@ -37,6 +37,53 @@ describe('S3VectorsError', () => {
     expect(isS3VectorsError(null)).toBe(false);
     expect(isS3VectorsError('S3VectorsError')).toBe(false);
   });
+
+  it('recognises an error from a second copy of this module', () => {
+    // A process that mixes `import` and `require` loads the ESM and the
+    // CommonJS build, each with its own class — `instanceof` is false across
+    // them. The brand is a registered symbol, so it is the same symbol in
+    // both, which is what this stands in for.
+    const fromTheOtherCopy = Object.assign(new Error('x'), {
+      [Symbol.for('@farukada/aws-langchain-s3-vector-ts:S3VectorsError')]: true,
+    });
+    expect(isS3VectorsError(fromTheOtherCopy)).toBe(true);
+  });
+
+  it('is not fooled by an error that merely claims the name', () => {
+    expect(isS3VectorsError(Object.assign(new Error('x'), { name: 'S3VectorsError' }))).toBe(false);
+  });
+});
+
+describe('S3VectorsErrorCode — the value is the contract, not the key', () => {
+  it('every member serialises to its own name', () => {
+    // A caller who cannot import the enum compares against the string, and
+    // A `1.x` release never renames a value. A key and value
+    // that drift apart break that silently.
+    for (const [key, value] of Object.entries(S3VectorsErrorCode)) {
+      expect(value).toBe(key);
+    }
+  });
+
+  it('holds exactly the codes the documentation lists', () => {
+    expect(Object.keys(S3VectorsErrorCode).sort()).toEqual([
+      'ABORTED',
+      'ACCESS_DENIED',
+      'AWS_INVALID_RESPONSE',
+      'AWS_REJECTED',
+      'AWS_REQUEST_FAILED',
+      'CONFLICT',
+      'EMBEDDINGS_MISSING',
+      'INDEX_CONFIG_MISMATCH',
+      'KMS_ERROR',
+      'NOT_FOUND',
+      'QUERY_PAGE_LIMIT_EXCEEDED',
+      'QUOTA_EXCEEDED',
+      'SERVICE_UNAVAILABLE',
+      'THROTTLED',
+      'UNEXPECTED_ERROR',
+      'VALIDATION',
+    ]);
+  });
 });
 
 describe('S3VectorsErrorContext.instance — serialization safety', () => {
@@ -58,7 +105,10 @@ describe('S3VectorsErrorContext.instance — serialization safety', () => {
       { ...BASE_CONFIG, client },
     ).catch((e: unknown) => e)) as S3VectorsError;
 
-    expect(error.context.instance).toBeDefined();
+    // The instance is the store the write was attempted against, not merely
+    // something truthy: a caller recovers by calling delete/getByIds on it.
+    expect(error.context.instance).toBeInstanceOf(AmazonS3Vectors);
+    expect(error.context.instance?.indexName).toBe(BASE_CONFIG.indexName);
 
     const serialized = JSON.stringify(error.context.instance);
     expect(serialized).not.toContain('_client');

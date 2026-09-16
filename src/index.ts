@@ -10,11 +10,17 @@ export type {
   AmazonS3VectorsConfig,
   DistanceMetric,
   VectorDataType,
+  S3VectorsDeleteIndexParams,
   S3VectorsDeleteParams,
+  S3VectorsListParams,
+  S3VectorsRecord,
   S3OutputVector,
 } from './types.js';
 
-export { cosineRelevanceScoreFn, euclideanRelevanceScoreFn } from './relevance-scores.js';
+export { AmazonS3VectorsRetriever } from './retriever.js';
+export type { AmazonS3VectorsRetrieverFields, AmazonS3VectorsRetrieverInput } from './retriever.js';
+
+export { cosineRelevanceScoreFn } from './relevance-scores.js';
 
 export { S3VectorsError, isS3VectorsError } from './shared/errors/s3-vectors-error.js';
 export type { S3VectorsErrorContext } from './shared/errors/s3-vectors-error.js';

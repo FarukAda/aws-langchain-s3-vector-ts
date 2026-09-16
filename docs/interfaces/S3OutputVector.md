@@ -6,14 +6,14 @@
 
 # Interface: S3OutputVector
 
-Defined in: [types.ts:185](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L185)
+Defined in: [types.ts:250](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L250)
 
 Shape of a single vector as returned by QueryVectors / GetVectors.
 
-Public: this is the input type of the exported `createDocument` helper,
-so a caller mapping their own `QueryVectors` responses (for example from
-a Lambda that calls the SDK directly) can build the same `Document`
-shape this store produces.
+Public because it is the shape the store reads: a caller mapping their own
+`QueryVectors` or `GetVectors` responses (for example from a Lambda that
+calls the SDK directly) can type them against the same contract this store
+maps to `Document`.
 
 ## Properties
 
@@ -21,7 +21,11 @@ shape this store produces.
 
 > `readonly` `optional` **data?**: `object`
 
-Defined in: [types.ts:189](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L189)
+Defined in: [types.ts:269](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L269)
+
+The embedding, present only when the request asked for data. Absent from
+every search result: `QueryVectors` does not return vector data at all,
+which is why MMR needs a second call.
 
 #### float32?
 
@@ -33,7 +37,10 @@ Defined in: [types.ts:189](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` `optional` **distance?**: `number`
 
-Defined in: [types.ts:188](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L188)
+Defined in: [types.ts:263](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L263)
+
+The distance from the query vector, present only on a `QueryVectors`
+result that asked for it. Lower is more similar, for both metrics.
 
 ***
 
@@ -41,7 +48,9 @@ Defined in: [types.ts:188](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` **key**: `string`
 
-Defined in: [types.ts:186](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L186)
+Defined in: [types.ts:252](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L252)
+
+The vector key — the id this package wrote it under.
 
 ***
 
@@ -49,4 +58,8 @@ Defined in: [types.ts:186](https://github.com/FarukAda/aws-langchain-s3-vector-t
 
 > `readonly` `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [types.ts:187](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L187)
+Defined in: [types.ts:258](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L258)
+
+The stored metadata, present when the request asked for it. Page content
+is in here, under the store's `pageContentMetadataKey`, until
+`createDocument` lifts it out.

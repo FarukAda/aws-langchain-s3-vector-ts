@@ -24,7 +24,8 @@ describe('AmazonS3Vectors error surface', () => {
     } catch (error: unknown) {
       expect(isS3VectorsError(error)).toBe(true);
       const typed = error as { code: S3VectorsErrorCode; context: { operation: string } };
-      expect(typed.code).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
+      // Classified by exception name now, not collapsed into one code.
+      expect(typed.code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
       expect(typed.context.operation).toBe('PutVectors');
     }
   });

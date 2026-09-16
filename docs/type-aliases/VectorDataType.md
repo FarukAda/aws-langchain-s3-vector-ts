@@ -8,6 +8,6 @@
 
 > **VectorDataType** = `"float32"`
 
-Defined in: [types.ts:14](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L14)
+Defined in: [types.ts:15](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L15)
 
 Data types supported by Amazon S3 Vectors. Currently only float32.

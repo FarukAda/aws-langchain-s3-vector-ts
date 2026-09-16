@@ -5,7 +5,9 @@ import { S3VectorsErrorCode } from './error-code.js';
 export interface S3VectorsErrorContext {
   /** The logical operation that failed (e.g. `"PutVectors"`, `"getByIds"`). */
   readonly operation: string;
+  /** The bucket the failed operation named. Absent only on a failure raised before one was known. */
   readonly vectorBucketName?: string;
+  /** The index the failed operation named. Absent only on a failure raised before one was known. */
   readonly indexName?: string;
   /**
    * Ids confirmed durably written to AWS before a partial `addVectors`/
@@ -14,15 +16,33 @@ export interface S3VectorsErrorContext {
    * can find and clean up or reconcile vectors that already landed.
    */
   readonly writtenIds?: string[];
+  /**
+   * Every id the failed write resolved, whether or not it landed. Retrying with
+   * `{ ids: attemptedIds }` overwrites in place instead of minting fresh UUIDs
+   * for the documents that already committed.
+   */
+  readonly attemptedIds?: string[];
+  /**
+   * The specific validation failures AWS reported, each naming the field that
+   * failed and why. A `ValidationException` carries these
+   * (`@aws-sdk/client-s3vectors@3.1133.0` `dist-types/models/models_0.d.ts:94`)
+   * and they are the actionable half of an otherwise opaque rejection.
+   */
+  readonly fieldList?: { path?: string; message?: string }[];
   /** Ids confirmed durably deleted before a partial `delete({ ids })` failure. */
   readonly deletedIds?: string[];
   /**
-   * `QueryVectors` pages scanned before a paginated search stopped early.
+   * Pages scanned before a paginated operation stopped.
    *
-   * Set on a `QUERY_PAGE_LIMIT_EXCEEDED` error, and also on a failure that
-   * happened partway through pagination (page 2 or later) — where the code
-   * is whatever the underlying call failed with, typically
-   * `AWS_REQUEST_FAILED`.
+   * On a search: set on `QUERY_PAGE_LIMIT_EXCEEDED`, and on a failure partway
+   * through pagination (page 2 or later), where the code is whatever the
+   * underlying call failed with.
+   *
+   * On a listing (`listDocuments`/`listVectors`): set on **every** failure,
+   * including one on the very first page, where it reads `0`. That is the
+   * useful answer rather than an omission — "nothing was scanned" is what a
+   * caller needs to know — and it is why the record-level checks were moved
+   * into the generator that keeps the count.
    */
   readonly pagesScanned?: number;
   /**
@@ -32,11 +52,38 @@ export interface S3VectorsErrorContext {
    */
   readonly resultsCollected?: number;
   /**
-   * The AWS exception name (`"AccessDeniedException"`, `"ThrottlingException"`,
-   * `"ValidationException"`, …) when the failure came from an AWS SDK call.
-   * Lifted off `cause.name` so a log line or alert can branch on it without
-   * walking `cause`. Set on `AWS_REQUEST_FAILED` and `NOT_FOUND`
-   * errors whose cause is an SDK error; absent otherwise.
+   * How many vectors the failed `PutVectors` call carried.
+   *
+   * Set only on a write failure, and present because AWS answers an oversized
+   * batch with `ServiceUnavailableException` — the same 503 it uses for
+   * genuine unavailability ("The number of vectors in a single request must
+   * not exceed the resource capacity", `API_S3VectorBuckets_PutVectors.html`).
+   * The two are indistinguishable by code, and the only prose that separates
+   * them is AWS's own message, which is not a contract. Knowing the size of
+   * the batch that failed is what lets a caller decide between backing off and
+   * splitting.
+   */
+  readonly batchSize?: number;
+
+  /**
+   * Vectors already yielded by an enumeration (`listDocuments`/`listVectors`)
+   * before it failed. Those records have been consumed by the caller already,
+   * so a listing is not atomic; this says how much of the index was covered,
+   * alongside {@link pagesScanned}.
+   */
+  readonly yielded?: number;
+  /**
+   * The AWS exception name (`"AccessDeniedException"`,
+   * `"TooManyRequestsException"`, `"ValidationException"`, …) when the failure
+   * came from an AWS SDK call. Lifted off `cause.name` so a log line or alert
+   * can branch on it without walking `cause`.
+   *
+   * Set on **every** error whose cause is AWS-shaped — one carrying the SDK's
+   * `$metadata`, or named for a service exception — whatever code that error
+   * was given. So `AWS_REJECTED` carries `"ValidationException"` and `THROTTLED`
+   * carries `"TooManyRequestsException"`, not only the two codes this field was
+   * once documented as being limited to. Absent when the failure did not come
+   * from AWS: a validation error, or an embeddings model that threw.
    */
   readonly awsErrorName?: string;
   /** HTTP status of the failed AWS response (`cause.$metadata.httpStatusCode`), when known. */
@@ -48,32 +95,29 @@ export interface S3VectorsErrorContext {
   readonly requestId?: string;
   /**
    * Whether the failed AWS call is worth retrying after a backoff. `true` for
-   * throttling (`ThrottlingException`, `TooManyRequestsException`, HTTP 429),
-   * transient service errors (`ServiceUnavailableException`,
-   * `InternalServerException`, HTTP 5xx) and anything the SDK itself marked
-   * `$retryable`. Only set when the cause is an AWS SDK error; a non-AWS
-   * failure (an embeddings model throwing, a validation error) leaves it
-   * `undefined`. Note the SDK's own retry strategy (3 attempts by default)
-   * has usually already run before an error reaches this library — a
-   * `retryable: true` error means those attempts were exhausted.
+   * throttling (`TooManyRequestsException`, HTTP 429), transient service errors
+   * (`ServiceUnavailableException`, `InternalServerException`,
+   * `RequestTimeoutException`, HTTP 5xx), a `TimeoutError` from the SDK's own
+   * HTTP handler, and anything the SDK itself marked `$retryable`.
+   *
+   * Set alongside {@link awsErrorName}, on any AWS-shaped cause and whatever
+   * code the error was given — `false` is a real answer and means "this will
+   * fail again", which is the point. Absent when the failure did not come from
+   * AWS at all.
+   *
+   * Note the SDK's own retry strategy (3 attempts by default) has usually
+   * already run before an error reaches this library, so `retryable: true`
+   * means those attempts were exhausted.
    */
   readonly retryable?: boolean;
   /**
-   * `true` when a `PutVectors` failure (`NotFoundException` or
-   * `ValidationException`) made the store discard its cached index
-   * dimension/distance metric. The next write on this instance re-checks
-   * the index with `GetIndex` — and, with `createIndexIfNotExist`,
-   * re-creates a missing one — instead of trusting a cache that may
-   * describe an index deleted or re-created outside this process. A
-   * caller that retries writes can treat this as "retrying is worth it".
-   */
-  readonly indexCacheInvalidated?: true;
-  /**
-   * Ids confirmed found (and already fetched) before a partial `getByIds`
-   * failure — either a `GetVectors` batch rejecting while sibling batches
-   * in the same concurrency group succeed, or an id genuinely not found
-   * after other ids in the same group were already confirmed. Present so
-   * a caller doesn't have to re-fetch everything from scratch.
+   * Ids confirmed found (and already fetched) before a partial fetch failure —
+   * either a `GetVectors` batch rejecting while sibling batches in the same
+   * concurrency group succeed, or an id genuinely not found after other ids in
+   * the same group were already confirmed. Present so a caller doesn't have to
+   * re-fetch everything from scratch.
+   *
+   * Set by `getByIds` **and** by MMR, which fetches its candidates the same way.
    */
   readonly foundIds?: string[];
   /**
@@ -106,13 +150,36 @@ export interface S3VectorsErrorContext {
 const S3_VECTORS_ERROR_BRAND = Symbol.for('@farukada/aws-langchain-s3-vector-ts:S3VectorsError');
 
 /**
- * The single error type surfaced by this library. Wraps validation failures,
- * not-found conditions, and underlying AWS errors behind one consistent shape.
+ * The single error type this library surfaces.
+ *
+ * Accepts: a message, a {@link S3VectorsErrorCode}, a context naming the
+ * operation and the index, and optionally the underlying `cause`.
+ *
+ * Returns: an `Error` subclass whose `name` is always `'S3VectorsError'`, with
+ * `code`, `context` and `cause` readonly once set — which is why every
+ * decorator rebuilds rather than mutates.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: instances carry a `Symbol.for` brand, so {@link isS3VectorsError}
+ * recognises them across realms and across the ESM and CommonJS copies of this
+ * module. `cause` is always an `Error` when present: a caller can read
+ * `error.cause.message` without checking what was actually thrown.
+ *
+ * `code` and `context` are readonly at runtime, not only to TypeScript — defined
+ * non-writable, with `context` frozen. Both were reassignable, and `context` was
+ * stored as the caller's own object, so whoever built an error could still
+ * rewrite what it reported afterwards. An error is a record of something that
+ * already happened; it is not a place to keep mutable state.
+ *
+ * The frozen copy is made from property descriptors rather than by spreading,
+ * because `context.instance` is deliberately non-enumerable and a spread would
+ * drop it.
  */
 export class S3VectorsError extends Error {
   readonly [S3_VECTORS_ERROR_BRAND] = true;
-  readonly code: S3VectorsErrorCode;
-  readonly context: S3VectorsErrorContext;
+  declare readonly code: S3VectorsErrorCode;
+  declare readonly context: S3VectorsErrorContext;
 
   constructor(
     message: string,
@@ -122,12 +189,48 @@ export class S3VectorsError extends Error {
   ) {
     super(message, cause === undefined ? undefined : { cause });
     this.name = 'S3VectorsError';
-    this.code = code;
-    this.context = context;
+
+    // Descriptors, not a spread: `context.instance` is non-enumerable on purpose
+    // so it stays out of logs, and spreading would drop it. `?? {}` guards only
+    // against a nullish context, which would make `getOwnPropertyDescriptors`
+    // throw from inside a constructor that is itself reporting a failure.
+    const frozen = Object.freeze(
+      Object.defineProperties({}, Object.getOwnPropertyDescriptors(context ?? {})),
+    ) as S3VectorsErrorContext;
+
+    // Enumerable, as class fields were, so `{ ...error }` and a structured
+    // logger still see them — but not writable, which is what the contract above
+    // has always said.
+    Object.defineProperty(this, 'code', {
+      value: code,
+      enumerable: true,
+      writable: false,
+      configurable: false,
+    });
+    Object.defineProperty(this, 'context', {
+      value: frozen,
+      enumerable: true,
+      writable: false,
+      configurable: false,
+    });
   }
 }
 
-/** Type guard for {@link S3VectorsError} that avoids `instanceof`. */
+/**
+ * Whether `value` is one of this library's errors.
+ *
+ * Accepts: anything, including a non-object.
+ *
+ * Returns: `true` when the value carries this package's registered-symbol
+ * brand. Deliberately not `instanceof`: that is false across realms (a `vm`
+ * context, a worker) and false between the ESM and CommonJS copies of this
+ * module, which a process mixing `import` and `require` will load both of.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: this is the supported way to recognise these errors, and the
+ * brand string is stable for `1.x`.
+ */
 export function isS3VectorsError(value: unknown): value is S3VectorsError {
   return (
     typeof value === 'object' &&

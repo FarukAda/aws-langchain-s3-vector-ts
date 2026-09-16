@@ -1,6 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
 
 import { chunk, offsetBatches } from '../../src/shared/batching.js';
+import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 
 describe('chunk', () => {
   it('splits an array into groups of the given size', () => {
@@ -13,6 +14,31 @@ describe('chunk', () => {
 
   it('returns an empty array for an empty input', () => {
     expect(chunk([], 5)).toEqual([]);
+  });
+
+  it('names the rule and what it got', () => {
+    let message = '';
+    try {
+      chunk([1], 0);
+    } catch (error: unknown) {
+      message = (error as Error).message;
+    }
+    expect(message).toBe('Batch size must be an integer of 1 or more (received 0).');
+  });
+
+  it.each([0, -1, 0.5])('rejects a size of %p rather than looping forever', (size) => {
+    // `for (i = 0; i < len; i += size)` never terminates at 0 and never
+    // advances at a negative size: a pure exported helper whose domain
+    // contains an infinite loop is not closed, whatever its callers check.
+    const error = (() => {
+      try {
+        chunk([1, 2, 3], size);
+        return undefined;
+      } catch (e: unknown) {
+        return e;
+      }
+    })();
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
   });
 
   it('returns exact-multiple chunks with no trailing empty chunk', () => {

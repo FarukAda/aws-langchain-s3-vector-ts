@@ -25,16 +25,6 @@ describe('AmazonS3Vectors.getByIds', () => {
     expect(docs[1]!.id).toBe('id-2');
   });
 
-  it('throws when an ID is not found', async () => {
-    const { store, mock } = createTestStore();
-
-    mock.on(GetVectorsCommand).resolves({ vectors: [] });
-
-    await expect(store.getByIds(['missing-id'])).rejects.toThrow(
-      "Id 'missing-id' not found in vector store.",
-    );
-  });
-
   it('rejects a non-array ids argument with a coded VALIDATION error, not a raw TypeError', async () => {
     const { store } = createTestStore();
 
@@ -92,14 +82,6 @@ describe('AmazonS3Vectors.getByIds batching and fallbacks', () => {
     expect(docs).toHaveLength(2);
     expect(mock.commandCalls(GetVectorsCommand)).toHaveLength(2);
   });
-
-  it('throws not found when the response has no vectors field', async () => {
-    const { store, mock } = createTestStore();
-
-    mock.on(GetVectorsCommand).resolves({});
-
-    await expect(store.getByIds(['id-1'])).rejects.toThrow("Id 'id-1' not found");
-  });
 });
 
 describe('getByIds — partial-failure reporting', () => {
@@ -137,17 +119,5 @@ describe('getByIds — partial-failure reporting', () => {
     expect(new Set((error as S3VectorsError).context.foundIds)).toEqual(
       new Set(['id-1', 'id-4', 'id-5']),
     );
-  });
-
-  it('when multiple ids in the same group are missing, reports only the first as not found and still counts every found id', async () => {
-    const { store, mock } = createTestStore();
-    mock.on(GetVectorsCommand).resolves({ vectors: [{ key: 'id-1', metadata: { genre: 'a' } }] });
-
-    const error = await store.getByIds(['id-1', 'id-2', 'id-3']).catch((e: unknown) => e);
-
-    expect(isS3VectorsError(error)).toBe(true);
-    expect((error as S3VectorsError).message).toContain("Id 'id-2' not found");
-    expect((error as S3VectorsError).message).not.toContain("Id 'id-3' not found");
-    expect((error as S3VectorsError).context.foundIds).toEqual(['id-1']);
   });
 });

@@ -1,4 +1,4 @@
-import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
+import { PutVectorsCommand, type S3VectorsClient } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
@@ -28,6 +28,44 @@ describe('AmazonS3Vectors.fromTexts', () => {
 
     expect(store).toBeInstanceOf(AmazonS3Vectors);
     expect(embeddings.embedDocuments).toHaveBeenCalledWith(['hello', 'world']);
+  });
+});
+
+describe('AmazonS3Vectors.fromTexts metadatas', () => {
+  async function storedMetadata(
+    metadatas: Record<string, unknown>[] | Record<string, unknown>,
+  ): Promise<Record<string, unknown>[]> {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    await AmazonS3Vectors.fromTexts(['a', 'b'], metadatas, createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+    });
+    const put = mock.commandCalls(PutVectorsCommand)[0]!.args[0].input as {
+      vectors: { metadata: Record<string, unknown> }[];
+    };
+    return put.vectors.map((v) => v.metadata);
+  }
+
+  it('pairs an array of matching length one to one', async () => {
+    const stored = await storedMetadata([{ genre: 'a' }, { genre: 'b' }]);
+    expect(stored[0]).toMatchObject({ genre: 'a' });
+    expect(stored[1]).toMatchObject({ genre: 'b' });
+  });
+
+  it('broadcasts a single object to every text', async () => {
+    const stored = await storedMetadata({ genre: 'shared' });
+    expect(stored[0]).toMatchObject({ genre: 'shared' });
+    expect(stored[1]).toMatchObject({ genre: 'shared' });
+  });
+
+  it('treats an omitted metadatas as an empty object per document', async () => {
+    // Reachable from an untyped caller; it used to broadcast `undefined` into
+    // `new Document({ metadata: undefined })`.
+    const stored = await storedMetadata(undefined as unknown as Record<string, unknown>);
+    // Only the page-content key, which the store writes itself.
+    expect(Object.keys(stored[0]!)).toEqual(['_page_content']);
+    expect(Object.keys(stored[1]!)).toEqual(['_page_content']);
   });
 });
 
@@ -141,38 +179,70 @@ describe('fromDocuments — partial-write failure', () => {
     expect(instance!.vectorBucketName).toBe(BASE_CONFIG.vectorBucketName);
   });
 
-  it('still attaches the instance via the _normalizeToS3VectorsError fallback when addDocuments throws before it wraps anything itself', async () => {
-    // addDocuments validates `documents` is an array up front, and its own
-    // error-wrapping (_checkAborted, the try/catch around embedBatch+putBatch,
-    // _attachPartialIds) starts a few lines later — but `documents.map(...)`
-    // on the very first line after that array check runs before any of the
-    // latter, so an array containing a non-Document element (a realistic
-    // mistake for an untyped JS caller, or a TS caller that casts past the
-    // type system) still throws a raw, un-wrapped TypeError straight into
-    // fromDocuments's catch. This is a genuine, organic trigger for
-    // _attachInstance's UNEXPECTED_ERROR fallback (via
-    // _normalizeToS3VectorsError) — not just a defensive branch for a
-    // hypothetical future regression.
+  it('attaches the instance when a malformed document is refused', async () => {
+    // A non-Document element is a realistic mistake for an untyped caller, or
+    // for a TypeScript caller that casts past the type system. It used to
+    // escape as a raw TypeError from `doc.id`, straight through
+    // `fromDocuments`'s catch and out to the caller as `UNEXPECTED_ERROR`
+    // carrying V8's own wording — which is the defect F-08 records: the
+    // package's stated guarantee is that every failure is coded.
+    //
+    // It is now refused up front, by name and position. What this test still
+    // pins is the part that was always right: the constructed store is
+    // attached either way, so a caller can act on `context.writtenIds` against
+    // the instance the ids were written to.
     const { client } = createMockClient();
 
     const error = await AmazonS3Vectors.fromDocuments(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed element to trigger addDocuments' per-element pre-validation throw
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed element
       [null] as any,
       createMockEmbeddings(),
       { ...BASE_CONFIG, client },
     ).catch((e: unknown) => e);
 
     expect(isS3VectorsError(error)).toBe(true);
-    // UNEXPECTED_ERROR, not AWS_REQUEST_FAILED: nothing about AWS failed
-    // here — documents.map(...) threw before any AWS call was ever made.
-    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
-    // Substring, not an exact match: the tail is V8's own TypeError wording
-    // for the failed `documents.map(...)` call, not this library's text.
-    expect((error as S3VectorsError).message).toContain('fromDocuments failed:');
-    // The real cause must still be attached (not just a generic message
-    // prefix with the original TypeError silently dropped).
-    expect((error as S3VectorsError).cause).toBeInstanceOf(TypeError);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as S3VectorsError).message).toContain('Document at index 0');
     const instance = (error as S3VectorsError).context.instance;
     expect(instance).toBeInstanceOf(AmazonS3Vectors);
   });
+});
+
+describe('AmazonS3Vectors static factories — the signal', () => {
+  it.each([
+    [
+      'fromTexts',
+      (client: S3VectorsClient, signal: AbortSignal) =>
+        AmazonS3Vectors.fromTexts(['a'], {}, createMockEmbeddings(3), {
+          ...BASE_CONFIG,
+          client,
+          signal,
+        }),
+    ],
+    [
+      'fromDocuments',
+      (client: S3VectorsClient, signal: AbortSignal) =>
+        AmazonS3Vectors.fromDocuments(
+          [new Document({ pageContent: 'a' })],
+          createMockEmbeddings(3),
+          {
+            ...BASE_CONFIG,
+            client,
+            signal,
+          },
+        ),
+    ],
+  ])(
+    '%s rejects ABORTED on an already-fired signal, before embedding or writing',
+    async (_label, start) => {
+      const { client, mock } = createMockClient();
+      mockExistingIndex(mock);
+      const controller = new AbortController();
+      controller.abort();
+
+      const error = await start(client, controller.signal).catch((e: unknown) => e);
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
+      expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
+    },
+  );
 });

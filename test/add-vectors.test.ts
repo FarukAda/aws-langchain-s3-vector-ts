@@ -15,7 +15,6 @@ import {
   createMockClient,
   createMockEmbeddings,
   createTestStore,
-  indexFixture,
   mockExistingIndex,
   mockIndexAutoCreated,
 } from './helpers.js';
@@ -202,30 +201,6 @@ describe('AmazonS3Vectors.addVectors', () => {
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(0);
   });
 
-  it('never auto-creates when createIndexIfNotExist is false, but still validates against the existing index — once, cached', async () => {
-    const localStore = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-      createIndexIfNotExist: false,
-    });
-    mock.on(GetIndexCommand).resolves({
-      index: indexFixture(indexFixture({ dimension: 3, distanceMetric: 'cosine' })),
-    });
-    mock.on(PutVectorsCommand).resolves({});
-
-    await localStore.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], {
-      ids: ['id-1'],
-    });
-    // A second write should reuse the cached validation, not re-fetch.
-    await localStore.addVectors([[4, 5, 6]], [new Document({ pageContent: 'y' })], {
-      ids: ['id-2'],
-    });
-
-    expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
-    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
-    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(2);
-  });
-
   it('lets PutVectors fail naturally when createIndexIfNotExist is false and the index genuinely does not exist', async () => {
     const localStore = new AmazonS3Vectors(createMockEmbeddings(), {
       ...BASE_CONFIG,
@@ -244,23 +219,6 @@ describe('AmazonS3Vectors.addVectors', () => {
 
     expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
-  });
-
-  it('rejects a mismatched write against an existing index even when createIndexIfNotExist is false', async () => {
-    const localStore = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      client,
-      createIndexIfNotExist: false,
-    });
-    mock.on(GetIndexCommand).resolves({
-      index: indexFixture(indexFixture({ dimension: 5, distanceMetric: 'cosine' })),
-    });
-
-    await expect(
-      localStore.addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
-    ).rejects.toThrow('dimension 5');
-
-    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
   });
 
   it('rethrows non-NotFound errors when checking for existing index', async () => {

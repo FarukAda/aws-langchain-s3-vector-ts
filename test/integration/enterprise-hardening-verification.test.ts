@@ -58,16 +58,19 @@ if (!env) {
           })
           .catch((e: unknown) => e);
 
+        // AWS enforces the dimension, which is why this package no longer
+        // pre-validates it. Verified live rather than assumed.
         expect(isS3VectorsError(error)).toBe(true);
-        expect((error as { code: S3VectorsErrorCode }).code).toBe(
-          S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+        expect((error as { context: Record<string, unknown> }).context['awsErrorName']).toBe(
+          'ValidationException',
         );
 
         const docs = await store4.getByIds(['id-1']);
         expect(docs).toHaveLength(1);
-        await expect(store4.getByIds(['id-2'])).rejects.toThrow('not found');
+        // Absence is an ordinary outcome now: an undefined slot, not an error.
+        expect(await store4.getByIds(['id-2'])).toEqual([undefined]);
       } finally {
-        await store4.delete({ deleteAll: true }).catch(() => undefined);
+        await store4.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -92,16 +95,26 @@ if (!env) {
           distanceMetric: 'euclidean',
         });
 
-        const error = await euclideanStore
-          .addVectors([[5, 6, 7, 8]], [new Document({ pageContent: 'y' })], { ids: ['id-2'] })
-          .catch((e: unknown) => e);
+        // The metric governs query-time computation only, so a mismatched
+        // store writes valid vectors...
+        await expect(
+          euclideanStore.addVectors([[5, 6, 7, 8]], [new Document({ pageContent: 'y' })], {
+            ids: ['id-2'],
+          }),
+        ).resolves.toEqual(['id-2']);
 
+        // ...and the mismatch surfaces on the read path instead, against the
+        // distanceMetric QueryVectors returns. That is the only metric
+        // check this package still performs.
+        const error = await euclideanStore
+          .similaritySearchVectorWithScore([1, 2, 3, 4], 1)
+          .catch((e: unknown) => e);
         expect(isS3VectorsError(error)).toBe(true);
         expect((error as { code: S3VectorsErrorCode }).code).toBe(
           S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
         );
       } finally {
-        await cosineStore.delete({ deleteAll: true }).catch(() => undefined);
+        await cosineStore.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
@@ -130,7 +143,7 @@ if (!env) {
         const returnedIds = new Set(results.map(([doc]) => doc.pageContent));
         expect(returnedIds.size).toBe(count);
       } finally {
-        await store.delete({ deleteAll: true }).catch(() => undefined);
+        await store.deleteIndex().catch(() => undefined);
       }
     }, 120_000);
 
@@ -160,21 +173,23 @@ if (!env) {
           })
           .catch((e: unknown) => e);
 
+        // With createIndexIfNotExist false this package issues no GetIndex at
+        // all, so the dimension is AWS's to reject.
         expect(isS3VectorsError(error)).toBe(true);
-        expect((error as { code: S3VectorsErrorCode }).code).toBe(
-          S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+        expect((error as { context: Record<string, unknown> }).context['awsErrorName']).toBe(
+          'ValidationException',
         );
 
         // Confirms it was rejected locally, before any write reached AWS.
         const docs = await creator.getByIds(['id-1']);
         expect(docs).toHaveLength(1);
-        await expect(creator.getByIds(['id-2'])).rejects.toThrow('not found');
+        expect(await creator.getByIds(['id-2'])).toEqual([undefined]);
       } finally {
-        await creator.delete({ deleteAll: true }).catch(() => undefined);
+        await creator.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
 
-    it('delete() requires deleteAll:true to actually remove the index', async () => {
+    it('delete() requires ids and never removes the index', async () => {
       const indexName = `eh-deleteguard-${randomUUID().slice(0, 8)}`;
       const store = new AmazonS3Vectors(randomEmbeddings(4), {
         vectorBucketName: safeEnv.bucketName,
@@ -187,7 +202,9 @@ if (!env) {
           ids: ['id-1'],
         });
 
-        await expect(store.delete()).rejects.toThrow('deleteAll');
+        await expect(store.delete(undefined as unknown as { ids: string[] })).rejects.toThrow(
+          'requires `ids`',
+        );
 
         const stillExists = await rawClient
           .send(new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }))
@@ -195,7 +212,7 @@ if (!env) {
           .catch(() => false);
         expect(stillExists).toBe(true);
 
-        await store.delete({ deleteAll: true });
+        await store.deleteIndex();
 
         const existsAfter = await rawClient
           .send(new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }))
@@ -203,7 +220,7 @@ if (!env) {
           .catch(() => false);
         expect(existsAfter).toBe(false);
       } finally {
-        await store.delete({ deleteAll: true }).catch(() => undefined);
+        await store.deleteIndex().catch(() => undefined);
       }
     }, 60_000);
   });

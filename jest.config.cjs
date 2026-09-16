@@ -18,6 +18,9 @@ module.exports = {
       },
     ],
   },
+  // Fails the run on an unhandled rejection or a listener-leak warning, which
+  // Jest otherwise only prints. See the file for why this package needs it.
+  setupFilesAfterEnv: ['<rootDir>/test/setup-strict-async.ts'],
   verbose: true,
   preset: 'ts-jest/presets/default-esm',
   testEnvironment: 'node',

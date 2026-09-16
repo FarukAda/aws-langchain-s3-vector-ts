@@ -74,9 +74,9 @@ if (!env) {
           region: safeEnv.region,
         });
         try {
-          await cleanup.delete({ deleteAll: true });
+          await cleanup.deleteIndex();
         } catch {
-          // deleteAll is idempotent as of 0.8.0, so a missing index is fine.
+          // deleteIndex() is idempotent, so a missing index is fine.
         }
       }
     });
@@ -112,16 +112,16 @@ if (!env) {
       expect(isS3VectorsError(fetched)).toBe(true);
     }, 120_000);
 
-    // ── IM6: deleteAll idempotency ──────────────────────────────────────
+    // ── IM6: deleteIndex() idempotency ──────────────────────────────────
 
-    it('resolves a second delete({ deleteAll: true }) cleanly', async () => {
+    it('resolves a second deleteIndex() cleanly', async () => {
       const { store } = newStore();
       await store.addDocuments([new Document({ pageContent: 'hello' })], { ids: ['d1'] });
 
-      await expect(store.delete({ deleteAll: true })).resolves.toBeUndefined();
+      await expect(store.deleteIndex()).resolves.toBeUndefined();
       // The regression: before 0.8.0 this second call rejected with
       // AWS_REQUEST_FAILED ("The specified index could not be found").
-      await expect(store.delete({ deleteAll: true })).resolves.toBeUndefined();
+      await expect(store.deleteIndex()).resolves.toBeUndefined();
     }, 120_000);
 
     // ── IM3 / IM2: cancellation ─────────────────────────────────────────
@@ -198,7 +198,7 @@ if (!env) {
 
     // ── Minor 4: later-batch dimension validation ───────────────────────
 
-    it('gives a later batch the coded INDEX_CONFIG_MISMATCH, not a raw AWS error', async () => {
+    it('lets AWS reject a later batch, and reports what already landed', async () => {
       const { store } = newStore();
       await store.addVectors([[0.1, 0.2, 0.3, 0.4]], [new Document({ pageContent: 'a' })], {
         ids: ['a'],
@@ -215,11 +215,13 @@ if (!env) {
         )
         .catch((e: unknown) => e);
 
-      // Before 0.8.0 this was AWS_REQUEST_FAILED wrapping a raw
-      // ValidationException, for a mistake batch 0 reports precisely.
-      expect((error as { code: S3VectorsErrorCode }).code).toBe(
-        S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
-      );
+      // The write path no longer pre-validates a dimension against cached
+      // index configuration; AWS enforces it. What this package still owes the
+      // caller is an accurate account of what landed before the failure —
+      // batch 0 committed, batch 1 did not.
+      const context = (error as { context: Record<string, unknown> }).context;
+      expect(context['awsErrorName']).toBe('ValidationException');
+      expect(context['writtenIds']).toEqual(['b']);
     }, 120_000);
 
     // ── Task 2: constructor client validation ───────────────────────────
@@ -292,7 +294,7 @@ if (!env) {
 
       const search = await store.similaritySearch('the cat sat', 2);
       expect(search.length).toBeGreaterThan(0);
-      expect(search[0]!.pageContent).toBeTruthy();
+      expect(search[0]!.pageContent).toBe('the cat sat');
 
       const scored = await store.similaritySearchWithRelevanceScores('the cat sat', 1);
       expect(scored).toHaveLength(1);
@@ -302,11 +304,11 @@ if (!env) {
       expect(fetched[0]!.metadata['genre']).toBe('a');
 
       await store.delete({ ids: ['doc-1'] });
-      await expect(store.getByIds(['doc-1'])).rejects.toMatchObject({
-        code: S3VectorsErrorCode.NOT_FOUND,
-      });
+      // A deleted id is an undefined slot, not an error: absence is an
+      // ordinary state of the world.
+      expect(await store.getByIds(['doc-1'])).toEqual([undefined]);
 
-      await store.delete({ deleteAll: true });
+      await store.deleteIndex();
     }, 180_000);
   });
 }

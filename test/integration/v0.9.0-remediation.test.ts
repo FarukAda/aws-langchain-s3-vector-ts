@@ -68,9 +68,9 @@ if (!env) {
           region: safeEnv.region,
         });
         try {
-          await cleanup.delete({ deleteAll: true });
+          await cleanup.deleteIndex();
         } catch {
-          // deleteAll is idempotent, so an index that never got created is fine.
+          // deleteIndex() is idempotent, so an index that never got created is fine.
         }
       }
     });
@@ -153,8 +153,9 @@ if (!env) {
       const store = new AmazonS3Vectors(embeddings, {
         vectorBucketName: safeEnv.bucketName,
         indexName,
-        region: safeEnv.region,
         distanceMetric: 'cosine',
+        // No `region` alongside `client`: the client above already carries
+        // one, and supplying both is rejected.
         client,
       });
 
