@@ -10,8 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`error.context.recordIndex` and `error.context.recordId`.** A refusal about
-  one document's metadata now says which document: its position in *your* input,
-  counted over the whole call rather than within a batch, and its id. The message
+  one element of a list — a document, its metadata, a text passed to fromTexts,
+  or an id — now says which one: its position in *your* input, counted over the
+  whole call rather than within a batch, and its id when it has one. The message
   leads with the same, as `Document at index 400 (id "ticket-400"): …`. Both
   fields are optional and appear only on errors about a single element of a list.
 
@@ -35,6 +36,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The README said `NaN` passes the metadata type check.** It has been refused
   since the value-type rules landed; the section now says so, and why.
+
+- **`getByIds` checks its ids before sending them.** An empty id, one over 1,024
+  characters, or one that is not a string went to `GetVectors`, which refuses the
+  whole batch: one bad id cost every valid id batched with it, and AWS's error
+  named a position inside that batch (`'/keys/20'`) rather than in the caller's
+  list. `getByIds` now refuses it locally with `VALIDATION`, naming its position,
+  as `delete` already did. A repeated id is still accepted.
+
+- **An id containing an unpaired UTF-16 surrogate is refused on every path** —
+  `addVectors`, `addDocuments`, `delete` and `getByIds` — instead of failing the
+  request at AWS with `SerializationException`
+  ([`docs/evidence/string-encoding.md`](./docs/evidence/string-encoding.md), T3-15).
+
+- **`delete` documented only half of its id rules.** Its `@throws` named a missing
+  or non-array `ids`; the per-id rules and the refusal of a repeated id were
+  enforced but unstated.
 
 ## [1.0.0-rc.2] - 2026-09-16
 

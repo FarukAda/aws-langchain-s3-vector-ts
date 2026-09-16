@@ -208,6 +208,32 @@ describe('fromDocuments — partial-write failure', () => {
   });
 });
 
+describe('AmazonS3Vectors.fromTexts names the element it refuses (R3)', () => {
+  it('carries the position of a text that is not a string', async () => {
+    const { client } = createMockClient();
+    const error = await AmazonS3Vectors.fromTexts(
+      ['a', 7 as unknown as string],
+      {},
+      createMockEmbeddings(),
+      { ...BASE_CONFIG, client },
+    ).catch((e: unknown) => e);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as S3VectorsError).context.recordIndex).toBe(1);
+  });
+
+  it('carries the position of a metadatas entry that is not an object', async () => {
+    const { client } = createMockClient();
+    const badMetadata: Record<string, unknown> = 'oops' as unknown as Record<string, unknown>;
+    const error = await AmazonS3Vectors.fromTexts(
+      ['a', 'b'],
+      [{}, badMetadata],
+      createMockEmbeddings(),
+      { ...BASE_CONFIG, client },
+    ).catch((e: unknown) => e);
+    expect((error as S3VectorsError).context.recordIndex).toBe(1);
+  });
+});
+
 describe('AmazonS3Vectors static factories — the signal', () => {
   it.each([
     [

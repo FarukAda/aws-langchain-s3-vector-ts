@@ -664,6 +664,8 @@ If a document's own metadata already uses the reserved `pageContentMetadataKey` 
 
 `getByIds` returns **one slot per requested id, in order**, with `undefined` where an id is not there — the `(Document | undefined)[]` shape `@langchain/core` declares.
 
+Every id is checked before any request: it must be a string of 1–1,024 characters and well-formed UTF-16 — the bounds `GetVectors` itself enforces. A malformed id raises `VALIDATION` naming its position (`error.context.recordIndex`) instead of failing its whole `GetVectors` batch, and every valid id in it, at AWS. A repeated id is fine: it is fetched once and fills every slot that asked for it.
+
 Absence is an ordinary answer, not a fault: `GetVectors` returns neither an entry nor an error for a key that is not stored ([`docs/evidence/get-vectors-absent-keys.md`](docs/evidence/get-vectors-absent-keys.md)), so there is nothing to report as a failure. Keeping the slot means the result can never be silently misaligned against the id list you passed in — `result[i]` is always the answer for `ids[i]`:
 
 ```typescript

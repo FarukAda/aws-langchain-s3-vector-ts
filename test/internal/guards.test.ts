@@ -1,7 +1,9 @@
 import { describe, it, expect } from '@jest/globals';
+import { Document } from '@langchain/core/documents';
 
 import {
   assertBatchSize,
+  assertDocumentObjects,
   assertIdsOption,
   assertIsArray,
   assertK,
@@ -143,5 +145,34 @@ describe('assertK', () => {
       assertK('similaritySearch', SCOPE, 10_001);
     });
     expect(error.message).toContain('10000');
+  });
+});
+
+describe('assertDocumentObjects names the document it refuses (R3)', () => {
+  it('carries its position in the context', () => {
+    const error = thrown(() => {
+      assertDocumentObjects('addDocuments', SCOPE, [new Document({ pageContent: 'a' }), null]);
+    });
+    expect(error.message).toMatch(/^Document at index 1 is not an object/);
+    expect(error.context).toEqual({
+      operation: 'addDocuments',
+      vectorBucketName: 'b',
+      indexName: 'i',
+      recordIndex: 1,
+    });
+  });
+});
+
+describe('validationError with a record', () => {
+  it('puts the record on the context', () => {
+    expect(
+      validationError('addVectors', SCOPE, 'm', { recordIndex: 3, recordId: 'k' }).context,
+    ).toEqual({
+      operation: 'addVectors',
+      vectorBucketName: 'b',
+      indexName: 'i',
+      recordIndex: 3,
+      recordId: 'k',
+    });
   });
 });

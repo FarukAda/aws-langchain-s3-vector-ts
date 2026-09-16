@@ -30,7 +30,7 @@ import {
   createRetriever,
   type AmazonS3VectorsRetrieverFields,
 } from './retriever.js';
-import { renderValue } from './shared/describe.js';
+import { renderValue, type RecordRef } from './shared/describe.js';
 import { attachInstance } from './shared/errors/decorate.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
@@ -723,9 +723,12 @@ export class AmazonS3Vectors extends VectorStore {
    * @returns Nothing. A complete delete removed everything asked for; a
    * partial one reports what it managed via `context.deletedIds`.
    * @throws {S3VectorsError} `VALIDATION` when `ids` is missing or not an
-   * array, when the legacy `deleteAll` flag is passed, or for a batch size
-   * outside 1–500; `ABORTED` for a fired signal; otherwise the class the
-   * `DeleteVectors` failure maps to, carrying `context.deletedIds`.
+   * array, when an id is not a string of 1–1024 characters or not well-formed
+   * UTF-16, when an id is repeated (`DeleteVectors` refuses a repeated key), when
+   * the legacy `deleteAll` flag is passed, or for a batch size outside 1–500 —
+   * a per-id refusal carrying `recordIndex` and, for a string, `recordId`;
+   * `ABORTED` for a fired signal; otherwise the class the `DeleteVectors` failure
+   * maps to, carrying `context.deletedIds`.
    */
   override async delete(params: S3VectorsDeleteParams): Promise<void> {
     assertOptionsBag('delete', this.#scope, params);
@@ -793,13 +796,16 @@ export class AmazonS3Vectors extends VectorStore {
    * `GetVectors` calls currently in flight and stops any further batches
    * from starting.
    * @returns Array of documents in the same order as the input IDs
-   * @throws {S3VectorsError} if a `GetVectors` batch call fails — **not** if an
-   * id is absent, which is reported as `undefined` in that id's slot, as the
-   * remarks above describe. The thrown
-   * {@link S3VectorsError}'s `context.foundIds` lists every id already
-   * confirmed found before the failure — including one found by a
-   * concurrent batch that succeeded alongside the one that failed — so a
-   * caller doesn't have to re-fetch everything from scratch.
+   * @throws {S3VectorsError} `VALIDATION`, before any request, for a non-array
+   * `ids`, an id that is not a string of 1–1024 characters or not well-formed
+   * UTF-16 (carrying `recordIndex` and, for a string, `recordId`), or a bad batch
+   * size. `ABORTED` for a fired signal. Otherwise, if a `GetVectors` batch call
+   * fails — **not** if an id is absent, which is reported as `undefined` in that
+   * id's slot, as the remarks above describe — the class it maps to, with
+   * `context.foundIds` listing every id already confirmed found before the
+   * failure, including one found by a concurrent batch that succeeded alongside
+   * the one that failed, so a caller doesn't have to re-fetch everything from
+   * scratch.
    */
   async getByIds(
     ids: string[],
@@ -966,12 +972,17 @@ export class AmazonS3Vectors extends VectorStore {
         operation: 'fromTexts',
       });
     }
-    const fail = (message: string): never => {
-      throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, { operation: 'fromTexts' });
+    const fail = (message: string, record?: RecordRef): never => {
+      throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, {
+        operation: 'fromTexts',
+        ...record,
+      });
     };
     texts.forEach((text: unknown, index: number) => {
       if (typeof text !== 'string') {
-        fail(`texts[${index}] must be a string (received ${renderValue(text)}).`);
+        fail(`texts[${index}] must be a string (received ${renderValue(text)}).`, {
+          recordIndex: index,
+        });
       }
     });
     if (Array.isArray(metadatas)) {
@@ -982,7 +993,9 @@ export class AmazonS3Vectors extends VectorStore {
       }
       metadatas.forEach((metadata: unknown, index: number) => {
         if (metadata !== undefined && metadata !== null && !isObjectLike(metadata)) {
-          fail(`metadatas[${index}] must be an object (received ${renderValue(metadata)}).`);
+          fail(`metadatas[${index}] must be an object (received ${renderValue(metadata)}).`, {
+            recordIndex: index,
+          });
         }
       });
     } else if (metadatas !== undefined && metadatas !== null && !isObjectLike(metadatas)) {

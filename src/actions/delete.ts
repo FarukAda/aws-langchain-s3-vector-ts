@@ -76,7 +76,7 @@ export async function deleteVectors(opts: DeleteOptions): Promise<void> {
   // refuses a request that repeats a key — "Request must not contain duplicate
   // keys", probed live — and refuses a zero-length one, so forwarding either was
   // a round trip spent to be told what this package already knew.
-  assertIdsWellFormed(ids, 'delete', scope, true);
+  assertIdsWellFormed(ids, { operation: 'delete', ...scope, source: 'params.ids' });
 
   const batchSize = opts.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
   assertBatchSize('delete', scope, batchSize, MAX_DELETE_BATCH_SIZE);

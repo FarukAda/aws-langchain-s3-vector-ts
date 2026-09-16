@@ -2,6 +2,7 @@ import type { Document } from '@langchain/core/documents';
 
 import { fetchVectorsByKey } from '../internal/get-vectors.js';
 import { assertIsArray } from '../internal/guards.js';
+import { assertKeysWellFormed } from '../internal/ids.js';
 import type { BatchedOperation } from '../internal/operation.js';
 import type { StoreScope } from '../internal/signals.js';
 import { createDocument } from '../shared/metadata.js';
@@ -25,12 +26,14 @@ export interface GetByIdsOptions extends Omit<BatchedOperation, 'operation'> {
  * `result[i]` always the answer for `ids[i]`, so a caller can never misalign a
  * shorter result against its id list.
  *
- * Throws: `VALIDATION` for a non-array `ids` or a bad batch size; otherwise
- * whatever a failing batch raises, carrying `context.foundIds` — every id
- * already retrieved, including by a sibling batch that succeeded alongside the
- * one that failed. Unknown and absent stay distinguishable: a batch that failed
- * says nothing about whether its ids exist, so those slots are not reported as
- * `undefined`.
+ * Throws: `VALIDATION` for a non-array `ids`; for an id that is not a string of
+ * 1–1024 characters or not well-formed UTF-16, carrying `recordIndex` and, for a
+ * string, `recordId`; or for a bad batch size — all before any request.
+ * Otherwise whatever a failing batch raises, carrying `context.foundIds`: every
+ * id already retrieved, including by a sibling batch that succeeded alongside
+ * the one that failed. Unknown and absent stay distinguishable: a batch that
+ * failed says nothing about whether its ids exist, so those slots are not
+ * reported as `undefined`.
  *
  * Guarantees: each document carries a deep copy of its metadata, so duplicate
  * ids in one call yield independent documents.
@@ -43,6 +46,10 @@ export async function getByIds(opts: GetByIdsOptions): Promise<(Document | undef
   };
 
   assertIsArray('getByIds', scope, 'ids', ids);
+  // `GetVectors` holds a key to the bounds a write does, and fails the whole
+  // batch — every valid id in it — on one it refuses. A repeated id is fine: it
+  // collapses into one request key and fills every slot that asked for it.
+  assertKeysWellFormed(ids, { operation: 'getByIds', ...scope, source: 'the ids argument' });
   if (ids.length === 0) return [];
 
   const found = await fetchVectorsByKey({

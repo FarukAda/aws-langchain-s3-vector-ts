@@ -2,16 +2,29 @@ import { randomUUID } from 'node:crypto';
 
 import type { DocumentInterface } from '@langchain/core/documents';
 
+import { describeRecord } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
-import type { StoreScope } from './signals.js';
+import { unpairedSurrogateReason } from '../shared/utf16.js';
+import type { OperationScope } from './operation.js';
 
 /**
  * A vector key is 1–1024 characters
- * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_PutInputVector.html).
+ * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_PutInputVector.html;
+ * GetVectors and DeleteVectors keys carry the same bounds).
  */
 const KEY_MIN_LENGTH = 1;
 const KEY_MAX_LENGTH = 1024;
+
+/** Options for {@link assertKeysWellFormed} and {@link assertIdsWellFormed}. */
+export interface KeyCheckOptions extends OperationScope {
+  /**
+   * Where the ids came from, as a message should name it — `'options.ids'`,
+   * `'params.ids'`, `'the ids argument'`, or the documents' own ids. It decides
+   * who has to fix a bad id: the caller's own list, or the documents they passed.
+   */
+  readonly source: string;
+}
 
 /**
  * The ids a write will use.
@@ -54,72 +67,110 @@ export function resolveWriteIds(
 }
 
 /**
- * Reject a write whose ids are not unique, non-empty strings within length.
+ * Why S3 Vectors cannot take this value as a vector key, or `undefined` if it can.
  *
- * Accepts:
- * - `ids` — the resolved list.
- * - `idsSupplied` — names the source in the message: the caller's
- *   `options.ids`, or the documents' own `id` fields.
+ * Accepts: anything.
+ *
+ * Returns: a clause for the first rule broken — not a string, empty, over 1024
+ * characters, or not well-formed UTF-16 (docs/evidence/string-encoding.md, T3-15).
+ *
+ * Throws: nothing.
+ */
+function keyRejectionReason(id: unknown): string | undefined {
+  if (typeof id !== 'string') return `is not a string (received ${typeof id})`;
+  if (id.length < KEY_MIN_LENGTH) {
+    return 'is an empty string, but every id must be a non-empty string';
+  }
+  if (id.length > KEY_MAX_LENGTH) {
+    return `is ${id.length} characters, over the ${KEY_MAX_LENGTH}-character maximum for a vector key`;
+  }
+  return unpairedSurrogateReason(id);
+}
+
+/**
+ * Raise the `VALIDATION` for the id at `index`.
+ *
+ * Accepts: the list, the failing position, the reason, and the check's options.
+ *
+ * Returns: never.
+ *
+ * Throws: {@link S3VectorsError} `VALIDATION`, naming the position and the
+ * source, carrying `recordIndex` and — when the id is a string — `recordId`.
+ */
+function failId(
+  ids: readonly unknown[],
+  index: number,
+  reason: string,
+  opts: KeyCheckOptions,
+): never {
+  const { source, ...scope } = opts;
+  const id: unknown = ids[index];
+  throw new S3VectorsError(
+    `${describeRecord('Vector id', { recordIndex: index })} ${reason}. Ids were taken from ${source}.`,
+    S3VectorsErrorCode.VALIDATION,
+    { ...scope, recordIndex: index, ...(typeof id === 'string' ? { recordId: id } : {}) },
+  );
+}
+
+/**
+ * Reject a list holding a value S3 Vectors cannot take as a vector key.
+ *
+ * Accepts: `ids` — any list; `opts.source` — where the ids came from.
+ *
+ * Returns: nothing. A repeated id is not examined here; see
+ * {@link assertIdsWellFormed}.
+ *
+ * Throws: {@link S3VectorsError} with code `VALIDATION` for the first element
+ * that is not a string, is empty, is over 1024 characters or contains an
+ * unpaired surrogate — carrying `recordIndex` and, for a string, `recordId`.
+ *
+ * Guarantees: every element is checked, holes included; a hole reads as
+ * `undefined`, which is not a string.
+ */
+export function assertKeysWellFormed(ids: readonly unknown[], opts: KeyCheckOptions): void {
+  for (let index = 0; index < ids.length; index++) {
+    const reason = keyRejectionReason(ids[index]);
+    if (reason !== undefined) failId(ids, index, reason, opts);
+  }
+}
+
+/**
+ * Reject a write's or a delete's ids: {@link assertKeysWellFormed}, and no id
+ * repeated within the call.
+ *
+ * Accepts: `ids` — the resolved list; `opts.source` — where the ids came from.
  *
  * Returns: nothing.
  *
- * Throws: {@link S3VectorsError} with code `VALIDATION`, naming the offending
- * index, for a non-string, an empty string, an id over 1024 characters, or a
- * duplicate within this call.
+ * Throws: {@link S3VectorsError} with code `VALIDATION`, as
+ * {@link assertKeysWellFormed} does, and for the second occurrence of a
+ * repeated id, naming the first.
  *
- * A duplicate matters differently on each path, and is refused on both.
- * `PutVectors` accepts it and lets the later vector silently overwrite the
+ * Guarantees: a duplicate matters differently on each path, and is refused on
+ * both. `PutVectors` accepts it and lets the later vector silently overwrite the
  * earlier, so a caller would get back a full-length id list having lost a
  * document. `DeleteVectors` refuses the request outright — "Request must not
  * contain duplicate keys", probed against the live service — so forwarding it
  * only buys a round trip. Duplicates *across* calls are an upsert and are
  * untouched.
  */
-export function assertIdsWellFormed(
-  ids: string[],
-  operation: string,
-  scope: StoreScope,
-  idsSupplied: boolean,
-): void {
-  const source = idsSupplied
-    ? 'options.ids'
-    : "the documents' own `id` fields (a UUID is generated only for a document with no id at all)";
-  // Explicitly typed so TypeScript treats a call as never-returning and
-  // narrows `id` below; an inferred arrow does not drive control-flow analysis.
-  const fail: (message: string) => never = (message) => {
-    throw new S3VectorsError(
-      `${message} Ids were taken from ${source}.`,
-      S3VectorsErrorCode.VALIDATION,
-      {
-        operation,
-        ...scope,
-      },
-    );
-  };
-
-  const seen = new Set<string>();
-  for (let i = 0; i < ids.length; i++) {
-    const id: unknown = ids[i];
-    if (typeof id !== 'string') {
-      fail(`Vector id at index ${i} is not a string (received ${typeof id}).`);
-    }
-    if (id.length < KEY_MIN_LENGTH) {
-      fail(`Vector id at index ${i} is an empty string, but every id must be a non-empty string.`);
-    }
-    if (id.length > KEY_MAX_LENGTH) {
-      fail(
-        `Vector id at index ${i} is ${id.length} characters, over the ${KEY_MAX_LENGTH}-character maximum for a vector key.`,
-      );
-    }
-    if (seen.has(id)) {
-      fail(
-        `Duplicate vector id "${id}" at index ${i} — each id may appear only once per call. ` +
-          'On a write S3 Vectors takes both and the later vector silently overwrites the ' +
+export function assertIdsWellFormed(ids: readonly unknown[], opts: KeyCheckOptions): void {
+  assertKeysWellFormed(ids, opts);
+  const firstSeen = new Map<unknown, number>();
+  for (let index = 0; index < ids.length; index++) {
+    const earlier = firstSeen.get(ids[index]);
+    if (earlier !== undefined) {
+      failId(
+        ids,
+        index,
+        `repeats the id at index ${earlier} — a duplicate, and each id may appear only once per ` +
+          'call. On a write S3 Vectors takes both and the later vector silently overwrites the ' +
           'earlier, so the returned id list would be full length having lost a document; on a ' +
           'delete it refuses the request outright ("Request must not contain duplicate keys"). ' +
-          'To overwrite an existing vector, write it in a separate call.',
+          'To overwrite an existing vector, write it in a separate call',
+        opts,
       );
     }
-    seen.add(id);
+    firstSeen.set(ids[index], index);
   }
 }

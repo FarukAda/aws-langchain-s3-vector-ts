@@ -373,7 +373,7 @@ describe('F7 — write ids must be unique, non-empty strings', () => {
       .addDocuments(docs(3), { ids: ['a', 'b', 'a'] })
       .catch((e: unknown) => e);
     expect((viaDocs as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((viaDocs as Error).message).toContain('Duplicate vector id "a" at index 2');
+    expect((viaDocs as Error).message).toContain('Vector id at index 2 repeats the id at index 0');
 
     const viaVectors = await store
       .addVectors(
@@ -388,7 +388,9 @@ describe('F7 — write ids must be unique, non-empty strings', () => {
       )
       .catch((e: unknown) => e);
     expect((viaVectors as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((viaVectors as Error).message).toContain('Duplicate vector id "same"');
+    expect((viaVectors as Error).message).toContain(
+      'Vector id at index 1 repeats the id at index 0',
+    );
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
   });
 

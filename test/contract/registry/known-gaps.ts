@@ -28,13 +28,6 @@ import type { KnownGap } from './types.js';
  */
 export const KNOWN_GAPS: readonly KnownGap[] = [
   {
-    finding: 'N3',
-    symbol: 'AmazonS3Vectors.addVectors',
-    property: 'P2',
-    caseLabel: 'an id with an unpaired surrogate is refused [benign]',
-    note: 'The id is written; AWS fails the request. Should be VALIDATION with the id rules.',
-  },
-  {
     finding: 'R8',
     symbol: 'AmazonS3Vectors.addVectors',
     property: 'P1',
@@ -62,13 +55,6 @@ export const KNOWN_GAPS: readonly KnownGap[] = [
     property: 'P2',
     caseLabel: 'metadata S3 Vectors rejects in a later batch is refused before any write [benign]',
     note: 'Batch 0 is written before batch 1 is checked; the whole input should be checked first.',
-  },
-  {
-    finding: 'N3',
-    symbol: 'AmazonS3Vectors.delete',
-    property: 'P2',
-    caseLabel: 'an id with an unpaired surrogate is refused [benign]',
-    note: 'Sent; AWS fails the request with SerializationException. Should be VALIDATION.',
   },
   ...(
     [
@@ -111,13 +97,6 @@ export const KNOWN_GAPS: readonly KnownGap[] = [
     note: 'Refused only after the batch is embedded.',
   },
   {
-    finding: 'N3',
-    symbol: 'AmazonS3Vectors.addDocuments',
-    property: 'P2',
-    caseLabel: 'an id with an unpaired surrogate is refused [benign]',
-    note: 'Embedded and written; AWS fails the request. Should be VALIDATION with the id rules.',
-  },
-  {
     finding: 'R1+N3',
     symbol: 'AmazonS3Vectors.addDocuments',
     property: 'P2',
@@ -138,31 +117,6 @@ export const KNOWN_GAPS: readonly KnownGap[] = [
     caseLabel:
       'metadata S3 Vectors rejects in a later batch is refused before anything is spent [benign]',
     note: 'Batch 0 is embedded and written, and batch 1 embedded, before batch 1 is checked.',
-  },
-  ...(
-    [
-      'array with hole',
-      'array with undefined',
-      'nested array',
-      'array of null',
-      'array of empty string',
-      'array of number',
-      'mixed array',
-      'array of boolean',
-    ] as const
-  ).map((value): KnownGap => ({
-    finding: 'R6',
-    symbol: 'AmazonS3Vectors.getByIds',
-    property: 'P2',
-    caseLabel: `ids = ${value} [benign]`,
-    note: 'Sent to GetVectors unvalidated; AWS rejects the whole batch. Should be VALIDATION.',
-  })),
-  {
-    finding: 'N3',
-    symbol: 'AmazonS3Vectors.getByIds',
-    property: 'P2',
-    caseLabel: 'an id with an unpaired surrogate is refused [benign]',
-    note: 'Sent; AWS fails the request with SerializationException. Should be VALIDATION.',
   },
   ...(
     [

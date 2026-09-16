@@ -5,6 +5,23 @@ import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError, S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import { createTestStore } from './helpers.js';
 
+describe('AmazonS3Vectors.getByIds — ids are checked before any request (R6)', () => {
+  it.each([
+    ['empty', ''],
+    ['over 1024 characters', 'x'.repeat(1025)],
+    ['not a string', 7],
+    ['not well-formed UTF-16', 'k\ud800'],
+  ])('refuses an id that is %s, naming its position, and sends nothing', async (_label, bad) => {
+    const { store, mock } = createTestStore();
+    const error = await store.getByIds(['ok', bad as string]).catch((e: unknown) => e);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as S3VectorsError).message).toContain('Vector id at index 1');
+    expect((error as S3VectorsError).message).toContain('Ids were taken from the ids argument.');
+    expect((error as S3VectorsError).context.recordIndex).toBe(1);
+    expect(mock.commandCalls(GetVectorsCommand)).toHaveLength(0);
+  });
+});
+
 describe('AmazonS3Vectors.getByIds', () => {
   it('retrieves documents in input order', async () => {
     const { store, mock } = createTestStore();

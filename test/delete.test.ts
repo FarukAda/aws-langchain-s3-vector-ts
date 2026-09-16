@@ -10,6 +10,19 @@ import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { BASE_CONFIG, createMockClient, createTestStore, mockExistingIndex } from './helpers.js';
 
+describe('AmazonS3Vectors.delete — an id S3 Vectors cannot decode (T3-15)', () => {
+  it('is refused before any request, naming where the ids came from', async () => {
+    const { store, mock } = createTestStore();
+    const error = await store.delete({ ids: ['ok', 'k\ud800'] }).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain(
+      'Vector id at index 1 contains an unpaired UTF-16 surrogate',
+    );
+    expect((error as Error).message).toContain('Ids were taken from params.ids.');
+    expect(mock.commandCalls(DeleteVectorsCommand)).toHaveLength(0);
+  });
+});
+
 describe('AmazonS3Vectors.delete', () => {
   it('deletes the entire index through deleteIndex()', async () => {
     const { client, mock } = createMockClient();

@@ -1,5 +1,5 @@
 import { MAX_TOP_K } from '../shared/aws-limits.js';
-import { describeValue } from '../shared/describe.js';
+import { describeRecord, describeValue, type RecordRef } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { isObjectLike } from '../shared/objects.js';
@@ -8,7 +8,9 @@ import { isAbortSignalLike, type StoreScope } from './signals.js';
 /**
  * Build a `VALIDATION` error for a caller-input failure.
  *
- * Accepts: the operation to name, the scope to record, and the message.
+ * Accepts: the operation to name, the scope to record, the message, and — for a
+ * failure about one element of a list — that element's reference, which lands
+ * on the context as `recordIndex` and `recordId`.
  *
  * Returns: the error, unthrown — several callers need to throw it from inside
  * a closure or a `map`, where a helper that threw for them would lose the
@@ -20,8 +22,13 @@ export function validationError(
   operation: string,
   scope: StoreScope,
   message: string,
+  record?: RecordRef,
 ): S3VectorsError {
-  return new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, { operation, ...scope });
+  return new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, {
+    operation,
+    ...scope,
+    ...record,
+  });
 }
 
 /**
@@ -56,7 +63,8 @@ export function assertIsArray(
  *
  * Returns: nothing.
  *
- * Throws: `VALIDATION`, naming the position.
+ * Throws: `VALIDATION`, naming the position, carrying the document's position
+ * as recordIndex.
  *
  * Guarantees: runs before `resolveWriteIds`, which reads `doc.id`. A `null` in
  * the list surfaced there as "Cannot read properties of null (reading 'id')" —
@@ -77,13 +85,16 @@ export function assertDocumentObjects(
 ): void {
   for (let index = 0; index < documents.length; index++) {
     const document: unknown = documents[index];
+    const record: RecordRef = { recordIndex: index };
+    const subject = describeRecord('Document', record);
     if (typeof document !== 'object' || document === null) {
       throw validationError(
         operation,
         scope,
-        `Document at index ${index} is not an object (received ${describeValue(document)}). ` +
+        `${subject} is not an object (received ${describeValue(document)}). ` +
           'Every entry must be a Document, or an object with `pageContent` and optional ' +
           '`metadata`.',
+        record,
       );
     }
 
@@ -92,18 +103,20 @@ export function assertDocumentObjects(
       throw validationError(
         operation,
         scope,
-        `Document at index ${index} has a \`pageContent\` that is not a string (received ` +
+        `${subject} has a \`pageContent\` that is not a string (received ` +
           `${describeValue(pageContent)}). It would be stored under the page-content key as ` +
           'given and read back as an empty string, with the original left behind in metadata.',
+        record,
       );
     }
     if (metadata !== undefined && metadata !== null && !isObjectLike(metadata)) {
       throw validationError(
         operation,
         scope,
-        `Document at index ${index} has a \`metadata\` that is not an object (received ` +
+        `${subject} has a \`metadata\` that is not an object (received ` +
           `${describeValue(metadata)}). A string would be spread into one metadata key per ` +
           'character.',
+        record,
       );
     }
   }

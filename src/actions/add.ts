@@ -19,6 +19,10 @@ const MAX_PUT_BATCH_SIZE = 500;
 /** Below the AWS ceiling, so a default-configured store never fails on batch size. */
 const DEFAULT_PUT_BATCH_SIZE = 200;
 
+/** Where a write's ids came from when the caller supplied none. */
+const DOCUMENT_ID_SOURCE =
+  "the documents' own `id` fields (a UUID is generated only for a document with no id at all)";
+
 /** Writes one already-embedded batch; the store binds its own configuration to it. */
 type PutBatchFn = (
   operation: string,
@@ -92,7 +96,11 @@ function resolveIds(
       `Number of IDs (${resolved.length}) must match number of ${countLabel} (${count})`,
     );
   }
-  assertIdsWellFormed(resolved, operation, scope, ids !== undefined);
+  assertIdsWellFormed(resolved, {
+    operation,
+    ...scope,
+    source: ids === undefined ? DOCUMENT_ID_SOURCE : 'options.ids',
+  });
   return resolved;
 }
 

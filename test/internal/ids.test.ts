@@ -1,7 +1,12 @@
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
-import { assertIdsWellFormed, resolveWriteIds } from '../../src/internal/ids.js';
+import {
+  assertIdsWellFormed,
+  assertKeysWellFormed,
+  type KeyCheckOptions,
+  resolveWriteIds,
+} from '../../src/internal/ids.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 
 /**
@@ -64,10 +69,14 @@ describe('resolveWriteIds', () => {
   });
 });
 
+const OPTS: KeyCheckOptions = { operation: 'addVectors', ...SCOPE, source: 'options.ids' };
+const contextOf = (e: unknown): Record<string, unknown> =>
+  (e as { context: Record<string, unknown> }).context;
+
 describe('assertIdsWellFormed', () => {
-  const check = (ids: readonly unknown[]): unknown =>
+  const check = (ids: readonly unknown[], opts: KeyCheckOptions = OPTS): unknown =>
     thrownBy(() => {
-      assertIdsWellFormed(ids as string[], 'addVectors', SCOPE, true);
+      assertIdsWellFormed(ids, opts);
     });
 
   it('accepts unique non-empty ids', () => {
@@ -76,6 +85,10 @@ describe('assertIdsWellFormed', () => {
 
   it('accepts an id at the 1024-character boundary', () => {
     expect(check(['x'.repeat(1024)])).toBeUndefined();
+  });
+
+  it('accepts a surrogate pair, which AWS decodes', () => {
+    expect(check(['k😀'])).toBeUndefined();
   });
 
   it('rejects an id over 1024 characters, the documented key maximum', () => {
@@ -99,38 +112,83 @@ describe('assertIdsWellFormed', () => {
     expect((error as Error).message).toContain('is not a string (received number)');
     // And says where the ids came from, which decides who has to fix it: the
     // caller's own list, or the documents they passed.
-    expect((error as Error).message).toContain('Ids were taken from options.ids');
+    expect((error as Error).message).toContain('Ids were taken from options.ids.');
+  });
+
+  it('rejects an id with an unpaired surrogate, which S3 Vectors cannot decode (T3-15)', () => {
+    const error = check(['ok', 'k\ud800']);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain(
+      'Vector id at index 1 contains an unpaired UTF-16 surrogate at position 1.',
+    );
   });
 
   it('rejects a duplicate within one call, which the two paths punish differently', () => {
     const error = check(['a', 'b', 'a']);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('Duplicate');
+    expect((error as Error).message).toContain('Vector id at index 2 repeats the id at index 0');
+    expect((error as Error).message).toMatch(/duplicate/i);
     // The message says what each path would have done and what to do instead. On
     // a write the failure is silent, so it has to be spelled out; on a delete
-    // `DeleteVectors` refuses the request outright, which the message also names
-    // now that `delete` shares this check.
+    // `DeleteVectors` refuses the request outright.
     expect((error as Error).message).toContain('silently overwrites the');
     expect((error as Error).message).toContain('must not contain duplicate keys');
     expect((error as Error).message).toContain('write it in a separate call');
   });
 
-  it('names the offending index so a caller can find it in a large batch', () => {
-    const error = check(['a', 'b', '']);
-    expect((error as Error).message).toContain('2');
+  it('carries the position, and — for a string — the id itself (R3)', () => {
+    expect(contextOf(check(['a', '']))).toEqual({
+      operation: 'addVectors',
+      vectorBucketName: 'b',
+      indexName: 'i',
+      recordIndex: 1,
+      recordId: '',
+    });
+    expect(contextOf(check(['a', 42]))).toEqual({
+      operation: 'addVectors',
+      vectorBucketName: 'b',
+      indexName: 'i',
+      recordIndex: 1,
+    });
+    expect(contextOf(check(['a', 'b', 'a']))).toMatchObject({ recordIndex: 2, recordId: 'a' });
   });
 
-  it('names options.ids as the source when the caller supplied them', () => {
-    const error = thrownBy(() => {
-      assertIdsWellFormed([''], 'addVectors', SCOPE, true);
-    });
-    expect((error as Error).message).toContain('options.ids');
+  it('names the source it was given', () => {
+    const error = check([''], { ...OPTS, source: 'params.ids' });
+    expect((error as Error).message).toContain('Ids were taken from params.ids.');
+  });
+});
+
+describe('assertKeysWellFormed', () => {
+  it('allows a repeated id, which GetVectors accepts', () => {
+    expect(() => {
+      assertKeysWellFormed(['a', 'a'], OPTS);
+    }).not.toThrow();
   });
 
-  it("names the documents' own ids as the source when they were derived", () => {
+  it.each([
+    ['not a string', [7]],
+    ['empty', ['']],
+    ['over 1024 characters', ['x'.repeat(1025)]],
+    ['not well-formed UTF-16', ['\udc00']],
+  ])('refuses an id that is %s', (_label, ids) => {
+    expect(
+      codeOf(
+        thrownBy(() => {
+          assertKeysWellFormed(ids, OPTS);
+        }),
+      ),
+    ).toBe(S3VectorsErrorCode.VALIDATION);
+  });
+
+  it('refuses a hole, which reads as undefined', () => {
+    const holed: unknown[] = [];
+    holed[1] = 'a';
     const error = thrownBy(() => {
-      assertIdsWellFormed([''], 'addVectors', SCOPE, false);
+      assertKeysWellFormed(holed, OPTS);
     });
-    expect((error as Error).message).toContain('id');
+    expect((error as Error).message).toContain(
+      'Vector id at index 0 is not a string (received undefined)',
+    );
   });
 });
