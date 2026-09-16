@@ -78,12 +78,12 @@
     "npm": ">=10.0.0"
   },
   "peerDependencies": {
-    "@aws-sdk/client-s3vectors": "^3.1132.0",
+    "@aws-sdk/client-s3vectors": "^3.1133.0",
     "@langchain/core": "^1.2.11"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
-    "@aws-sdk/client-s3vectors": "^3.1132.0",
+    "@aws-sdk/client-s3vectors": "^3.1133.0",
     "@eslint/js": "^10.0.1",
     "@jest/globals": "^30.5.1",
     "@langchain/aws": "^1.4.5",

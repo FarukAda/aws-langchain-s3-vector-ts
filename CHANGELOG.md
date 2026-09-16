@@ -438,7 +438,7 @@ identically, and the wire format is untouched.
 - **`raceAbort` is one helper** used by both the shared index creation and the
   retriever: the caller's wait ends, the shared work continues for whoever else
   is waiting on it, and the listener is removed on both settle paths.
-- **Both peer floors are raised**: `@aws-sdk/client-s3vectors` to `^3.1132.0`
+- **Both peer floors are raised**: `@aws-sdk/client-s3vectors` to `^3.1133.0`
   and `@langchain/core` to `^1.2.11`, from `^3.1117.0` and `^1.2.9`. A consumer
   on an older minor of either must update. Raising a floor is a documented
   change of support, not a silent one, and the floors are what the
@@ -457,11 +457,12 @@ identically, and the wire format is untouched.
   and its `maximalMarginalRelevance` signature. All still hold, and the
   citations name the versions they were re-read at.
 
-  The declared ranges are deliberately left where they are. Each new version is
-  already inside its `^` range, and `@aws-sdk/client-s3vectors` is a *peer*:
-  narrowing its floor to the version that happens to be installed here would
-  raise the bar for every consumer to buy nothing, and the peer-floors CI job
-  exists precisely so the declared floor is tested rather than assumed.
+  The SDK floor moves with it, to `^3.1133.0`, because the floor, the
+  installed version and the cited version have to be one version here. The
+  peer-floors job installs the floor and runs the unit tier against it, and
+  `dependency-citations.test.ts` requires every citation to name the version
+  that is installed — so a floor left one release below the cited version fails
+  that job by construction. It did, which is how this was found.
 
 - **Every pinned GitHub Action is at its current release.**
   `github/codeql-action` (`init`, `analyze`, `upload-sarif`) moves 4.37.9 →
