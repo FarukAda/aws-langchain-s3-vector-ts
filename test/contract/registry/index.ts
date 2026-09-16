@@ -1,5 +1,7 @@
+import { addDocumentsContract } from './entries/add-documents.js';
 import { addVectorsContract } from './entries/add-vectors.js';
 import { deleteContract } from './entries/delete.js';
+import { getByIdsContract } from './entries/get-by-ids.js';
 import type { EntryPointContract } from './types.js';
 
 /**
@@ -38,14 +40,12 @@ export const PUBLIC_ENTRY_POINTS: readonly string[] = [
  * registered fails too. The list only shrinks.
  */
 export const PENDING_ENTRY_POINTS: readonly string[] = [
-  'AmazonS3Vectors.addDocuments',
   'AmazonS3Vectors.similaritySearch',
   'AmazonS3Vectors.similaritySearchWithScore',
   'AmazonS3Vectors.similaritySearchVectorWithScore',
   'AmazonS3Vectors.similaritySearchWithRelevanceScores',
   'AmazonS3Vectors.maxMarginalRelevanceSearch',
   'AmazonS3Vectors.deleteIndex',
-  'AmazonS3Vectors.getByIds',
   'AmazonS3Vectors.listDocuments',
   'AmazonS3Vectors.listVectors',
   'AmazonS3Vectors.asRetriever',
@@ -64,4 +64,6 @@ export const PENDING_ENTRY_POINTS: readonly string[] = [
 export const REGISTRY: readonly EntryPointContract<unknown>[] = [
   deleteContract,
   addVectorsContract as EntryPointContract<unknown>,
+  addDocumentsContract as EntryPointContract<unknown>,
+  getByIdsContract as EntryPointContract<unknown>,
 ];

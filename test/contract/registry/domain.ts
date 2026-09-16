@@ -11,6 +11,8 @@
 export const MAX_DELETE_BATCH_SIZE = 500;
 /** The store's default `maxConcurrentBatchCalls`. */
 export const DEFAULT_MAX_CONCURRENT = 10;
+/** "Vectors per GetVectors API call: Up to 100" (limits page). */
+export const MAX_GET_BATCH_SIZE = 100;
 
 /** "Vectors per PutVectors call: 500" (limits page). */
 const MAX_PUT_BATCH_SIZE = 500;
@@ -28,7 +30,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** `undefined`, or `null` — which this package reads as "not provided" throughout. */
-function isAbsent(value: unknown): value is null | undefined {
+export function isAbsent(value: unknown): value is null | undefined {
   return value === undefined || value === null;
 }
 
@@ -63,7 +65,7 @@ function isWellFormedKey(value: unknown): boolean {
 }
 
 /** A list of vector keys, repeats allowed — what `GetVectors` takes. Indexed, so a hole counts. */
-function isKeyList(value: unknown): boolean {
+export function isKeyList(value: unknown): boolean {
   if (!Array.isArray(value)) return false;
   for (let index = 0; index < value.length; index++) {
     if (!isWellFormedKey(value[index])) return false;
