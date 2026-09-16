@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.2] - 2026-09-16
+
 A contract-first rework of the whole package. Every function was specified
 before it was changed: the domain of each one enumerated as a table of
 distinguishable input states with a decided answer for every cell, each answer
@@ -1127,7 +1129,8 @@ never published, and 0.2.2 shipped without an entry here.
 
 - Initial release.
 
-[Unreleased]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.2...HEAD
+[1.0.0-rc.2]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.9.0...v1.0.0-rc.1
 [0.9.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.7.0...v0.8.0
