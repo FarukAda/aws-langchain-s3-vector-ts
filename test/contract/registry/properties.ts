@@ -1,5 +1,6 @@
 import { S3VectorsErrorCode } from '../../../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../../../src/shared/errors/s3-vectors-error.js';
+import { fingerprint } from './fingerprint.js';
 import type { Outcome } from './harness.js';
 import type { ContractCase, EntryPointContract } from './types.js';
 
@@ -216,4 +217,47 @@ export function checkReachability<I>(
         `no corpus case produces ${code}; either it cannot happen or the corpus is missing a condition`,
       ),
     );
+}
+
+/** Every array reachable from an input, down to the depth an entry point reads one. */
+function arraysIn(value: unknown, depth = 0): unknown[] {
+  if (depth > 3 || typeof value !== 'object' || value === null) return [];
+  const children: unknown[] = Array.isArray(value) ? [...value] : Object.values(value);
+  return [
+    ...(Array.isArray(value) ? [value] : []),
+    ...children.flatMap((child) => arraysIn(child, depth + 1)),
+  ];
+}
+
+/**
+ * P6 — the behavioural promises a contract declares actually hold.
+ *
+ * `does-not-mutate-inputs`: the input's fingerprint after the call equals the
+ * one taken before it. `fresh-arrays`: an array the call resolved with is not
+ * one reachable from its input — the record of what was written must not be the
+ * caller's own list, or a later mutation of that list rewrites it.
+ */
+export function checkGuarantees<I>(
+  contract: EntryPointContract<I>,
+  testCase: ContractCase<I>,
+  outcome: Outcome,
+  before: string,
+): Failure[] {
+  const failures: Failure[] = [];
+  if (
+    contract.guarantees.includes('does-not-mutate-inputs') &&
+    fingerprint(testCase.input) !== before
+  ) {
+    failures.push(fail('P6', contract.symbol, testCase.label, 'changed its input'));
+  }
+  if (
+    contract.guarantees.includes('fresh-arrays') &&
+    Array.isArray(outcome.value) &&
+    arraysIn(testCase.input).includes(outcome.value)
+  ) {
+    failures.push(
+      fail('P6', contract.symbol, testCase.label, 'returned an array the caller passed in'),
+    );
+  }
+  return failures;
 }

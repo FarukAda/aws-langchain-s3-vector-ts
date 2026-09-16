@@ -57,6 +57,13 @@ export const HOSTILE_VALUES: readonly HostileValue[] = [
   { label: 'bigint', make: () => BigInt(1) },
   { label: 'date', make: () => new Date(0) },
   { label: 'extra keys', make: () => ({ ids: ['a'], unexpected: true }) },
+  // Shapes the 2026-09-16 probes found AWS rejecting (T3-14, T3-15, T3-17).
+  { label: 'mixed array', make: () => [1, 'a'] },
+  { label: 'array of boolean', make: () => [true] },
+  { label: 'lone low surrogate', make: () => '\udc00' },
+  // Accepted wherever a string is: the pair, not either half of it.
+  { label: 'surrogate pair', make: () => '😀' },
+  { label: 'multi-key object', make: () => ({ a: 1, b: 2 }) },
 ];
 
 /** An AWS-shaped rejection: the SDK identifies its exceptions by `name`. */
@@ -158,5 +165,71 @@ export const AMBIENTS: readonly Ambient[] = [
         throw new Error('score function blew up');
       },
     },
+  },
+  {
+    label: 'quota exceeded',
+    // Only from the two commands whose service model declares it
+    // (`@aws-sdk/client-s3vectors@3.1133.0` `dist-types/commands/PutVectorsCommand.d.ts`,
+    // and CreateIndexCommand.d.ts): thrown from every command, it would make a
+    // contract declare a code its entry point cannot raise.
+    respond: (command) => {
+      if (command === 'PutVectors' || command === 'CreateIndex') {
+        throw awsException('ServiceQuotaExceededException', 402);
+      }
+      return undefined;
+    },
+  },
+  {
+    label: 'kms disabled',
+    // Declared by PutVectors, GetVectors, QueryVectors and DeleteVectors, and by
+    // nothing else (each command's `@throws`, e.g.
+    // `@aws-sdk/client-s3vectors@3.1133.0` `dist-types/commands/DeleteVectorsCommand.d.ts`).
+    respond: (command) => {
+      if (
+        command === 'PutVectors' ||
+        command === 'GetVectors' ||
+        command === 'QueryVectors' ||
+        command === 'DeleteVectors'
+      ) {
+        throw awsException('KmsDisabledException', 400);
+      }
+      return undefined;
+    },
+  },
+  {
+    label: 'timeout',
+    // What the SDK's own HTTP handler raises for a timed-out, refused or reset
+    // connection: a plain Error named TimeoutError, carrying no `$metadata`.
+    respond: () => {
+      throw Object.assign(new Error('socket hang up'), { name: 'TimeoutError' });
+    },
+  },
+  { label: 'no embeddings model', embeddings: null },
+  {
+    label: 'embeddings return a zero vector',
+    embeddings: () => ({
+      embedDocuments: async (texts: string[]) => texts.map(() => [0, 0, 0]),
+      embedQuery: async () => [0, 0, 0],
+    }),
+  },
+  {
+    label: 'embeddings return mixed dimensions',
+    embeddings: () => ({
+      embedDocuments: async (texts: string[]) =>
+        texts.map((_, i) => (i === 0 ? [0.1, 0.2, 0.3] : [0.1, 0.2])),
+      embedQuery: async () => [0.1, 0.2, 0.3],
+    }),
+  },
+  {
+    label: 'index metric differs',
+    respond: (command) =>
+      command === 'QueryVectors' ? { vectors: [], distanceMetric: 'euclidean' } : undefined,
+  },
+  {
+    label: 'endless pagination',
+    respond: (command) =>
+      command === 'QueryVectors'
+        ? { vectors: [], distanceMetric: 'cosine', nextToken: 'more' }
+        : undefined,
   },
 ];

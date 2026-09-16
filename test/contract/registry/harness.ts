@@ -63,8 +63,11 @@ export interface Ambient {
   readonly label: string;
   /** Scripts the AWS client. Omitted, every command resolves with a benign response. */
   readonly respond?: Responder;
-  /** Replaces the embeddings model. Omitted, a deterministic stub is used. */
-  readonly embeddings?: () => EmbeddingsInterface;
+  /**
+   * Replaces the embeddings model. Omitted, a deterministic stub is used;
+   * `null` builds the store with no model at all.
+   */
+  readonly embeddings?: (() => EmbeddingsInterface) | null;
   /** Extra store configuration for this condition. */
   readonly config?: Partial<AmazonS3VectorsConfig>;
 }
@@ -77,6 +80,13 @@ const INDEX_FIXTURE = {
   dataType: 'float32',
   dimension: 3,
   distanceMetric: 'cosine',
+  // What an index created by a default store reports. Without this, a
+  // conforming GetIndex response states the index has no non-filterable keys,
+  // which disagrees with a default store's `['_page_content']`: every write
+  // failed INDEX_CONFIG_MISMATCH before PutVectors, so the success path — and
+  // every code only PutVectors can raise — was never exercised (N12; same fix
+  // as `indexFixture` in test/helpers.ts).
+  metadataConfiguration: { nonFilterableMetadataKeys: ['_page_content'] },
 };
 
 /** What a command resolves with when an ambient condition says nothing about it. */
@@ -157,28 +167,27 @@ export function createHarness(
     },
   };
 
-  const embeddings: EmbeddingsInterface = ambient.embeddings?.() ?? {
-    embedDocuments: async (texts: string[]) => {
-      embedCalls += 1;
-      return texts.map((_, i) => [i + 0.1, i + 0.2, i + 0.3]);
-    },
-    embedQuery: async () => {
-      embedCalls += 1;
-      return [0.1, 0.2, 0.3];
-    },
+  const stub: EmbeddingsInterface = {
+    embedDocuments: async (texts: string[]) => texts.map((_, i) => [i + 0.1, i + 0.2, i + 0.3]),
+    embedQuery: async () => [0.1, 0.2, 0.3],
   };
+  const model = ambient.embeddings === null ? undefined : (ambient.embeddings?.() ?? stub);
 
-  // Count embed calls even when the ambient condition supplied the model.
-  const counted: EmbeddingsInterface = {
-    embedDocuments: async (texts: string[]) => {
-      embedCalls += 1;
-      return await embeddings.embedDocuments(texts);
-    },
-    embedQuery: async (text: string) => {
-      embedCalls += 1;
-      return await embeddings.embedQuery(text);
-    },
-  };
+  // Counted here and only here, whichever model answers: the stub used to count
+  // its own calls as well, so every default call was counted twice.
+  const counted: EmbeddingsInterface | undefined =
+    model === undefined
+      ? undefined
+      : {
+          embedDocuments: async (texts: string[]) => {
+            embedCalls += 1;
+            return await model.embedDocuments(texts);
+          },
+          embedQuery: async (text: string) => {
+            embedCalls += 1;
+            return await model.embedQuery(text);
+          },
+        };
 
   const store = new AmazonS3Vectors(counted, {
     vectorBucketName: 'test-bucket',

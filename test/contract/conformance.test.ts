@@ -3,6 +3,8 @@ import { beforeAll, describe, it, expect } from '@jest/globals';
 import { AmazonS3Vectors } from '../../src/s3-vectors.js';
 import type { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
+import { HOSTILE_VALUES } from './registry/corpus.js';
+import { fingerprint } from './registry/fingerprint.js';
 import { runAgainst, type Outcome } from './registry/harness.js';
 import { PENDING_ENTRY_POINTS, PUBLIC_ENTRY_POINTS, REGISTRY } from './registry/index.js';
 import { KNOWN_GAPS } from './registry/known-gaps.js';
@@ -10,6 +12,7 @@ import {
   checkClosedEscape,
   checkContextShape,
   checkEffects,
+  checkGuarantees,
   checkReachability,
   checkRejectsOutsideDomain,
   type Failure,
@@ -36,15 +39,18 @@ import type { ContractCase, EntryPointContract } from './registry/types.js';
 interface Run {
   readonly testCase: ContractCase<unknown>;
   readonly outcome: Outcome;
+  /** The input's fingerprint before the call, which P6 compares against. */
+  readonly before: string;
 }
 
 async function runContract(contract: EntryPointContract<unknown>): Promise<Run[]> {
   const runs: Run[] = [];
   for (const testCase of contract.cases()) {
+    const before = fingerprint(testCase.input);
     const outcome = await runAgainst(testCase.ambient, {}, async (store) =>
       contract.invoke(store, testCase.input),
     );
-    runs.push({ testCase, outcome });
+    runs.push({ testCase, outcome, before });
   }
   return runs;
 }
@@ -54,7 +60,7 @@ function failuresFor(contract: EntryPointContract<unknown>, runs: Run[]): Failur
   const failures: Failure[] = [];
   const observed = new Set<S3VectorsErrorCode>();
 
-  for (const { testCase, outcome } of runs) {
+  for (const { testCase, outcome, before } of runs) {
     // The ambient condition is part of a case's identity: the same input under
     // a throttled client and a benign one are different cases.
     const labelled: ContractCase<unknown> = {
@@ -66,6 +72,7 @@ function failuresFor(contract: EntryPointContract<unknown>, runs: Run[]): Failur
       ...checkRejectsOutsideDomain(contract, labelled, outcome),
       ...checkContextShape(contract, labelled, outcome),
       ...checkEffects(contract, labelled, outcome),
+      ...checkGuarantees(contract, labelled, outcome, before),
     );
     if (outcome.settled === 'rejected' && isS3VectorsError(outcome.error)) {
       observed.add(outcome.error.code);
@@ -141,5 +148,50 @@ describe('the registry covers the public surface', () => {
   it('lists nothing as pending that is already registered', () => {
     const registered = new Set(REGISTRY.map((contract) => contract.symbol));
     expect(PENDING_ENTRY_POINTS.filter((symbol) => registered.has(symbol))).toEqual([]);
+  });
+});
+
+describe('P6 checks what it claims to', () => {
+  const contract = {
+    symbol: 'Probe.call',
+    guarantees: ['does-not-mutate-inputs', 'fresh-arrays'],
+  } as unknown as EntryPointContract<unknown>;
+  const resolvedWith = (value: unknown): Outcome => ({
+    settled: 'resolved',
+    value,
+    error: undefined,
+    effects: { commands: [], peakConcurrency: 0, embedCalls: 0 },
+  });
+
+  it('reports an input the call changed', () => {
+    const input = { ids: ['a'] };
+    const before = fingerprint(input);
+    input.ids.push('b');
+    const failures = checkGuarantees(
+      contract,
+      { label: 'mutated', input, ambient: { label: 'benign' } },
+      resolvedWith(undefined),
+      before,
+    );
+    expect(failures.map((failure) => failure.detail)).toEqual(['changed its input']);
+  });
+
+  it('reports an array handed back that the caller passed in', () => {
+    const ids = ['a'];
+    const input = [[], { ids }];
+    const failures = checkGuarantees(
+      contract,
+      { label: 'aliased', input, ambient: { label: 'benign' } },
+      resolvedWith(ids),
+      fingerprint(input),
+    );
+    expect(failures.map((failure) => failure.detail)).toEqual([
+      'returned an array the caller passed in',
+    ]);
+  });
+
+  it('tells every value in the corpus apart, so a change between two of them cannot hide', () => {
+    const renderings = HOSTILE_VALUES.map((value) => fingerprint(value.make()));
+    expect(new Set(renderings).size).toBe(renderings.length);
   });
 });

@@ -3,131 +3,37 @@ import { Document } from '@langchain/core/documents';
 import type { AmazonS3Vectors } from '../../../../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../../../../src/shared/errors/error-code.js';
 import { AMBIENTS, HOSTILE_VALUES } from '../corpus.js';
+import {
+  DEFAULT_MAX_CONCURRENT,
+  isWritableDocument,
+  isWritableVector,
+  isWriteOptions,
+} from '../domain.js';
 import type { Ambient } from '../harness.js';
 import type { ContractCase, EntryPointContract } from '../types.js';
 
 const BENIGN = AMBIENTS[0] as Ambient;
 
-/** A vector key is 1–1024 characters (`API_S3VectorBuckets_PutInputVector.html`). */
-const KEY_MAX_LENGTH = 1024;
-/** "Vectors per PutVectors call: 500" (limits page). */
-const MAX_BATCH_SIZE = 500;
-/** Dimension bounds from the limits page. */
-const MIN_DIMENSION = 1;
-const MAX_DIMENSION = 4096;
-/** The store's default `maxConcurrentBatchCalls`. */
-const DEFAULT_MAX_CONCURRENT = 10;
-
 /** `addVectors(vectors, documents, options?)` as one value the corpus can vary. */
 type AddVectorsInput = readonly [vectors: unknown, documents: unknown, options: unknown];
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isAbortSignalLike(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as { aborted?: unknown; addEventListener?: unknown };
-  return typeof candidate.aborted === 'boolean' && typeof candidate.addEventListener === 'function';
-}
-
 /**
- * A metadata value S3 Vectors can store as written.
+ * What `addVectors` accepts, stated from the contract rather than from the code.
  *
- * Stated independently of `buildPutMetadata`, deliberately. The rule is not
- * "whatever the validator accepts" but "a value whose JSON form is also its
- * wire form" — that is what the byte counter depends on, and stating it here
- * from the rule rather than from the code is what lets this catch the two
- * drifting apart again.
+ * Every vector in the call shares one dimension — not merely every vector in a
+ * batch — because an index has one dimension (userguide
+ * `s3-vectors-indexes.html`): a call whose vectors disagree can never be written
+ * whole, so it must not be written in part.
  */
-function isStorableMetadataValue(value: unknown): boolean {
-  const type = typeof value;
-  if (type === 'string' || type === 'boolean') return true;
-  if (type === 'number') return Number.isFinite(value);
-  if (!Array.isArray(value)) return false;
-  for (let index = 0; index < value.length; index++) {
-    if (!Object.hasOwn(value, index)) return false;
-    const item: unknown = value[index];
-    if (typeof item === 'string') continue;
-    if (typeof item === 'number' && Number.isFinite(item)) continue;
-    return false;
-  }
-  return true;
-}
-
-/** A document this store can write: string content, storable metadata. */
-function isWritableDocument(value: unknown): boolean {
-  if (!isPlainObject(value)) return false;
-  if (typeof value['pageContent'] !== 'string') return false;
-  const metadata: unknown = value['metadata'];
-  if (metadata === undefined || metadata === null) return true;
-  if (!isPlainObject(metadata)) return false;
-  // The page-content key this package adds is reserved, and a document that
-  // already uses it is refused rather than silently overwritten.
-  if (Object.hasOwn(metadata, '_page_content')) return false;
-  return Object.values(metadata).every(isStorableMetadataValue);
-}
-
-/** One embedding: 1–4096 finite components, no holes, and not the zero vector. */
-function isWritableVector(value: unknown): boolean {
-  if (!Array.isArray(value)) return false;
-  if (value.length < MIN_DIMENSION || value.length > MAX_DIMENSION) return false;
-  let sumOfSquares = 0;
-  for (let index = 0; index < value.length; index++) {
-    if (!Object.hasOwn(value, index)) return false;
-    const component: unknown = value[index];
-    if (typeof component !== 'number' || !Number.isFinite(component)) return false;
-    sumOfSquares += component * component;
-  }
-  // The store under test is cosine, which rejects a zero-norm vector
-  // (docs/evidence/zero-vector.md).
-  return sumOfSquares !== 0;
-}
-
-function acceptsOptions(options: unknown, count: number): boolean {
-  if (options === undefined || options === null) return true;
-  if (!isPlainObject(options)) return false;
-
-  const ids: unknown = options['ids'];
-  if (ids !== undefined && ids !== null) {
-    if (!Array.isArray(ids) || ids.length !== count) return false;
-    const seen = new Set<string>();
-    for (const id of ids as unknown[]) {
-      if (typeof id !== 'string' || id.length < 1 || id.length > KEY_MAX_LENGTH) return false;
-      // Unlike delete, a repeat here loses a document: S3 Vectors takes both
-      // and the later one silently overwrites the earlier.
-      if (seen.has(id)) return false;
-      seen.add(id);
-    }
-  }
-
-  const batchSize: unknown = options['batchSize'];
-  if (batchSize !== undefined && batchSize !== null) {
-    if (!Number.isInteger(batchSize)) return false;
-    const size = batchSize as number;
-    if (size < 1 || size > MAX_BATCH_SIZE) return false;
-  }
-
-  const signal: unknown = options['signal'];
-  if (signal !== undefined && signal !== null && !isAbortSignalLike(signal)) return false;
-
-  return true;
-}
-
-function accepts(input: AddVectorsInput): boolean {
-  const [vectors, documents, options] = input;
+function accepts([vectors, documents, options]: AddVectorsInput): boolean {
   if (!Array.isArray(vectors) || !Array.isArray(documents)) return false;
   if (vectors.length !== documents.length) return false;
-  if (!acceptsOptions(options, documents.length)) return false;
-  if (vectors.length === 0) return true;
-
-  if (!(vectors as unknown[]).every(isWritableVector)) return false;
-  if (!(documents as unknown[]).every(isWritableDocument)) return false;
-
-  // Every vector in one `PutVectors` call must share a dimension. The default
-  // batch size puts every case here in a single batch.
-  const first = (vectors as unknown[][])[0];
-  return (vectors as unknown[][]).every((vector) => vector.length === first?.length);
+  if (!isWriteOptions(options, documents.length)) return false;
+  for (let index = 0; index < vectors.length; index++) {
+    if (!isWritableVector(vectors[index]) || !isWritableDocument(documents[index])) return false;
+    if ((vectors[index] as unknown[]).length !== (vectors[0] as unknown[]).length) return false;
+  }
+  return true;
 }
 
 const VECTOR: number[] = [0.1, 0.2, 0.3];
@@ -193,11 +99,7 @@ function cases(): readonly ContractCase<AddVectorsInput>[] {
     });
   }
 
-  built.push({
-    label: 'empty input writes nothing',
-    input: [[], [], undefined],
-    ambient: BENIGN,
-  });
+  built.push({ label: 'empty input writes nothing', input: [[], [], undefined], ambient: BENIGN });
   built.push({
     label: 'mismatched lengths are refused',
     input: [[VECTOR], [doc(), doc()], undefined],
@@ -228,9 +130,44 @@ function cases(): readonly ContractCase<AddVectorsInput>[] {
     input: [[VECTOR], [doc({ _page_content: 'mine' })], undefined],
     ambient: BENIGN,
   });
+  // Found by the 2026-09-16 report and probes.
+  built.push({
+    label: 'an id with an unpaired surrogate is refused',
+    input: [[VECTOR], [doc()], { ids: ['k\ud800'] }],
+    ambient: BENIGN,
+  });
+  built.push({
+    label: 'page content with an unpaired surrogate is refused',
+    input: [[VECTOR], [new Document({ pageContent: 'x\ud800' })], undefined],
+    ambient: BENIGN,
+  });
+  built.push({
+    label: 'a metadata key with an unpaired surrogate is refused',
+    input: [[VECTOR], [doc({ ['k\ud800']: 'v' })], undefined],
+    ambient: BENIGN,
+  });
+  built.push({
+    label: 'a null vector after the first is refused',
+    input: [[VECTOR, null], [doc(), doc()], undefined],
+    ambient: BENIGN,
+  });
+  built.push({
+    label: 'vectors of differing dimension across batches are refused before any write',
+    input: [[VECTOR, [0.4, 0.5]], [doc(), doc()], { batchSize: 1 }],
+    ambient: BENIGN,
+  });
+  built.push({
+    label: 'metadata S3 Vectors rejects in a later batch is refused before any write',
+    input: [[VECTOR, [0.4, 0.5, 0.6]], [doc(), doc({ field: null })], { batchSize: 1 }],
+    ambient: BENIGN,
+  });
 
   return built;
 }
+
+const SCOPE = ['vectorBucketName', 'indexName'];
+/** What a failure after the write started carries, so a caller can reconcile it. */
+const WRITE_FAILURE = [...SCOPE, 'writtenIds', 'attemptedIds'];
 
 /** The executable contract for `AmazonS3Vectors.addVectors`. */
 export const addVectorsContract: EntryPointContract<AddVectorsInput> = {
@@ -245,38 +182,22 @@ export const addVectorsContract: EntryPointContract<AddVectorsInput> = {
     S3VectorsErrorCode.AWS_REJECTED,
     S3VectorsErrorCode.NOT_FOUND,
     S3VectorsErrorCode.SERVICE_UNAVAILABLE,
+    S3VectorsErrorCode.QUOTA_EXCEEDED,
+    S3VectorsErrorCode.KMS_ERROR,
     S3VectorsErrorCode.AWS_REQUEST_FAILED,
   ]),
   requiredContext: {
-    [S3VectorsErrorCode.VALIDATION]: ['vectorBucketName', 'indexName'],
-    [S3VectorsErrorCode.ABORTED]: ['vectorBucketName', 'indexName'],
-    [S3VectorsErrorCode.INDEX_CONFIG_MISMATCH]: ['vectorBucketName', 'indexName'],
-    [S3VectorsErrorCode.THROTTLED]: ['vectorBucketName', 'indexName', 'writtenIds', 'attemptedIds'],
-    [S3VectorsErrorCode.ACCESS_DENIED]: [
-      'vectorBucketName',
-      'indexName',
-      'writtenIds',
-      'attemptedIds',
-    ],
-    [S3VectorsErrorCode.AWS_REJECTED]: [
-      'vectorBucketName',
-      'indexName',
-      'writtenIds',
-      'attemptedIds',
-    ],
-    [S3VectorsErrorCode.NOT_FOUND]: ['vectorBucketName', 'indexName', 'writtenIds', 'attemptedIds'],
-    [S3VectorsErrorCode.SERVICE_UNAVAILABLE]: [
-      'vectorBucketName',
-      'indexName',
-      'writtenIds',
-      'attemptedIds',
-    ],
-    [S3VectorsErrorCode.AWS_REQUEST_FAILED]: [
-      'vectorBucketName',
-      'indexName',
-      'writtenIds',
-      'attemptedIds',
-    ],
+    [S3VectorsErrorCode.VALIDATION]: SCOPE,
+    [S3VectorsErrorCode.ABORTED]: SCOPE,
+    [S3VectorsErrorCode.INDEX_CONFIG_MISMATCH]: SCOPE,
+    [S3VectorsErrorCode.THROTTLED]: WRITE_FAILURE,
+    [S3VectorsErrorCode.ACCESS_DENIED]: WRITE_FAILURE,
+    [S3VectorsErrorCode.AWS_REJECTED]: WRITE_FAILURE,
+    [S3VectorsErrorCode.NOT_FOUND]: WRITE_FAILURE,
+    [S3VectorsErrorCode.SERVICE_UNAVAILABLE]: WRITE_FAILURE,
+    [S3VectorsErrorCode.QUOTA_EXCEEDED]: WRITE_FAILURE,
+    [S3VectorsErrorCode.KMS_ERROR]: WRITE_FAILURE,
+    [S3VectorsErrorCode.AWS_REQUEST_FAILED]: WRITE_FAILURE,
   },
   // A batch whose vectors disagree on dimension is refused as
   // INDEX_CONFIG_MISMATCH rather than VALIDATION, deliberately: what the caller
@@ -286,14 +207,12 @@ export const addVectorsContract: EntryPointContract<AddVectorsInput> = {
     S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
   ]),
   accepts,
-  invoke: async (store: AmazonS3Vectors, input: AddVectorsInput) => {
-    const [vectors, documents, options] = input;
-    return await store.addVectors(
+  invoke: async (store: AmazonS3Vectors, [vectors, documents, options]: AddVectorsInput) =>
+    await store.addVectors(
       vectors as number[][],
       documents as Document[],
       options as Parameters<AmazonS3Vectors['addVectors']>[2],
-    );
-  },
+    ),
   cases,
   maxConcurrency: DEFAULT_MAX_CONCURRENT,
   guarantees: ['does-not-mutate-inputs', 'fresh-arrays'],

@@ -2,15 +2,15 @@ import type { AmazonS3Vectors } from '../../../src/s3-vectors.js';
 import type { S3VectorsErrorCode } from '../../../src/shared/errors/error-code.js';
 import type { Ambient } from './harness.js';
 
-/** Behavioural promises a contract can make that are not about types. */
+/**
+ * Behavioural promises a contract can make that are not about types, each
+ * checked by P6 (`checkGuarantees`). A promise no property checks is not listed:
+ * declaring it would prove nothing.
+ */
 export type Guarantee =
-  /** The call does not read the caller's arrays again after validating them. */
+  /** The call leaves its input exactly as it found it. */
   | 'does-not-mutate-inputs'
-  /** No internal field is an enumerable own property of the store. */
-  | 'no-enumerable-internals'
-  /** A thrown error's `code` and `context` cannot be reassigned. */
-  | 'immutable-error'
-  /** Arrays handed back are the call's own, never the caller's instance. */
+  /** An array the call hands back is its own, never one the caller passed in. */
   | 'fresh-arrays';
 
 /** One input, under one ambient condition. */
