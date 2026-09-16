@@ -1,6 +1,6 @@
 # T3-4 — how AWS counts metadata bytes
 
-Run conditions: see [`README.md`](./README.md) in this directory.
+Run conditions: run 1 in [`README.md`](./README.md).
 
 **Claim settled.** The 2 KB filterable and 40 KB total metadata limits are
 counted over the **UTF-8 byte length of the JSON serialisation** of the metadata

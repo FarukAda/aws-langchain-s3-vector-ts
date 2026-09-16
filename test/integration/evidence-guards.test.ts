@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   CreateIndexCommand,
+  type CreateIndexCommandInput,
   DeleteIndexCommand,
   DeleteVectorsCommand,
   GetVectorsCommand,
@@ -331,6 +332,236 @@ if (!env) {
       );
       expect(failure.name).toBe('ValidationException');
       expect(failure.message).toContain('non-filterable');
+    }, 120_000);
+
+    // ── Shared by the run-2 claims ───────────────────────────────────────
+
+    const putOne = (key: string, metadata: DocumentType): Promise<unknown> =>
+      client.send(
+        new PutVectorsCommand({
+          ...scope,
+          vectors: [{ key, data: { float32: [1, 0, 0, 0] }, metadata }],
+        }),
+      );
+
+    const queryWith = (filter: DocumentType): Promise<unknown> =>
+      client.send(
+        new QueryVectorsCommand({
+          ...scope,
+          topK: 1,
+          queryVector: { float32: [1, 0, 0, 0] },
+          returnDistance: true,
+          filter,
+        }),
+      );
+
+    // ── T3-14 — docs/evidence/metadata-value-types.md ──────────────────
+
+    it.each<[string, DocumentType, string]>([
+      ['nothing', { arr: [] }, 'Empty arrays are not allowed in metadata'],
+      [
+        'a number, then a string',
+        { arr: [1, 'a'] },
+        'Metadata array values must be strings or numbers',
+      ],
+      [
+        'a string, then a number',
+        { arr: ['a', 1] },
+        'Metadata array values must be strings or numbers',
+      ],
+    ])(
+      'T3-14: a metadata array holding %s is rejected',
+      async (_label, metadata, message) => {
+        const failure = await failureOf(() => putOne('t3-14', metadata));
+        expect(failure.name).toBe('ValidationException');
+        expect(failure.message).toContain(message);
+      },
+      120_000,
+    );
+
+    it('T3-14: single-type arrays, empty strings and repeated elements are accepted', async () => {
+      const keys = ['t3-14-strings', 't3-14-numbers'];
+      try {
+        await expect(putOne(keys[0]!, { arr: ['', 'dup', 'dup'], s: '' })).resolves.toBeDefined();
+        await expect(putOne(keys[1]!, { arr: [1, 2.5], n: -1.5 })).resolves.toBeDefined();
+      } finally {
+        // Removed again, so the four vectors the distance claims rely on stay the
+        // only ones in the index.
+        await client.send(new DeleteVectorsCommand({ ...scope, keys }));
+      }
+    }, 120_000);
+
+    // ── T3-15 — docs/evidence/string-encoding.md ───────────────────────
+
+    /** Half of a surrogate pair — what text cut by UTF-16 code unit leaves behind. */
+    const LONE = 'x\ud800';
+
+    const createWith = (
+      extra: Pick<
+        CreateIndexCommandInput,
+        'tags' | 'metadataConfiguration' | 'encryptionConfiguration'
+      >,
+    ): Promise<unknown> =>
+      client.send(
+        new CreateIndexCommand({
+          vectorBucketName: safeEnv.bucketName,
+          indexName: `enc-${randomUUID().slice(0, 8)}`,
+          dataType: 'float32',
+          dimension: DIM,
+          distanceMetric: 'cosine',
+          ...extra,
+        }),
+      );
+
+    it.each<[string, () => Promise<unknown>]>([
+      ['a metadata value', () => putOne('t3-15-value', { s: LONE })],
+      ['a metadata value, as a low surrogate', () => putOne('t3-15-low', { s: '\udc00x' })],
+      ['a metadata array element', () => putOne('t3-15-element', { arr: [LONE] })],
+      ['a metadata key', () => putOne('t3-15-key', { [LONE]: 'x' })],
+      ['a PutVectors key', () => putOne(LONE, { s: 'x' })],
+      ['a GetVectors key', () => client.send(new GetVectorsCommand({ ...scope, keys: [LONE] }))],
+      [
+        'a DeleteVectors key',
+        () => client.send(new DeleteVectorsCommand({ ...scope, keys: [LONE] })),
+      ],
+      ['a filter string', () => queryWith({ g: LONE })],
+      ['an $in element', () => queryWith({ g: { $in: [LONE] } })],
+      ['a CreateIndex tag key', () => createWith({ tags: { [LONE]: 'x' } })],
+      ['a CreateIndex tag value', () => createWith({ tags: { team: LONE } })],
+      [
+        'a CreateIndex non-filterable key',
+        () => createWith({ metadataConfiguration: { nonFilterableMetadataKeys: [LONE] } }),
+      ],
+      [
+        'a CreateIndex KMS key ARN',
+        () =>
+          createWith({
+            encryptionConfiguration: {
+              sseType: 'aws:kms',
+              kmsKeyArn: `arn:aws:kms:${safeEnv.region}:000000000000:key/${LONE}`,
+            },
+          }),
+      ],
+    ])(
+      'T3-15: an unpaired surrogate in %s fails the whole request',
+      async (_label, send) => {
+        const failure = await failureOf(send);
+        expect(failure.name).toBe('SerializationException');
+        expect(failure.$metadata?.httpStatusCode).toBe(400);
+      },
+      120_000,
+    );
+
+    it('T3-15: a surrogate pair is accepted in the same positions', async () => {
+      const PAIR = 'x😀';
+      try {
+        await expect(putOne(PAIR, { s: PAIR, arr: [PAIR] })).resolves.toBeDefined();
+        await expect(queryWith({ s: PAIR })).resolves.toBeDefined();
+      } finally {
+        await client.send(new DeleteVectorsCommand({ ...scope, keys: [PAIR] }));
+      }
+    }, 120_000);
+
+    // ── T3-16 — docs/evidence/filter-validation.md ─────────────────────
+
+    it.each<[string, DocumentType]>([
+      ['$eq holding null', { g: { $eq: null } }],
+      ['$eq holding an array', { g: { $eq: ['a'] } }],
+      ['$eq holding an object', { g: { $eq: {} } }],
+      ['$ne holding null', { g: { $ne: null } }],
+      ['$gt holding a string', { n: { $gt: '1' } }],
+      ['$gte holding a boolean', { n: { $gte: true } }],
+      ['$lt holding null', { n: { $lt: null } }],
+      ['$lte holding an array', { n: { $lte: [1] } }],
+      ['$in holding null', { g: { $in: [null] } }],
+      ['$in holding an object', { g: { $in: [{}] } }],
+      ['$in holding a nested array', { g: { $in: [['a']] } }],
+      ['$nin holding null', { g: { $nin: [null] } }],
+      ['$exists holding a string', { g: { $exists: 'yes' } }],
+      ['$exists holding a number', { g: { $exists: 1 } }],
+      ['a shorthand null', { g: null }],
+      ['a shorthand array', { g: ['a'] }],
+    ])(
+      'T3-16: %s is rejected as an invalid filter',
+      async (_label, filter) => {
+        const failure = await failureOf(() => queryWith(filter));
+        expect(failure.name).toBe('ValidationException');
+        expect(failure.message).toContain('Invalid filter');
+      },
+      120_000,
+    );
+
+    it.each<[string, DocumentType]>([
+      ['$eq holding a number', { n: { $eq: 1 } }],
+      ['$ne holding a boolean', { popular: { $ne: false } }],
+      ['$gt holding a fraction', { n: { $gt: 0.5 } }],
+      ['$in holding booleans', { popular: { $in: [true] } }],
+      ['$in holding mixed types', { g: { $in: ['a', 1] } }],
+      ['$nin holding mixed types', { g: { $nin: ['z', 1] } }],
+      ['$exists holding false', { absent: { $exists: false } }],
+      ['a shorthand boolean', { popular: true }],
+    ])(
+      'T3-16: %s is accepted',
+      async (_label, filter) => {
+        await expect(queryWith(filter)).resolves.toBeDefined();
+      },
+      120_000,
+    );
+
+    // ── T3-17 — docs/evidence/filter-validation.md ─────────────────────
+
+    it.each<[string, DocumentType]>([
+      ['two fields', { g: 'a', popular: true }],
+      ['two fields with operators', { g: { $eq: 'a' }, popular: { $eq: true } }],
+      ['two fields inside an $and element', { $and: [{ g: 'a', popular: true }] }],
+      ['a logical operator beside a field', { $and: [{ g: 'a' }], g: 'a' }],
+      ['two logical operators', { $and: [{ g: 'a' }], $or: [{ popular: true }] }],
+    ])(
+      'T3-17: %s in one condition object is rejected',
+      async (_label, filter) => {
+        const failure = await failureOf(() => queryWith(filter));
+        expect(failure.name).toBe('ValidationException');
+        expect(failure.message).toContain('Invalid filter');
+      },
+      120_000,
+    );
+
+    it('T3-17: the same conditions combined with $and, and several operators on one field, are accepted', async () => {
+      await expect(queryWith({ $and: [{ g: 'a' }, { popular: true }] })).resolves.toBeDefined();
+      await expect(queryWith({ g: { $eq: 'a', $ne: 'b' } })).resolves.toBeDefined();
+    }, 120_000);
+
+    // ── T3-18 — docs/evidence/filter-validation.md ─────────────────────
+
+    it.each<[string, DocumentType]>([
+      ['an empty operator object', { g: {} }],
+      ['a non-operator key', { g: { x: 1 } }],
+      ['an operator beside a non-operator key', { g: { $eq: 'a', x: 1 } }],
+      ['$and inside a field', { g: { $and: [{ g: 'a' }] } }],
+      ['$or inside a field', { g: { $or: [{ g: 'a' }] } }],
+      ['an empty object inside $and', { $and: [{}] }],
+      ['a string inside $and', { $and: ['x'] }],
+    ])(
+      'T3-18: %s is rejected as an invalid filter',
+      async (_label, filter) => {
+        const failure = await failureOf(() => queryWith(filter));
+        expect(failure.name).toBe('ValidationException');
+        expect(failure.message).toContain('Invalid filter');
+      },
+      120_000,
+    );
+
+    // ── T3-19 — docs/evidence/filter-validation.md ─────────────────────
+
+    it('T3-19: a non-finite number is sent as a string — accepted by $eq, $in and the shorthand, rejected by a range operator', async () => {
+      await expect(queryWith({ g: Number.NaN })).resolves.toBeDefined();
+      await expect(queryWith({ g: { $eq: Number.NaN } })).resolves.toBeDefined();
+      await expect(queryWith({ g: { $in: [Number.NaN] } })).resolves.toBeDefined();
+      for (const bad of [Number.NaN, Number.POSITIVE_INFINITY]) {
+        const failure = await failureOf(() => queryWith({ g: { $gt: bad } }));
+        expect(failure.name).toBe('ValidationException');
+        expect(failure.message).toContain('Invalid filter');
+      }
     }, 120_000);
   });
 }

@@ -1,6 +1,6 @@
 # T3-5 — cosine distance is `1 − cosine_similarity`
 
-Run conditions: see [`README.md`](./README.md) in this directory. Index: dimension 4, `cosine`.
+Run conditions: run 1 in [`README.md`](./README.md). Index: dimension 4, `cosine`.
 
 **Claim confirmed, exactly.** Four vectors stored, queried with `[1,0,0,0]`,
 `returnDistance: true`:

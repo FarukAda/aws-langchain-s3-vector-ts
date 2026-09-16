@@ -1,6 +1,6 @@
 # T3-8 and T3-2 — deleting things that are not there
 
-Run conditions: see [`README.md`](./README.md) in this directory.
+Run conditions: run 1 in [`README.md`](./README.md).
 
 ## T3-8 — `DeleteVectors` accepts absent keys
 

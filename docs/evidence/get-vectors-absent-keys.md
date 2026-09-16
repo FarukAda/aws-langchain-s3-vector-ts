@@ -1,6 +1,6 @@
 # T3-7 — `GetVectors` omits keys that do not exist
 
-Run conditions: see [`README.md`](./README.md) in this directory. Stored keys: `same`, `orth`.
+Run conditions: run 1 in [`README.md`](./README.md). Stored keys: `same`, `orth`.
 
 ```
 GetVectors  keys: ['same', 'does-not-exist', 'orth'], returnMetadata: true

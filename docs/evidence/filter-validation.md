@@ -1,6 +1,6 @@
 # T3-1 and T3-11 — filter validation
 
-Run conditions: see [`README.md`](./README.md) in this directory. Index: dimension 4, `cosine`, one stored vector
+Run conditions: run 1 in [`README.md`](./README.md). Index: dimension 4, `cosine`, one stored vector
 with metadata `{ g: 'a' }`.
 
 Every rejection below is `ValidationException`, HTTP 400, with an identical body:
@@ -60,3 +60,72 @@ in a single call sees both. It is documented instead.
 than ignored, and unlike the bare "Invalid filter" above, this message says what
 is wrong. It is easy to reach by accident: the key excluded for index-size
 reasons is often the interesting one to filter by.
+
+## T3-16 — operand types are enforced as documented
+
+Run conditions: run 2 in [`README.md`](./README.md). Index: dimension 4, `cosine`,
+vectors carrying `{ s: 'a', n: 1, b: true, arr: ['x', 'y'], narr: [1, 2] }`.
+
+The user guide gives each operator's *valid input types*
+(`s3-vectors-metadata-filtering.html`). The service enforces them: every
+rejection below is `ValidationException`, HTTP 400, "Invalid filter".
+
+| Operator | Accepted | Rejected |
+|---|---|---|
+| `$eq`, `$ne` | a string, a number, a boolean | `null`, `['a']`, `[]`, `{}` |
+| `$gt`, `$gte`, `$lt`, `$lte` | a number, fractional included | `'1'`, `true`, `null`, `[1]`, `{}`, `NaN`, `Infinity` |
+| `$in`, `$nin` | a non-empty array of strings, numbers and booleans — **mixed types allowed** | `[null]`, `[{}]`, `[['a']]`, `'a'`, `[]` |
+| `$exists` | `true`, `false` | `'yes'`, `'true'`, `1`, `null` |
+| shorthand `{ field: v }` | a string, a number, a boolean | `null`, `['a']`, `[]` |
+
+"Non-empty array of primitives" in the guide does not include `null`, although
+`null` is a JavaScript primitive.
+
+## T3-17 — a condition object holds exactly one key
+
+Run conditions: run 2.
+
+| Filter | Result |
+|---|---|
+| `{ s: 'a', b: true }` | **rejected** |
+| `{ s: { $eq: 'a' }, n: { $eq: 1 } }` | **rejected** |
+| `{ $and: [{ s: 'a', n: 1 }] }` | **rejected** — the rule holds inside a branch too |
+| `{ $and: [{ s: 'a' }], s: 'a' }` | **rejected** |
+| `{ $and: [{ s: 'a' }], $or: [{ n: 1 }] }` | **rejected** |
+| `{ $and: [{ s: 'a' }, { n: 1 }] }` | accepted — the same conditions, combined |
+| `{ $or: [{ $and: [{ s: 'a' }, { n: 1 }] }] }` | accepted |
+| `{ s: { $eq: 'a', $ne: 'b' } }`, `{ n: { $gte: 0, $lte: 5 } }` | accepted — several *operators* on one field are fine |
+| `{ '': 'x' }` | accepted — an empty field name is not a problem |
+
+A filter assembled from several optional form fields as `{ genre, year }` is
+exactly this shape, and the service answers it with the same bare "Invalid
+filter" as any other mistake.
+
+## T3-18 — a field's operator object holds only comparison operators
+
+Run conditions: run 2. Every row is `ValidationException`, "Invalid filter".
+
+| Filter | Result |
+|---|---|
+| `{ s: {} }` | **rejected** |
+| `{ s: { x: 1 } }` | **rejected** |
+| `{ s: { $eq: 'a', x: 1 } }` | **rejected** |
+| `{ s: { $and: [{ s: 'a' }] } }`, `{ s: { $or: [{ s: 'a' }] } }` | **rejected** |
+| `{ $and: [{}] }`, `{ $and: ['x'] }` | **rejected** |
+
+## T3-19 — a non-finite filter number is sent as a string
+
+Run conditions: run 2.
+
+| Filter | Result |
+|---|---|
+| `{ n: NaN }`, `{ n: { $eq: NaN } }`, `{ n: { $in: [NaN] } }` | **accepted, and matched nothing** |
+| `{ n: { $gt: NaN } }`, `{ n: { $gt: Infinity } }` | rejected, like a string operand |
+
+The AWS SDK's JSON serialiser writes a non-finite number as a quoted string
+(`@aws-sdk/core@3.978.0` `dist-cjs/submodules/protocols/index.js:1096`), and a
+`Date` inside a document as a timestamp (`:1065`). The service therefore saw
+`"NaN"`: a string, which `$eq` and `$in` accept and a range operator refuses. A
+caller's `NaN` became a filter that silently matches nothing. This is the reason
+this package refuses a non-finite number and a `Date` in a filter, as it already
+does in metadata: what would be sent is not what was written.
