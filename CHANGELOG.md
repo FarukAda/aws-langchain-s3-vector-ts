@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`error.context.recordIndex` and `error.context.recordId`.** A refusal about
+  one document's metadata now says which document: its position in *your* input,
+  counted over the whole call rather than within a batch, and its id. The message
+  leads with the same, as `Document at index 400 (id "ticket-400"): …`. Both
+  fields are optional and appear only on errors about a single element of a list.
+
+### Fixed
+
+- **An empty metadata array, and one mixing strings with numbers, are refused
+  locally.** S3 Vectors rejects both ("Empty arrays are not allowed in metadata";
+  "Metadata array values must be strings or numbers" —
+  [`docs/evidence/metadata-value-types.md`](./docs/evidence/metadata-value-types.md),
+  T3-14). The local check examined each element on its own, so both shapes passed
+  it and failed at AWS, taking every other document in the same `PutVectors` call
+  down with them. They are `VALIDATION` now, naming the key.
+
+- **A metadata key or string value containing an unpaired UTF-16 surrogate is
+  refused locally.** Page content is stored as metadata, so text cut mid-emoji
+  reached AWS, which fails the whole request with `SerializationException` and the
+  message "UnknownError"
+  ([`docs/evidence/string-encoding.md`](./docs/evidence/string-encoding.md),
+  T3-15). That surfaced as an `AWS_REQUEST_FAILED` naming nothing; it is
+  `VALIDATION` now, naming the key and the position of the stray code unit.
+
+- **The README said `NaN` passes the metadata type check.** It has been refused
+  since the value-type rules landed; the section now says so, and why.
+
 ## [1.0.0-rc.2] - 2026-09-16
 
 A contract-first rework of the whole package. Every function was specified

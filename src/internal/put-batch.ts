@@ -107,6 +107,7 @@ export async function putBatch(opts: PutBatchOptions): Promise<void> {
       pageContentMetadataKey: opts.pageContentMetadataKey,
       nonFilterableKeys: opts.nonFilterableKeys,
       operation,
+      record: { recordIndex: opts.batchOffset + j, recordId: id },
       ...scope,
     });
 

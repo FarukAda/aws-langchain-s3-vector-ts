@@ -14,6 +14,7 @@ const BASE = {
   operation: 'addVectors',
   vectorBucketName: 'b',
   indexName: 'i',
+  record: { recordIndex: 0 },
 };
 
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
@@ -32,7 +33,6 @@ describe('buildPutMetadata — value types (docs/evidence/metadata-value-types.m
     ['a boolean', true],
     ['an array of strings', ['a', 'b']],
     ['an array of numbers', [1, 2]],
-    ['a mixed array of strings and numbers', ['a', 1]],
   ])('accepts %s', (_label, value) => {
     expect(build({ k: value })).toMatchObject({ k: value });
   });
@@ -42,9 +42,7 @@ describe('buildPutMetadata — value types (docs/evidence/metadata-value-types.m
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     // The message lists the accepted set, because the user guide's own list
     // is looser than what the service actually takes.
-    expect((error as Error).message).toContain(
-      'string, number, boolean, or an array of strings or numbers',
-    );
+    expect((error as Error).message).toContain('non-empty array of only strings or only numbers');
   });
 
   it('rejects an array containing an object, because arrays hold only strings or numbers', () => {
@@ -53,6 +51,14 @@ describe('buildPutMetadata — value types (docs/evidence/metadata-value-types.m
 
   it('rejects an array containing a boolean, which is stricter than the user guide states', () => {
     expect(codeOf(build({ k: [true] }))).toBe(S3VectorsErrorCode.VALIDATION);
+  });
+
+  it('rejects an array mixing strings and numbers, which AWS refuses (T3-14)', () => {
+    expect(codeOf(build({ k: ['a', 1] }))).toBe(S3VectorsErrorCode.VALIDATION);
+  });
+
+  it('rejects an empty array, which AWS refuses (T3-14)', () => {
+    expect(codeOf(build({ k: [] }))).toBe(S3VectorsErrorCode.VALIDATION);
   });
 
   it('rejects a null value, which is in no accepted set', () => {

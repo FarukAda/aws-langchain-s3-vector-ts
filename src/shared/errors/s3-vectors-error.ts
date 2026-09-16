@@ -23,6 +23,24 @@ export interface S3VectorsErrorContext {
    */
   readonly attemptedIds?: string[];
   /**
+   * Position, in the caller's own input and counted from 0 over the whole call
+   * — never over a batch — of the one element this error is about.
+   *
+   * Set on every error raised for a single element of a caller's list: a
+   * `VALIDATION` for a document, its metadata, a vector or an id, and the
+   * `INDEX_CONFIG_MISMATCH` for a vector whose dimension disagrees with the
+   * first. Raised by `addVectors`, `addDocuments`, `fromDocuments`, `fromTexts`,
+   * `delete` and `getByIds`. Absent on every other error.
+   */
+  readonly recordIndex?: number;
+  /**
+   * The id of that element, whenever it has one that is a string: the resolved
+   * id of a document or vector, or the offending id itself. Absent when the
+   * element is not a string id, or when ids were not yet resolved (a document
+   * that is not an object).
+   */
+  readonly recordId?: string;
+  /**
    * The specific validation failures AWS reported, each naming the field that
    * failed and why. A `ValidationException` carries these
    * (`@aws-sdk/client-s3vectors@3.1133.0` `dist-types/models/models_0.d.ts:94`)

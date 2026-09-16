@@ -634,15 +634,17 @@ Both caps (2048 bytes filterable, 40,960 bytes total per vector) **are** checked
 
 ### Metadata Value Types
 
-S3 Vectors only accepts metadata values that are strings, numbers, booleans, or arrays of strings/numbers. An array may hold **only** strings or numbers — a boolean inside one is rejected, and so is an object — which is stricter than the user guide's "string, number, boolean, and list types" suggests; both rejections were confirmed against the live service and recorded in [`docs/evidence/metadata-value-types.md`](docs/evidence/metadata-value-types.md).
+S3 Vectors stores a metadata value only if it is a string, a number, a boolean, or a **non-empty array holding only strings or only numbers**. That is stricter than the user guide's "string, number, boolean, and list types": an array holding a boolean or an object is refused, an empty array is refused, and so is an array that mixes strings with numbers. Each rejection was confirmed against the live service and recorded in [`docs/evidence/metadata-value-types.md`](docs/evidence/metadata-value-types.md).
 
-Because the service's own rule is now known rather than assumed, this library enforces it **locally**, before the round trip and before the billable embedding call that would otherwise precede it. Anything outside that set raises a `VALIDATION` error naming the key at fault rather than being converted, dropped or sent:
+Because the service's own rules are known rather than assumed, this library enforces them **locally**, before the round trip. Anything outside that set raises a `VALIDATION` error naming the document — its position in your input and its id, also on `error.context.recordIndex` and `error.context.recordId` — and the key at fault, rather than being converted, dropped or sent:
 
 - `null` and nested objects (and arrays containing them) are rejected.
+- An empty array is rejected. Omit the key instead; an empty tag list is the usual way to hit this.
+- An array mixing strings with numbers is rejected. Store one type per array.
 - A `Date` is rejected. Convert it yourself first — `date.toISOString()` for a string, or `date.getTime()` for a number — so the stored representation is the one you chose.
+- `NaN` and `±Infinity` are rejected. The AWS SDK would send them as the strings `"NaN"` and `"Infinity"`, so a numeric filter would never match them again.
 - A key whose value is `undefined` is rejected rather than quietly omitted, so a typo'd or unset field is visible instead of silently missing from the index.
-
-One value passes the type check but has no JSON representation: `NaN` is a `number` to JavaScript, yet JSON has no `NaN` literal. Don't put one in metadata — convert it to a string or drop the key before writing.
+- Every string — a value, an array element, a key, and the page content stored under `pageContentMetadataKey` — must be well-formed UTF-16. Text cut by UTF-16 code unit can split an emoji and leave half of it behind, and S3 Vectors fails the entire request carrying it ([`docs/evidence/string-encoding.md`](docs/evidence/string-encoding.md)). Split text with `Intl.Segmenter`, or check `text.isWellFormed()`, before writing it.
 
 ### Disabling Page-Content Round-Tripping
 

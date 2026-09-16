@@ -28,53 +28,11 @@ import type { KnownGap } from './types.js';
  */
 export const KNOWN_GAPS: readonly KnownGap[] = [
   {
-    finding: 'R2',
-    symbol: 'AmazonS3Vectors.addVectors',
-    property: 'P2',
-    caseLabel: 'document metadata value = empty array [benign]',
-    note: 'Written and left to AWS, which rejects an empty array; should be VALIDATION before any request.',
-  },
-  {
-    finding: 'R2',
-    symbol: 'AmazonS3Vectors.addVectors',
-    property: 'P2',
-    caseLabel: 'document metadata value = mixed array [benign]',
-    note: 'Written and left to AWS, which rejects strings mixed with numbers; should be VALIDATION.',
-  },
-  {
-    finding: 'N3',
-    symbol: 'AmazonS3Vectors.addVectors',
-    property: 'P2',
-    caseLabel: 'document metadata value = lone surrogate [benign]',
-    note: 'Written; AWS fails the whole request with SerializationException. Should be VALIDATION.',
-  },
-  {
-    finding: 'N3',
-    symbol: 'AmazonS3Vectors.addVectors',
-    property: 'P2',
-    caseLabel: 'document metadata value = lone low surrogate [benign]',
-    note: 'Written; AWS fails the whole request with SerializationException. Should be VALIDATION.',
-  },
-  {
     finding: 'N3',
     symbol: 'AmazonS3Vectors.addVectors',
     property: 'P2',
     caseLabel: 'an id with an unpaired surrogate is refused [benign]',
     note: 'The id is written; AWS fails the request. Should be VALIDATION with the id rules.',
-  },
-  {
-    finding: 'N3',
-    symbol: 'AmazonS3Vectors.addVectors',
-    property: 'P2',
-    caseLabel: 'page content with an unpaired surrogate is refused [benign]',
-    note: 'Page content is stored as metadata, so AWS fails the request. Should be VALIDATION.',
-  },
-  {
-    finding: 'N3',
-    symbol: 'AmazonS3Vectors.addVectors',
-    property: 'P2',
-    caseLabel: 'a metadata key with an unpaired surrogate is refused [benign]',
-    note: 'Written; AWS fails the request. Should be VALIDATION.',
   },
   {
     finding: 'R8',

@@ -42,6 +42,10 @@ const NON_SERVICE_ERRORS = new Set([
   // Not AWS at all — the platform's own error type, which is what
   // `AbortController.abort()` uses as its default reason.
   'DOMException',
+  // What S3 Vectors actually names an unpaired UTF-16 surrogate as, confirmed
+  // live (docs/evidence/string-encoding.md, T3-15) — a protocol-level failure
+  // the service model does not declare as one of its thirteen exceptions.
+  'SerializationException',
 ]);
 
 function sourceFiles(dir: string): string[] {

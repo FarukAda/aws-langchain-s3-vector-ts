@@ -40,6 +40,7 @@ const OPTIONS = {
   operation: 'addDocuments',
   vectorBucketName: 'test-bucket',
   indexName: 'test-index',
+  record: { recordIndex: 0 },
 } as const;
 
 function build(metadata: Record<string, unknown>): Record<string, unknown> {
@@ -104,7 +105,7 @@ describe('metadata values that would not survive serialisation are refused', () 
       zero: 0,
       flag: true,
       tags: ['a', 'b'],
-      mixed: ['a', 1],
+      numbers: [1, 2],
       // The largest and smallest finite doubles still serialise identically.
       big: Number.MAX_SAFE_INTEGER + 1,
       tiny: Number.MIN_VALUE,
@@ -121,7 +122,7 @@ describe('metadata values that would not survive serialisation are refused', () 
       text: 'a string',
       count: 42,
       flag: false,
-      tags: ['a', 1],
+      tags: ['a', 'b'],
     });
     expect(JSON.parse(JSON.stringify(accepted)) as unknown).toEqual(accepted);
   });

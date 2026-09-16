@@ -22,6 +22,7 @@ describe('metadata round-trip property', () => {
             operation: 'addDocuments',
             vectorBucketName: 'b',
             indexName: 'i',
+            record: { recordIndex: 0 },
           });
           const doc = createDocument({ key: 'k', metadata: put }, KEY);
           expect(doc.pageContent).toBe(pageContent);

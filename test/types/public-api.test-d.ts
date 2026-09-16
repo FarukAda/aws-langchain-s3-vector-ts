@@ -102,6 +102,8 @@ const ctx: S3VectorsErrorContext = {
   retryable: true,
   attemptedIds: ['a', 'b'],
   batchSize: 200,
+  recordIndex: 4,
+  recordId: 'k',
   yielded: 2,
 };
 // @ts-expect-error -- `operation` is the one field always present

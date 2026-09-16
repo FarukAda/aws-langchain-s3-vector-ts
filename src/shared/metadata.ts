@@ -1,8 +1,10 @@
 import { Document, type DocumentInterface } from '@langchain/core/documents';
 
 import type { S3OutputVector } from '../types.js';
+import { describeRecord, type RecordRef } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
+import { unpairedSurrogateReason } from './utf16.js';
 
 /** Options for {@link buildPutMetadata}. */
 export interface PutMetadataOptions {
@@ -16,6 +18,8 @@ export interface PutMetadataOptions {
   readonly vectorBucketName: string;
   /** The index, for the error's context. */
   readonly indexName: string;
+  /** The document's place in the caller's input, named in every refusal. */
+  readonly record: RecordRef;
 }
 
 /**
@@ -31,11 +35,16 @@ const MEASURED_OVERHEAD_BYTES = 5;
 /**
  * Why S3 Vectors could not store this value, or `undefined` if it can.
  *
- * Accepted values are per docs/evidence/metadata-value-types.md, with one rule
- * on top: a value is refused unless its `JSON.stringify` form is also its wire
- * form. The SDK's document serialiser does not agree with `JSON.stringify`
- * everywhere, and where they disagree the stored data is not what the caller
- * passed:
+ * Accepted values are per docs/evidence/metadata-value-types.md (T3-9, T3-14):
+ * a string, a boolean, a number, or a non-empty array of only strings or only
+ * numbers. A string must also be well-formed UTF-16, because S3 Vectors fails
+ * the whole request carrying one that is not (docs/evidence/string-encoding.md,
+ * T3-15).
+ *
+ * One rule sits on top of what the service enforces: a value is refused unless
+ * its `JSON.stringify` form is also its wire form. The SDK's document serialiser
+ * does not agree with `JSON.stringify` everywhere, and where they disagree the
+ * stored data is not what the caller passed:
  *
  * - a non-finite number is written as the *string* `"NaN"` / `"Infinity"`
  *   (`@aws-sdk/core` `submodules/protocols`), so the stored type changes and a
@@ -48,9 +57,9 @@ const MEASURED_OVERHEAD_BYTES = 5;
  * package carrying a second copy of the SDK's serialiser to measure against.
  */
 function rejectionReason(value: unknown): string | undefined {
-  const type = typeof value;
-  if (type === 'string' || type === 'boolean') return undefined;
-  if (type === 'number') {
+  if (typeof value === 'string') return unpairedSurrogateReason(value);
+  if (typeof value === 'boolean') return undefined;
+  if (typeof value === 'number') {
     return Number.isFinite(value)
       ? undefined
       : `is ${String(value)}, which is not a finite number. The AWS SDK serialises it as ` +
@@ -59,19 +68,32 @@ function rejectionReason(value: unknown): string | undefined {
   }
   if (Array.isArray(value)) return arrayRejectionReason(value);
   return (
-    'has a value S3 Vectors does not accept. Values must be a ' +
-    'string, number, boolean, or an array of strings or numbers'
+    'has a value S3 Vectors does not accept. Values must be a string, number, boolean, ' +
+    'or a non-empty array of only strings or only numbers'
   );
 }
 
 /**
  * Why an array cannot be stored, or `undefined` if it can.
  *
+ * Checked in this order: an empty array; then each element — a hole, a string
+ * that is not well-formed, a non-finite number, anything that is neither a
+ * string nor a number; and last, strings mixed with numbers. S3 Vectors refuses
+ * an empty array and a mixed one (docs/evidence/metadata-value-types.md, T3-14).
+ *
  * Indexed rather than `Array.prototype.every`, which **skips holes**: `[1, , 3]`
  * satisfied a callback checking that every element was a number, because the
  * missing one was never visited.
  */
 function arrayRejectionReason(value: readonly unknown[]): string | undefined {
+  if (value.length === 0) {
+    return (
+      'is an empty array, which S3 Vectors rejects ("Empty arrays are not allowed in ' +
+      'metadata"). Omit the key instead'
+    );
+  }
+  let firstString: number | undefined;
+  let firstNumber: number | undefined;
   for (let index = 0; index < value.length; index++) {
     if (!Object.hasOwn(value, index)) {
       return (
@@ -81,20 +103,51 @@ function arrayRejectionReason(value: readonly unknown[]): string | undefined {
       );
     }
     const item: unknown = value[index];
-    if (typeof item === 'string') continue;
+    if (typeof item === 'string') {
+      const reason = unpairedSurrogateReason(item);
+      if (reason !== undefined) return `has a string at index ${index} that ${reason}`;
+      firstString ??= index;
+      continue;
+    }
     if (typeof item === 'number') {
-      if (Number.isFinite(item)) continue;
-      return (
-        `has ${String(item)} at index ${index}, which is not a finite number. The AWS SDK ` +
-        'serialises it as a string, changing the stored type of that element'
-      );
+      if (!Number.isFinite(item)) {
+        return (
+          `has ${String(item)} at index ${index}, which is not a finite number. The AWS SDK ` +
+          'serialises it as a string, changing the stored type of that element'
+        );
+      }
+      firstNumber ??= index;
+      continue;
     }
     return (
       `has a value of type ${typeof item} at index ${index}; an array may hold only strings ` +
       'and numbers'
     );
   }
+  if (firstString !== undefined && firstNumber !== undefined) {
+    return (
+      `mixes strings and numbers (a string at index ${firstString}, a number at index ` +
+      `${firstNumber}). S3 Vectors rejects that ("Metadata array values must be strings or ` +
+      'numbers"): every element of a metadata array must be the same type'
+    );
+  }
   return undefined;
+}
+
+/**
+ * Set an own, enumerable property, whatever the key is called.
+ *
+ * `defineProperty`, not assignment: assigning to `__proto__` on a plain object
+ * runs the inherited setter and stores nothing at all, which once silently
+ * discarded every document's page content.
+ */
+function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
 }
 
 /**
@@ -132,26 +185,37 @@ function describeBudgetedKeys(nonFilterableKeys: readonly string[]): string {
  * - `opts.nonFilterableKeys` — the index's non-filterable keys, already merged
  *   with the page-content key. Keys named here are exempt from the filterable
  *   budget and still count toward the total.
+ * - `opts.record` — the document's position in the caller's input, and its id.
  *
- * Returns: the metadata to send.
+ * Returns: the metadata to send, as a new object whose array values are copies,
+ * so nothing the caller still holds can change it once it has been validated.
  *
- * Throws: {@link S3VectorsError} with code `VALIDATION` when the document's own
- * metadata already uses the reserved key, when a value is not a string, number,
- * boolean or array of strings/numbers, when the key count exceeds 50 including
- * the key this package adds, or when either byte ceiling is exceeded.
+ * Throws: {@link S3VectorsError} with code `VALIDATION` — its message led by the
+ * record (`Document at index 400 (id "ticket-400"): …`) and its context carrying
+ * `recordIndex` and `recordId` — when the document's own metadata already uses
+ * the reserved key; when a key or a string value is not well-formed UTF-16; when
+ * a value is not a string, finite number, boolean, or non-empty array of only
+ * strings or only finite numbers; when the key count exceeds 50 including the key
+ * this package adds; or when either byte ceiling is exceeded.
  *
- * Guarantees: every rule is checked locally, before the embedding spend that
- * would otherwise precede an AWS rejection. Each was measured against the live
- * service rather than inferred from documentation (docs/evidence/).
+ * Guarantees: every rule is one S3 Vectors enforces, measured against the live
+ * service rather than inferred from documentation (docs/evidence/), or the
+ * wire-form rule above. It depends on nothing but its arguments, so a caller can
+ * apply it to the whole of a write before spending anything.
  */
 export function buildPutMetadata(
   doc: DocumentInterface,
   opts: PutMetadataOptions,
 ): Record<string, unknown> {
-  const { pageContentMetadataKey, nonFilterableKeys, operation } = opts;
+  const { pageContentMetadataKey, nonFilterableKeys, operation, record } = opts;
   const scope = { vectorBucketName: opts.vectorBucketName, indexName: opts.indexName };
+  const subject = describeRecord('Document', record);
   const fail = (message: string): never => {
-    throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, { operation, ...scope });
+    throw new S3VectorsError(`${subject}: ${message}`, S3VectorsErrorCode.VALIDATION, {
+      operation,
+      ...scope,
+      ...record,
+    });
   };
 
   const metadata: Record<string, unknown> = { ...doc.metadata };
@@ -159,29 +223,22 @@ export function buildPutMetadata(
   if (pageContentMetadataKey !== null) {
     if (Object.hasOwn(metadata, pageContentMetadataKey)) {
       fail(
-        `Document metadata already contains reserved key '${pageContentMetadataKey}' ` +
+        `Its metadata already contains reserved key '${pageContentMetadataKey}' ` +
           '(used internally to store pageContent). Rename this metadata field or configure ' +
           'a different `pageContentMetadataKey`.',
       );
     }
-    // `defineProperty`, not assignment: assigning to `__proto__` on a plain
-    // object runs the inherited setter and stores nothing at all, so every
-    // document's page content was silently discarded and read back as `''`.
-    // The config validator refuses that key outright now; this keeps the
-    // function correct regardless of who calls it, and costs one line.
-    Object.defineProperty(metadata, pageContentMetadataKey, {
-      value: doc.pageContent,
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
+    defineOwn(metadata, pageContentMetadataKey, doc.pageContent);
   }
 
   for (const [key, value] of Object.entries(metadata)) {
+    const keyReason = unpairedSurrogateReason(key);
+    if (keyReason !== undefined) fail(`Metadata key ${JSON.stringify(key)} ${keyReason}.`);
     const reason = rejectionReason(value);
-    if (reason !== undefined) {
-      fail(`Metadata key '${key}' ${reason}.`);
-    }
+    if (reason !== undefined) fail(`Metadata key '${key}' ${reason}.`);
+    // Copied once known to be storable: the record owns everything that was
+    // validated, and the caller keeps their own array to do with as they like.
+    if (Array.isArray(value)) defineOwn(metadata, key, [...(value as unknown[])]);
   }
 
   const keyCount = Object.keys(metadata).length;

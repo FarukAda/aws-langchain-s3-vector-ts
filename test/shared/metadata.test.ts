@@ -17,6 +17,7 @@ describe('buildPutMetadata', () => {
         operation: 'addDocuments',
         vectorBucketName: 'b',
         indexName: 'i',
+        record: { recordIndex: 0 },
       }),
     ).toEqual({
       genre: 'scifi',
@@ -33,6 +34,7 @@ describe('buildPutMetadata', () => {
         operation: 'addDocuments',
         vectorBucketName: 'b',
         indexName: 'i',
+        record: { recordIndex: 0 },
       }),
     ).toEqual({ genre: 'scifi' });
   });
@@ -49,6 +51,7 @@ describe('buildPutMetadata', () => {
         operation: 'addDocuments',
         vectorBucketName: 'b',
         indexName: 'i',
+        record: { recordIndex: 0 },
       }),
     ).toThrow(`reserved key '${PAGE_CONTENT_KEY}'`);
     // The remedy matters more than the diagnosis: a caller whose documents
@@ -60,6 +63,7 @@ describe('buildPutMetadata', () => {
         operation: 'addVectors',
         vectorBucketName: 'b',
         indexName: 'i',
+        record: { recordIndex: 0 },
       }),
     ).toThrow('Rename this metadata field or configure a different `pageContentMetadataKey`');
   });
@@ -119,6 +123,7 @@ describe('buildPutMetadata / createDocument — prototype-chain safety', () => {
         operation: 'addDocuments',
         vectorBucketName: 'b',
         indexName: 'i',
+        record: { recordIndex: 0 },
       }),
     ).not.toThrow();
     const result = buildPutMetadata(doc, {
@@ -127,6 +132,7 @@ describe('buildPutMetadata / createDocument — prototype-chain safety', () => {
       operation: 'addDocuments',
       vectorBucketName: 'b',
       indexName: 'i',
+      record: { recordIndex: 0 },
     });
     expect(result['constructor']).toBe('hello');
     expect(result['genre']).toBe('scifi');
@@ -225,5 +231,133 @@ describe('createDocument — a non-string value under the reserved key', () => {
 
     expect(doc.pageContent).toBe('hello');
     expect(doc.metadata).toEqual({ other: 'kept' });
+  });
+});
+
+const RECORD_OPTIONS = {
+  pageContentMetadataKey: PAGE_CONTENT_KEY,
+  nonFilterableKeys: [PAGE_CONTENT_KEY],
+  operation: 'addDocuments',
+  vectorBucketName: 'b',
+  indexName: 'i',
+  record: { recordIndex: 400, recordId: 'ticket-400' },
+} as const;
+
+const refusalOf = (run: () => unknown): S3VectorsError => {
+  try {
+    run();
+  } catch (error: unknown) {
+    return error as S3VectorsError;
+  }
+  throw new Error('expected a refusal');
+};
+
+const buildWith = (metadata: Record<string, unknown>): Record<string, unknown> =>
+  buildPutMetadata(new Document({ pageContent: 'p', metadata }), RECORD_OPTIONS);
+
+describe('buildPutMetadata — arrays (docs/evidence/metadata-value-types.md, T3-14)', () => {
+  it('refuses an empty array, which S3 Vectors rejects', () => {
+    const error = refusalOf(() => buildWith({ tags: [] }));
+    expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(error.message).toContain("Metadata key 'tags' is an empty array");
+    expect(error.message).toContain('Empty arrays are not allowed in metadata');
+  });
+
+  it.each([
+    ['a number first', [1, 'a'], 'a string at index 1, a number at index 0'],
+    ['a string first', ['a', 1], 'a string at index 0, a number at index 1'],
+    ['several of each', ['a', 'b', 2, 3], 'a string at index 0, a number at index 2'],
+  ])('refuses an array mixing strings and numbers, %s', (_label, refs, positions) => {
+    const error = refusalOf(() => buildWith({ refs }));
+    expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(error.message).toContain(`mixes strings and numbers (${positions})`);
+  });
+
+  it.each([
+    ['strings', ['a', 'b']],
+    ['numbers', [1, 2.5]],
+    ['one empty string', ['']],
+    ['a repeated element', ['dup', 'dup']],
+  ])('accepts an array of %s', (_label, value) => {
+    expect(buildWith({ value })['value']).toEqual(value);
+  });
+
+  it("copies an array, so the caller's own can change without changing what was validated", () => {
+    const tags = ['a'];
+    const built = buildWith({ tags });
+    tags.push('added later');
+    expect(built['tags']).toEqual(['a']);
+    expect(built['tags']).not.toBe(tags);
+  });
+
+  it('copies an array held under __proto__ as an own key, never as a prototype', () => {
+    const metadata = JSON.parse('{"__proto__": ["a"]}') as Record<string, unknown>;
+    const built = buildWith(metadata);
+    expect(Object.hasOwn(built, '__proto__')).toBe(true);
+    expect(Object.getPrototypeOf(built)).toBe(Object.prototype);
+  });
+});
+
+describe('buildPutMetadata — strings AWS cannot decode (docs/evidence/string-encoding.md, T3-15)', () => {
+  it.each([
+    [
+      'a value',
+      { title: 'x\ud800' },
+      "Metadata key 'title' contains an unpaired UTF-16 surrogate at position 1.",
+    ],
+    [
+      'an array element',
+      { tags: ['ok', '\udc00'] },
+      "Metadata key 'tags' has a string at index 1 that contains an unpaired UTF-16 surrogate at position 0.",
+    ],
+    [
+      'a key',
+      { ['k\ud800']: 'v' },
+      'Metadata key "k\\ud800" contains an unpaired UTF-16 surrogate at position 1.',
+    ],
+  ])('refuses one in %s', (_label, metadata, message) => {
+    const error = refusalOf(() => buildWith(metadata));
+    expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(error.message).toContain(message);
+  });
+
+  it('refuses one in page content, which is stored under the page-content key', () => {
+    const error = refusalOf(() =>
+      buildPutMetadata(new Document({ pageContent: 'cut \ud83d' }), RECORD_OPTIONS),
+    );
+    expect(error.message).toContain(
+      "Metadata key '_page_content' contains an unpaired UTF-16 surrogate at position 4.",
+    );
+  });
+
+  it('does not examine page content that is not stored', () => {
+    expect(
+      buildPutMetadata(new Document({ pageContent: 'cut \ud83d' }), {
+        ...RECORD_OPTIONS,
+        pageContentMetadataKey: null,
+        nonFilterableKeys: [],
+      }),
+    ).toEqual({});
+  });
+
+  it('accepts a surrogate pair everywhere a string goes', () => {
+    const pair = '😀';
+    expect(buildWith({ [pair]: pair, tags: [pair] })).toMatchObject({ [pair]: pair, tags: [pair] });
+  });
+});
+
+describe('buildPutMetadata — names the record (R3)', () => {
+  it('leads every refusal with the record, and carries it in context', () => {
+    const error = refusalOf(() => buildWith({ category: null }));
+    expect(error.message).toMatch(
+      /^Document at index 400 \(id "ticket-400"\): Metadata key 'category' has a value/,
+    );
+    expect(error.context).toEqual({
+      operation: 'addDocuments',
+      vectorBucketName: 'b',
+      indexName: 'i',
+      recordIndex: 400,
+      recordId: 'ticket-400',
+    });
   });
 });

@@ -80,3 +80,37 @@ export function renderValue(value: unknown): string {
   }
   return describeValue(value);
 }
+
+/** One element of a caller's list, by its position in the caller's own input. */
+export interface RecordRef {
+  /** The element's position, counted from 0 over the whole call — never over a batch. */
+  readonly recordIndex: number;
+  /** The element's id, when it has one that is a string. */
+  readonly recordId?: string;
+}
+
+/** How much of an id a message shows. `context.recordId` always carries the whole id. */
+const MESSAGE_ID_MAX_LENGTH = 64;
+
+/**
+ * The subject of a message about one element of a caller's list.
+ *
+ * Accepts: a noun — `'Document'`, `'Vector'`, `'Vector id'` — and the element's
+ * reference.
+ *
+ * Returns: `Document at index 400 (id "ticket-400")`, or `Vector id at index 3`
+ * when the reference carries no id. The id is JSON-quoted, so an empty or blank
+ * one is visible, and cut to 64 characters with `…` so a 1,024-character key
+ * does not swamp the message.
+ *
+ * Throws: nothing.
+ */
+export function describeRecord(noun: string, record: RecordRef): string {
+  const subject = `${noun} at index ${record.recordIndex}`;
+  if (record.recordId === undefined) return subject;
+  const id =
+    record.recordId.length > MESSAGE_ID_MAX_LENGTH
+      ? `${record.recordId.slice(0, MESSAGE_ID_MAX_LENGTH)}…`
+      : record.recordId;
+  return `${subject} (id ${JSON.stringify(id)})`;
+}
