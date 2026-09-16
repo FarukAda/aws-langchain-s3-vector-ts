@@ -295,6 +295,8 @@ describe('buildPutMetadata — arrays (docs/evidence/metadata-value-types.md, T3
     const built = buildWith(metadata);
     expect(Object.hasOwn(built, '__proto__')).toBe(true);
     expect(Object.getPrototypeOf(built)).toBe(Object.prototype);
+    expect(built['__proto__']).toEqual(['a']);
+    expect(built['__proto__']).not.toBe(metadata['__proto__']);
   });
 });
 
