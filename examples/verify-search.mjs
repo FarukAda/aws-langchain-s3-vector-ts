@@ -106,7 +106,16 @@ try {
   check('retriever returns up to k docs', retrieved.length > 0 && retrieved.length <= 2);
 
   section('relevance-score function follows the distance metric');
-  check('cosine selects cosine scorer', cosine._selectRelevanceScoreFn()(0) === 1);
+  // Checked through the public surface: the selector is a private method, and
+  // reaching into it broke this script when it became one. What a caller can
+  // observe is that a cosine store's relevance score is exactly 1 - distance
+  // for the same result.
+  const [[byDistanceDoc, distance]] = await cosine.similaritySearchWithScore('space', 1);
+  const [[byScoreDoc, score]] = await cosine.similaritySearchWithRelevanceScores('space', 1);
+  check(
+    'cosine relevance score is 1 - distance',
+    byScoreDoc.id === byDistanceDoc.id && Math.abs(score - (1 - distance)) < 1e-9,
+  );
   // A euclidean index has no built-in conversion: an unbounded distance
   // cannot be mapped to a comparable score without the embedding's scale,
   // so this fails closed instead of returning a compressed number (D-3).
