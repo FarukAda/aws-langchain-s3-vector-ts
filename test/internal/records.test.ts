@@ -24,8 +24,18 @@ describe('prepareRecords', () => {
       CONFIG,
     );
     expect(records).toEqual([
-      { key: 'a', text: 'one', metadata: { n: 1, _page_content: 'one' } },
-      { key: 'b', text: 'two', metadata: { _page_content: 'two' } },
+      {
+        key: 'a',
+        text: 'one',
+        metadata: { n: 1, _page_content: 'one' },
+        metadataBytes: expect.any(Number),
+      },
+      {
+        key: 'b',
+        text: 'two',
+        metadata: { _page_content: 'two' },
+        metadataBytes: expect.any(Number),
+      },
     ]);
   });
 
@@ -64,5 +74,18 @@ describe('prepareRecords', () => {
 
   it('returns an empty list for no documents', () => {
     expect(prepareRecords([], [], CONFIG)).toEqual([]);
+  });
+});
+
+describe('prepareRecords — request budgeting', () => {
+  it('carries the metadata size each write is measured with', () => {
+    const records = prepareRecords(
+      [new Document({ pageContent: 'one', metadata: { n: 1 } })],
+      ['a'],
+      CONFIG,
+    );
+    expect(records[0]!.metadataBytes).toBe(
+      Buffer.byteLength(JSON.stringify(records[0]!.metadata), 'utf8') + 5,
+    );
   });
 });

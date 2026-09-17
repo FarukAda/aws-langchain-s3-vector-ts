@@ -15,7 +15,10 @@ const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
 
-const record = (key: string, text = 'x') => ({ key, text, metadata: { _page_content: text } });
+const record = (key: string, text = 'x') => {
+  const metadata = { _page_content: text };
+  return { key, text, metadata, metadataBytes: Buffer.byteLength(JSON.stringify(metadata)) };
+};
 
 function setup() {
   const { client, mock } = createMockClient();

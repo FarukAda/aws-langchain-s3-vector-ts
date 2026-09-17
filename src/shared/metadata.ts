@@ -186,8 +186,12 @@ function describeBudgetedKeys(nonFilterableKeys: readonly string[]): string {
  *   budget and still count toward the total.
  * - `opts.record` — the document's position in the caller's input, and its id.
  *
- * Returns: the metadata to send, as a new object whose array values are copies,
- * so nothing the caller still holds can change it once it has been validated.
+ * Returns: the metadata to send — a new object whose array values are copies, so
+ * nothing the caller still holds can change it once it has been validated — and
+ * `metadataBytes`, the count this function already measured it at to apply the
+ * per-vector ceiling. The write path budgets `PutVectors` request sizes with
+ * that number rather than serialising the metadata a second time to find it
+ * (see `internal/request-size.ts`).
  *
  * Throws: {@link S3VectorsError} with code `VALIDATION` — its message led by the
  * record (`Document at index 400 (id "ticket-400"): …`) and its context carrying
@@ -205,7 +209,7 @@ function describeBudgetedKeys(nonFilterableKeys: readonly string[]): string {
 export function buildPutMetadata(
   doc: DocumentInterface,
   opts: PutMetadataOptions,
-): Record<string, unknown> {
+): { metadata: Record<string, unknown>; metadataBytes: number } {
   const { pageContentMetadataKey, nonFilterableKeys, operation, record } = opts;
   const scope = { vectorBucketName: opts.vectorBucketName, indexName: opts.indexName };
   const subject = describeRecord('Document', record);
@@ -269,7 +273,7 @@ export function buildPutMetadata(
     fail(`Metadata is ${totalBytes} bytes, over the ${TOTAL_BYTE_LIMIT}-byte limit per vector.`);
   }
 
-  return metadata;
+  return { metadata, metadataBytes: totalBytes };
 }
 
 /**

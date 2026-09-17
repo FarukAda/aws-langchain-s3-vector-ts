@@ -20,7 +20,8 @@ const BASE = {
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
 const build = (metadata: Record<string, unknown>, opts = {}): unknown => {
   try {
-    return buildPutMetadata(new Document({ pageContent: 'p', metadata }), { ...BASE, ...opts });
+    return buildPutMetadata(new Document({ pageContent: 'p', metadata }), { ...BASE, ...opts })
+      .metadata;
   } catch (e) {
     return e;
   }

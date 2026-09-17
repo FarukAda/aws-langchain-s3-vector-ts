@@ -17,7 +17,7 @@ describe('metadata round-trip property', () => {
           fc.string(),
         ),
         (pageContent, metadata) => {
-          const put = buildPutMetadata(new Document({ pageContent, metadata }), {
+          const { metadata: put } = buildPutMetadata(new Document({ pageContent, metadata }), {
             pageContentMetadataKey: KEY,
             nonFilterableKeys: [KEY],
             ...SCOPE,

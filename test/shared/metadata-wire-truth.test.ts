@@ -44,7 +44,7 @@ const OPTIONS = {
 } as const;
 
 function build(metadata: Record<string, unknown>): Record<string, unknown> {
-  return buildPutMetadata(new Document({ pageContent: 'p', metadata }), OPTIONS);
+  return buildPutMetadata(new Document({ pageContent: 'p', metadata }), OPTIONS).metadata;
 }
 
 function rejectionFor(metadata: Record<string, unknown>): {
@@ -155,7 +155,7 @@ describe('page content cannot be silently discarded', () => {
     // and stores nothing. The config validator refuses that key outright now,
     // but the write itself is also made unable to lose the value, so this
     // function is correct however it is called.
-    const metadata = buildPutMetadata(new Document({ pageContent: 'IMPORTANT TEXT' }), {
+    const { metadata } = buildPutMetadata(new Document({ pageContent: 'IMPORTANT TEXT' }), {
       ...OPTIONS,
       pageContentMetadataKey: '__proto__',
       nonFilterableKeys: ['__proto__'],

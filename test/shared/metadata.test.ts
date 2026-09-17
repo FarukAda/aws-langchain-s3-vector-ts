@@ -21,7 +21,7 @@ describe('buildPutMetadata', () => {
         vectorBucketName: 'b',
         indexName: 'i',
         record: { recordIndex: 0 },
-      }),
+      }).metadata,
     ).toEqual({
       genre: 'scifi',
       [PAGE_CONTENT_KEY]: 'hello',
@@ -38,7 +38,7 @@ describe('buildPutMetadata', () => {
         vectorBucketName: 'b',
         indexName: 'i',
         record: { recordIndex: 0 },
-      }),
+      }).metadata,
     ).toEqual({ genre: 'scifi' });
   });
 
@@ -139,7 +139,7 @@ describe('buildPutMetadata / createDocument — prototype-chain safety', () => {
         record: { recordIndex: 0 },
       }),
     ).not.toThrow();
-    const result = buildPutMetadata(doc, {
+    const { metadata: result } = buildPutMetadata(doc, {
       pageContentMetadataKey: 'constructor',
       nonFilterableKeys: ['constructor'],
       operation: 'addDocuments',
@@ -277,7 +277,7 @@ const refusalOf = (run: () => unknown): S3VectorsError => {
 };
 
 const buildWith = (metadata: Record<string, unknown>): Record<string, unknown> =>
-  buildPutMetadata(new Document({ pageContent: 'p', metadata }), RECORD_OPTIONS);
+  buildPutMetadata(new Document({ pageContent: 'p', metadata }), RECORD_OPTIONS).metadata;
 
 describe('buildPutMetadata — arrays (docs/evidence/metadata-value-types.md, T3-14)', () => {
   it('refuses an empty array, which S3 Vectors rejects', () => {
@@ -362,7 +362,7 @@ describe('buildPutMetadata — strings AWS cannot decode (docs/evidence/string-e
         ...RECORD_OPTIONS,
         pageContentMetadataKey: null,
         nonFilterableKeys: [],
-      }),
+      }).metadata,
     ).toEqual({});
   });
 
@@ -385,5 +385,22 @@ describe('buildPutMetadata — names the record (R3)', () => {
       recordIndex: 400,
       recordId: 'ticket-400',
     });
+  });
+});
+
+describe('buildPutMetadata — the size the write path budgets with', () => {
+  it('reports the byte count it checked against the per-vector ceiling', () => {
+    const doc = new Document({ pageContent: 'hello', metadata: { genre: 'scifi' } });
+    const { metadata, metadataBytes } = buildPutMetadata(doc, {
+      pageContentMetadataKey: PAGE_CONTENT_KEY,
+      nonFilterableKeys: [PAGE_CONTENT_KEY],
+      operation: 'addDocuments',
+      vectorBucketName: 'b',
+      indexName: 'i',
+      record: { recordIndex: 0 },
+    });
+    // What AWS counts: the JSON serialisation plus the measured 5-byte overhead
+    // (docs/evidence/metadata-limits.md), which is what the ceiling is applied to.
+    expect(metadataBytes).toBe(Buffer.byteLength(JSON.stringify(metadata), 'utf8') + 5);
   });
 });

@@ -11,6 +11,12 @@ export interface WriteRecord {
   readonly text: string;
   /** The metadata to store, validated, and owned by this record. */
   readonly metadata: Record<string, unknown>;
+  /**
+   * The bytes that metadata was measured at when it was validated. Carried so a
+   * write can bound its `PutVectors` request size without serialising the batch
+   * again (`internal/request-size.ts`).
+   */
+  readonly metadataBytes: number;
 }
 
 /** The store configuration a record is built against. */
@@ -39,12 +45,11 @@ export function prepareRecords(
   ids: readonly string[],
   config: RecordConfig,
 ): WriteRecord[] {
-  return documents.map((document, index) => ({
-    key: ids[index]!,
-    text: document.pageContent,
-    metadata: buildPutMetadata(document, {
+  return documents.map((document, index) => {
+    const { metadata, metadataBytes } = buildPutMetadata(document, {
       ...config,
       record: { recordIndex: index, recordId: ids[index]! },
-    }),
-  }));
+    });
+    return { key: ids[index]!, text: document.pageContent, metadata, metadataBytes };
+  });
 }
