@@ -136,7 +136,7 @@ const results = await store.similaritySearch("adventure", 4, {
 });
 ```
 
-The filter syntax follows the S3 Vectors native filter format.
+The filter syntax follows the S3 Vectors native filter format. A condition object holds exactly one key — combine several with `$and` — and each operator takes a specific operand type; the README's *Metadata Filtering* section lists them. Every rule is checked locally, before the query is embedded, and a refusal names the path and the rule.
 
 ### Bring Your Own Client
 

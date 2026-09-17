@@ -156,12 +156,13 @@ describe('validateFilter', () => {
       fc.record({ $nin: fc.array(literal, { minLength: 1, maxLength: 4 }) }),
       fc.record({ $exists: fc.boolean() }),
     );
+    // One key per condition object: S3 Vectors rejects more (docs/evidence/filter-validation.md, T3-17).
     const field = fc.dictionary(
       fc.string({ minLength: 1 }).filter((k) => !k.startsWith('$')),
       fc.oneof(literal, comparison),
       {
         minKeys: 1,
-        maxKeys: 4,
+        maxKeys: 1,
       },
     );
     const nested = fc.oneof(

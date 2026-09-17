@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one dimension, so such a call could never succeed whole; it is now refused whole,
   with `INDEX_CONFIG_MISMATCH` naming the first vector that differs.
 
+- **A filter holding `NaN`, `±Infinity` or a `Date` is refused.** S3 Vectors
+  accepts what they become — the AWS SDK sends a non-finite number as the string
+  `"NaN"` and a `Date` as a timestamp — and the filter then silently matches
+  nothing, or compares against a number nobody wrote
+  ([`docs/evidence/filter-validation.md`](./docs/evidence/filter-validation.md),
+  T3-19). This is the rule metadata already followed, and it is the one place
+  the filter check refuses something the service would take.
+
 ### Fixed
 
 - **An empty metadata array, and one mixing strings with numbers, are refused
@@ -105,6 +113,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documents it returns are built from the `GetVectors` response, so the metadata
   on the `QueryVectors` candidates was never read — at about four times the
   response size.
+
+- **A filter condition with more than one key is refused locally.**
+  `{ genre, year }` read like an implicit AND and passed the local check, but S3
+  Vectors rejects any condition object with more than one key, at every level
+  (T3-17), with its bare "Invalid filter". The refusal now shows the `$and` to
+  write instead.
+
+- **Filter operands are checked against the type each operator takes.** Only
+  `$in`/`$nin` being non-empty was checked, so `$in: [null]`, `$exists: "yes"`,
+  `$gt: "2020"` and `$eq: ["a"]` all reached AWS (T3-16). Each is `VALIDATION` now,
+  naming the path, and the documentation's promise of "a non-empty array of
+  primitives" is finally what the check enforces.
+
+- **A field's operator object may hold only comparison operators.** An empty
+  object, a key that is not an operator, and `$and`/`$or` under a field were
+  passed through — two unit tests asserted they should be, pending evidence.
+  The evidence says AWS rejects all three (T3-18), and so does this package now.
+
+- **A filter string or field name containing an unpaired UTF-16 surrogate is
+  refused locally**, instead of failing the request with `SerializationException`
+  (T3-15).
 
 ## [1.0.0-rc.2] - 2026-09-16
 

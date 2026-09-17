@@ -148,20 +148,216 @@ describe('validateFilter — operators', () => {
     expect((error as Error).message).toContain('received null');
   });
 
-  it('passes a nested plain object with no operator keys through as a literal value', () => {
-    expect(check({ doc: { title: 'x', year: 2020 } })).toBeUndefined();
+  it('refuses a nested object with no operator keys, which AWS rejects (T3-18)', () => {
+    // This once passed through, on the reasoning that nothing measured covered
+    // it. Now something has: the service answers it with "Invalid filter".
+    const error = check({ doc: { title: 'x' } });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe(
+      "filter.doc holds 'title', which is not an operator. A field's condition object holds " +
+        'only comparison operators ($eq, $ne, $gt, $gte, $lt, $lte, $in, $nin, $exists); ' +
+        'S3 Vectors rejects anything else in it.',
+    );
   });
 
-  it('passes a logical operator nested under a field through, because nothing measured covers it', () => {
-    // Conservative by design: rejecting on an omission would refuse what the
-    // service may accept.
-    expect(check({ genre: { $and: [{ a: 1 }] } })).toBeUndefined();
-  });
+  it.each(['$and', '$or'])(
+    'refuses %s nested under a field, which AWS rejects (T3-18)',
+    (operator) => {
+      const error = check({ genre: { [operator]: [{ a: 1 }] } });
+      expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+      expect((error as Error).message).toBe(
+        `filter.genre uses '${operator}' inside a field's condition. Logical operators combine ` +
+          `whole conditions: { ${operator}: [{ field: … }, { field: … }] }.`,
+      );
+    },
+  );
 
   it('validates inside $or too', () => {
     const error = check({ $or: [{ b: { $nin: [] } }] });
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     // The path is in the message, so a caller with a deep filter knows where.
     expect((error as Error).message).toBe('filter.$or[0].b.$nin must be a non-empty array.');
+  });
+});
+
+describe('validateFilter — one condition per object (T3-17)', () => {
+  it.each([
+    ['two fields', { genre: 'scifi', year: 2020 }, 'filter holds 2 conditions (genre, year)'],
+    [
+      'a logical operator beside a field',
+      { $and: [{ a: 1 }], genre: 'x' },
+      'filter holds 2 conditions ($and, genre)',
+    ],
+    [
+      'two fields inside an $and element',
+      { $and: [{ a: 1, b: 2 }] },
+      'filter.$and[0] holds 2 conditions (a, b)',
+    ],
+  ])('refuses %s, and shows the $and to write instead', (_label, filter, message) => {
+    const error = check(filter);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain(message);
+    expect((error as Error).message).toContain(
+      'but S3 Vectors takes exactly one per object. Combine them with $and',
+    );
+  });
+
+  it('accepts several operators on one field', () => {
+    expect(check({ price: { $gte: 10, $lte: 50 } })).toBeUndefined();
+  });
+});
+
+describe("validateFilter — a field's operator object (T3-18)", () => {
+  it('refuses an empty operator object', () => {
+    expect((check({ genre: {} }) as Error).message).toBe(
+      'filter.genre is an empty object. Give the value itself, or at least one comparison ' +
+        'operator such as { $eq: … }.',
+    );
+  });
+
+  it('refuses an operator beside a key that is not one', () => {
+    expect((check({ genre: { $eq: 'a', x: 1 } }) as Error).message).toContain(
+      "filter.genre holds 'x', which is not an operator",
+    );
+  });
+});
+
+describe('validateFilter — operands (T3-16)', () => {
+  it.each([
+    [
+      '$eq holding null',
+      { g: { $eq: null } },
+      'filter.g.$eq must be a string, a finite number or a boolean (received null).',
+    ],
+    [
+      '$ne holding an array',
+      { g: { $ne: ['a'] } },
+      'filter.g.$ne must be a string, a finite number or a boolean (received an array).',
+    ],
+    [
+      '$gt holding a string',
+      { n: { $gt: '1' } },
+      'filter.n.$gt must be a finite number (received a string).',
+    ],
+    [
+      '$lte holding a boolean',
+      { n: { $lte: true } },
+      'filter.n.$lte must be a finite number (received true).',
+    ],
+    [
+      '$in holding null',
+      { g: { $in: [null] } },
+      'filter.g.$in has an element at index 0 that must be a string, a finite number or a boolean (received null).',
+    ],
+    [
+      '$nin holding an object',
+      { g: { $nin: ['a', {}] } },
+      'filter.g.$nin has an element at index 1 that must be a string, a finite number or a boolean (received an object).',
+    ],
+    [
+      '$in holding a nested array',
+      { g: { $in: [['a']] } },
+      'filter.g.$in has an element at index 0 that must be a string, a finite number or a boolean (received an array).',
+    ],
+    [
+      '$in holding a string',
+      { g: { $in: 'a' } },
+      'filter.g.$in must be a non-empty array (received a string).',
+    ],
+    [
+      '$exists holding a string',
+      { g: { $exists: 'yes' } },
+      'filter.g.$exists must be a boolean (received a string).',
+    ],
+    [
+      'a shorthand null',
+      { g: null },
+      'filter.g must be a string, a finite number or a boolean (received null).',
+    ],
+    [
+      'a shorthand array',
+      { g: ['a'] },
+      'filter.g must be a string, a finite number or a boolean (received an array).',
+    ],
+  ])('refuses %s', (_label, filter, message) => {
+    const error = check(filter);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe(message);
+  });
+
+  it.each([
+    ['$eq holding a number', { n: { $eq: 1 } }],
+    ['$ne holding a boolean', { b: { $ne: false } }],
+    ['$gt holding a fraction', { n: { $gt: 0.5 } }],
+    ['$in holding mixed types', { g: { $in: ['a', 1, true] } }],
+    ['$nin holding a boolean', { b: { $nin: [false] } }],
+    ['$exists holding false', { g: { $exists: false } }],
+    ['a shorthand boolean', { b: true }],
+    ['an empty field name', { '': 'x' }],
+  ])('accepts %s', (_label, filter) => {
+    expect(check(filter)).toBeUndefined();
+  });
+});
+
+describe('validateFilter — values the AWS SDK would send as something else (T3-19)', () => {
+  it.each([
+    [
+      'NaN in $eq',
+      { n: { $eq: Number.NaN } },
+      'filter.n.$eq is NaN, which the AWS SDK sends as the string "NaN", so the filter would silently match nothing.',
+    ],
+    [
+      'Infinity in $gt',
+      { n: { $gt: Number.POSITIVE_INFINITY } },
+      'filter.n.$gt is Infinity, which the AWS SDK sends as the string "Infinity"',
+    ],
+    [
+      'NaN in $in',
+      { n: { $in: [1, Number.NaN] } },
+      'filter.n.$in has an element at index 1 that is NaN',
+    ],
+    ['a shorthand NaN', { n: Number.NaN }, 'filter.n is NaN'],
+    [
+      'a Date as the value',
+      { at: new Date(0) },
+      'filter.at must be a string, a finite number or a boolean (received a Date, which the AWS SDK would send as a timestamp',
+    ],
+    [
+      'a Date in $gt',
+      { at: { $gt: new Date(0) } },
+      'filter.at.$gt must be a finite number (received a Date',
+    ],
+  ])('refuses %s', (_label, filter, message) => {
+    const error = check(filter);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain(message);
+  });
+});
+
+describe('validateFilter — strings AWS cannot decode (T3-15)', () => {
+  it.each([
+    [
+      'a shorthand string',
+      { g: 'x\ud800' },
+      'filter.g contains an unpaired UTF-16 surrogate at position 1.',
+    ],
+    [
+      'an $in element',
+      { g: { $in: ['ok', '\udc00'] } },
+      'filter.g.$in has an element at index 1 that contains an unpaired UTF-16 surrogate at position 0.',
+    ],
+    [
+      'a field name',
+      { ['k\ud800']: 'x' },
+      'filter has a field name that contains an unpaired UTF-16 surrogate at position 1.',
+    ],
+  ])('refuses one in %s', (_label, filter, message) => {
+    const error = check(filter);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain(message);
+  });
+
+  it('accepts a surrogate pair', () => {
+    expect(check({ ['k😀']: { $in: ['😀'] } })).toBeUndefined();
   });
 });
