@@ -61,9 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   request).** Previously the order depended on the method. Observable
   differences: `addVectors` and `delete` now report `VALIDATION`, not
   `ABORTED`, for a malformed id alongside a fired signal, matching
-  `addDocuments` and `getByIds`; `addVectors`, `addDocuments`, `getByIds` and
-  `delete` now refuse `batchSize: 0` even when the list they are given is
-  empty, instead of resolving `[]`; `addDocuments` and `getByIds` now report
+  `addDocuments` and `getByIds`; `addVectors`, `addDocuments` and `getByIds`
+  now refuse `batchSize: 0` even when the list they are given is empty,
+  instead of resolving `[]`, as `delete` already did; `addDocuments` and `getByIds` now report
   `ABORTED` for a fired signal alongside a valid empty list, matching
   `addVectors` and `delete`; and `addDocuments` on a store with no
   embeddings model now resolves `[]` for `addDocuments([])` and reports
