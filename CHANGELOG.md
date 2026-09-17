@@ -202,6 +202,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`delete()` sends through the store's own client, whatever its params
+  carry.** The parameters were spread into the internal call, so an extra
+  `client` key — from an application config object spread into the call, say —
+  sent `DeleteVectors` through that client instead. Only `ids`, `batchSize` and
+  `signal` are forwarded now, and the refusal of the legacy `deleteAll` flag is
+  unchanged.
+
+- **`fromTexts`/`fromDocuments` keep their write options off the store.** They
+  take `ids`, `batchSize` and `signal` in the same object as the store
+  configuration, and LangChain's `Serializable` keeps that object on the
+  instance as `lc_kwargs` — so an id list passed to a factory stayed in memory
+  for the store's lifetime and appeared in `util.inspect(store)`. The store is
+  now built from the configuration alone.
+
 - **A store that loses an index-creation race now reads what the winner
   created.** Two stores writing to the same new index race, and the loser got
   `ConflictException`, treated it as success and recorded the index as

@@ -1,9 +1,21 @@
-import { GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
+import {
+  DeleteVectorsCommand,
+  GetIndexCommand,
+  PutVectorsCommand,
+} from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
+import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
-import { createTestStore, indexFixture, mockExistingIndex } from './helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  createTestStore,
+  indexFixture,
+  mockExistingIndex,
+} from './helpers.js';
 
 /**
  * The write path's local checks and failure reporting.
@@ -150,5 +162,47 @@ describe('store — failed writes are retryable without duplicating', () => {
     const attempted = ctxOf(error)['attemptedIds'] as string[];
     expect(attempted).toHaveLength(1);
     expect(attempted[0]).toMatch(/^[0-9a-f]{32}$/);
+  });
+});
+
+describe('what the public methods forward', () => {
+  it('sends a delete through the store’s own client, whatever the params carry', async () => {
+    // `delete(params)` used to spread the whole object into the internal call,
+    // so an extra `client` key — from a config object spread into it, say —
+    // redirected DeleteVectors to a different account's client.
+    const { client, mock } = createMockClient();
+    const { client: other, mock: otherMock } = createMockClient();
+    mock.on(DeleteVectorsCommand).resolves({});
+    otherMock.on(DeleteVectorsCommand).resolves({});
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+
+    await store.delete({ ids: ['a'], client: other } as never);
+
+    expect(mock.commandCalls(DeleteVectorsCommand)).toHaveLength(1);
+    expect(otherMock.commandCalls(DeleteVectorsCommand)).toHaveLength(0);
+  });
+
+  it('keeps the write options the factories take off the store itself', async () => {
+    // `fromDocuments` takes `ids`, `batchSize` and `signal` in the same object
+    // as the store config, and LangChain's Serializable keeps that object on
+    // the instance. A million-id list stayed there for the store's lifetime,
+    // and turned up in `util.inspect(store)`.
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    mock.on(PutVectorsCommand).resolves({});
+    const controller = new AbortController();
+
+    const store = await AmazonS3Vectors.fromTexts(['one'], {}, createMockEmbeddings(3), {
+      ...BASE_CONFIG,
+      client,
+      ids: ['id-1'],
+      batchSize: 5,
+      signal: controller.signal,
+    });
+
+    expect(Object.keys(store.lc_kwargs as Record<string, unknown>).sort()).toEqual([
+      'indexName',
+      'vectorBucketName',
+    ]);
   });
 });

@@ -821,9 +821,18 @@ export class AmazonS3Vectors extends VectorStore {
    */
   override async delete(params: S3VectorsDeleteParams): Promise<void> {
     assertOptionsBag('delete', this.#scope, params);
+    // Named rather than spread: `params` is whatever a caller passed, and
+    // spreading it let an extra `client` key send this delete through a
+    // different client. `deleteAll` is read by the action, which refuses it.
+    const { ids, batchSize, signal, deleteAll } = (params ?? {}) as S3VectorsDeleteParams & {
+      deleteAll?: unknown;
+    };
     await deleteVectors({
       client: this.#client,
-      ...(params as { ids: string[] }),
+      ids,
+      ...(batchSize === undefined ? {} : { batchSize }),
+      ...(signal === undefined ? {} : { signal }),
+      ...(deleteAll === undefined ? {} : { deleteAll }),
       maxConcurrent: this.maxConcurrentBatchCalls,
       rateLimit: this.#writeRateLimit,
       ...this.#scope,
@@ -1150,9 +1159,15 @@ export class AmazonS3Vectors extends VectorStore {
     embeddings: EmbeddingsInterface,
     config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<AmazonS3Vectors> {
+    // The write options travel in the same object as the store configuration,
+    // and `Serializable` keeps that object on the instance as `lc_kwargs` — so
+    // a million-id list, and the caller's signal, would stay there for the
+    // store's lifetime and print with it. The store is built from the
+    // configuration alone.
+    const { ids, batchSize, signal, ...storeConfig } = config;
     let instance: AmazonS3Vectors;
     try {
-      instance = new AmazonS3Vectors(embeddings, config);
+      instance = new AmazonS3Vectors(embeddings, storeConfig);
     } catch (error: unknown) {
       // No store, so no bucket or index this package has validated to name.
       throw attachOperation(error, 'fromDocuments');
@@ -1161,9 +1176,9 @@ export class AmazonS3Vectors extends VectorStore {
       await instance.addDocuments(docs, {
         // Omitted rather than passed as `undefined`, so the options bag says
         // "not given" the way an absent property does.
-        ...(config.ids === undefined ? {} : { ids: config.ids }),
-        ...(config.batchSize === undefined ? {} : { batchSize: config.batchSize }),
-        ...(config.signal === undefined ? {} : { signal: config.signal }),
+        ...(ids === undefined ? {} : { ids }),
+        ...(batchSize === undefined ? {} : { batchSize }),
+        ...(signal === undefined ? {} : { signal }),
       });
     } catch (error: unknown) {
       throw attachInstance(error, 'fromDocuments', instance.#scope, instance);
