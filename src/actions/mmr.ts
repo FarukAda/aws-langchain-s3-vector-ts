@@ -198,6 +198,6 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
 
   const selected = maximalMarginalRelevance(opts.queryVector, embeddings, lambda, k);
   return selected.map((index) =>
-    createDocument(present[index]!, opts.pageContentMetadataKey, operation),
+    createDocument(present[index]!, opts.pageContentMetadataKey, { operation, ...scope }),
   );
 }

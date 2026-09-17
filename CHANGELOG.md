@@ -170,6 +170,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The prose no longer counts, and the constructor refers to the type instead of
   copying it.
 
+- **A metadata clone failure from a search named `createDocument` and no
+  index.** `createDocument` defaulted its operation to its own name, so the
+  `VALIDATION` it raises when a result's metadata cannot be structured-cloned —
+  reachable only from a non-conforming client — reported
+  `context.operation: "createDocument"` from `similaritySearchVectorWithScore`
+  and everything built on it, instead of the method the caller invoked. Every
+  path that builds a document this way — the searches, `getByIds`,
+  `listDocuments` and `listVectors` — also carried no
+  `vectorBucketName`/`indexName`. `createDocument` now takes the operation,
+  bucket and index as a required parameter; every caller supplies its own.
+
 ## [1.0.0-rc.2] - 2026-09-16
 
 A contract-first rework of the whole package. Every function was specified

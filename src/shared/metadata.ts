@@ -1,5 +1,6 @@
 import { Document, type DocumentInterface } from '@langchain/core/documents';
 
+import type { OperationScope } from '../internal/operation.js';
 import type { S3OutputVector } from '../types.js';
 import { describeRecord, type RecordRef } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
@@ -280,12 +281,15 @@ export function buildPutMetadata(
  * - `vector` — the raw S3 output vector.
  * - `pageContentMetadataKey` — the key page content was stored under, or
  *   `null` if it is not round-tripped.
+ * - `scope` — the public method the caller invoked, plus the bucket and
+ *   index, named in the error this raises.
  *
  * Returns: a `Document` that owns its metadata outright, nested values
  * included.
  *
- * Throws: {@link S3VectorsError} with code `VALIDATION` if the metadata holds a
- * value `structuredClone` cannot copy — a function or symbol, reachable only
+ * Throws: {@link S3VectorsError} with code `VALIDATION`, naming `scope.operation`
+ * and carrying `scope.vectorBucketName`/`scope.indexName`, if the metadata holds
+ * a value `structuredClone` cannot copy — a function or symbol, reachable only
  * from a custom or mocked client, since AWS returns JSON.
  *
  * Guarantees: every returned document owns its metadata. One rule, no aliasing
@@ -295,7 +299,7 @@ export function buildPutMetadata(
 export function createDocument(
   vector: S3OutputVector,
   pageContentMetadataKey: string | null,
-  operation = 'createDocument',
+  scope: OperationScope,
 ): Document {
   let pageContent = '';
   const rawMeta = vector.metadata ?? {};
@@ -309,7 +313,7 @@ export function createDocument(
         'structured-cloned (e.g. a function or symbol). Ensure vector metadata contains only ' +
         'structured-cloneable values.',
       S3VectorsErrorCode.VALIDATION,
-      { operation },
+      { ...scope },
       cause,
     );
   }

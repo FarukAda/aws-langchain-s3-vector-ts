@@ -252,6 +252,8 @@ describe('toError', () => {
 });
 
 describe('createDocument', () => {
+  const SCOPE = { operation: 'listDocuments', vectorBucketName: 'b', indexName: 'i' } as const;
+
   it('round-trips page content and leaves the rest of the metadata alone', () => {
     fc.assert(
       fc.property(
@@ -268,6 +270,7 @@ describe('createDocument', () => {
           const doc = createDocument(
             { key, metadata: { ...metadata, _page_content: pageContent } },
             '_page_content',
+            SCOPE,
           );
           expect(doc.pageContent).toBe(pageContent);
           expect(doc.metadata).toEqual(metadata);
@@ -289,8 +292,8 @@ describe('createDocument', () => {
         }),
         (meta) => {
           const vector = { key: 'k', metadata: structuredClone(meta) };
-          const first = createDocument(vector, null);
-          const second = createDocument(vector, null);
+          const first = createDocument(vector, null, SCOPE);
+          const second = createDocument(vector, null, SCOPE);
           const key = Object.keys(meta)[0]!;
           (first.metadata[key] as string[]).push('mutated');
           expect(second.metadata[key]).toEqual(meta[key]);

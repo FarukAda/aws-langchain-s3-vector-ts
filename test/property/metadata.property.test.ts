@@ -5,6 +5,7 @@ import fc from 'fast-check';
 import { buildPutMetadata, createDocument } from '../../src/shared/metadata.js';
 
 const KEY = '_page_content';
+const SCOPE = { operation: 'addDocuments', vectorBucketName: 'b', indexName: 'i' } as const;
 
 describe('metadata round-trip property', () => {
   it('preserves pageContent and user metadata for any string inputs', () => {
@@ -19,12 +20,10 @@ describe('metadata round-trip property', () => {
           const put = buildPutMetadata(new Document({ pageContent, metadata }), {
             pageContentMetadataKey: KEY,
             nonFilterableKeys: [KEY],
-            operation: 'addDocuments',
-            vectorBucketName: 'b',
-            indexName: 'i',
+            ...SCOPE,
             record: { recordIndex: 0 },
           });
-          const doc = createDocument({ key: 'k', metadata: put }, KEY);
+          const doc = createDocument({ key: 'k', metadata: put }, KEY, SCOPE);
           expect(doc.pageContent).toBe(pageContent);
           expect(doc.metadata).toEqual(metadata);
         },

@@ -94,10 +94,10 @@ export async function searchByVector(opts: VectorSearchOptions): Promise<[Docume
         { operation, ...scope },
       );
     }
-    return [createDocument(vector, opts.pageContentMetadataKey), vector.distance] as [
-      Document,
-      number,
-    ];
+    return [
+      createDocument(vector, opts.pageContentMetadataKey, { operation, ...scope }),
+      vector.distance,
+    ] as [Document, number];
   });
 }
 

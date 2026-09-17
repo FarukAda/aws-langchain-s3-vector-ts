@@ -1,6 +1,12 @@
-import { GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
+import {
+  GetIndexCommand,
+  GetVectorsCommand,
+  PutVectorsCommand,
+  QueryVectorsCommand,
+} from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
+import type { DocumentType } from '@smithy/types';
 
 import { AmazonS3Vectors } from '../../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
@@ -200,4 +206,49 @@ describe('every error names the public method that raised it', () => {
     expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.EMBEDDINGS_MISSING);
     expect((error as { context: { operation: string } }).context.operation).toBe(operation);
   });
+
+  // Metadata that reaches createDocument but cannot be structured-cloned — a
+  // function nested under a key. output-vectors.ts only checks that a `vectors`
+  // entry is an object, so a value like this reaches createDocument unrejected.
+  const UNCLONEABLE_METADATA = { _page_content: 'x', fn: () => 1 } as unknown as DocumentType;
+
+  it.each([
+    [
+      'similaritySearchVectorWithScore',
+      (store: Store) => store.similaritySearchVectorWithScore([1, 2, 3], 1),
+    ],
+    ['similaritySearch', (store: Store) => store.similaritySearch('q', 1)],
+    ['similaritySearchWithScore', (store: Store) => store.similaritySearchWithScore('q', 1)],
+    [
+      'similaritySearchWithRelevanceScores',
+      (store: Store) => store.similaritySearchWithRelevanceScores('q', 1),
+    ],
+    [
+      'maxMarginalRelevanceSearch',
+      (store: Store) => store.maxMarginalRelevanceSearch('q', { k: 1 }),
+    ],
+    ['getByIds', (store: Store) => store.getByIds(['id-1'])],
+  ])(
+    '%s names itself, and the bucket and index, when a result cannot be copied',
+    async (operation, run) => {
+      const { store, mock } = createTestStore();
+      mock.on(QueryVectorsCommand).resolves({
+        vectors: [{ key: 'id-1', metadata: UNCLONEABLE_METADATA, distance: 0.1 }],
+        distanceMetric: 'cosine',
+      });
+      mock.on(GetVectorsCommand).resolves({
+        vectors: [
+          { key: 'id-1', data: { float32: [0.1, 0.2, 0.3] }, metadata: UNCLONEABLE_METADATA },
+        ],
+      });
+
+      const error = await run(store).catch((e: unknown) => e);
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+      expect((error as { context: { operation: string } }).context.operation).toBe(operation);
+      expect((error as { context: Record<string, unknown> }).context).toMatchObject({
+        vectorBucketName: 'test-bucket',
+        indexName: 'test-index',
+      });
+    },
+  );
 });

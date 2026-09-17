@@ -68,6 +68,6 @@ export async function getByIds(opts: GetByIdsOptions): Promise<(Document | undef
     const vector = found.get(id);
     return vector === undefined
       ? undefined
-      : createDocument(vector, opts.pageContentMetadataKey, 'getByIds');
+      : createDocument(vector, opts.pageContentMetadataKey, { operation: 'getByIds', ...scope });
   });
 }

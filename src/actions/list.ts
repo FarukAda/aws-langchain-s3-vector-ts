@@ -34,7 +34,7 @@ export interface EnumerateOptions extends AwsOperation {
  */
 export async function* listDocuments(opts: EnumerateOptions): AsyncGenerator<Document> {
   for await (const vector of listPages({ ...opts, returnData: false, returnMetadata: true })) {
-    yield createDocument(vector, opts.pageContentMetadataKey, opts.operation);
+    yield createDocument(vector, opts.pageContentMetadataKey, opts);
   }
 }
 
@@ -65,7 +65,7 @@ export async function* listVectors(opts: EnumerateOptions): AsyncGenerator<S3Vec
     yield {
       id: vector.key,
       vector: data,
-      document: createDocument(vector, opts.pageContentMetadataKey, opts.operation),
+      document: createDocument(vector, opts.pageContentMetadataKey, opts),
     };
   }
 }
