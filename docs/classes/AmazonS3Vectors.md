@@ -629,7 +629,7 @@ the `DeleteIndex` failure maps to. A missing index is not a failure.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1098](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1098)
+Defined in: [s3-vectors.ts:1106](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1106)
 
 Create a store and add the given documents to it.
 
@@ -662,11 +662,14 @@ The constructed store, after the write
 
 #### Throws
 
-If the write fails — including partway through a multi-batch
-write — the thrown [S3VectorsError](S3VectorsError.md)'s `context.instance` carries
-the constructed (and possibly partially-written) store, so the caller
-can act on `context.writtenIds` without reconstructing an equivalent
-instance from the same embeddings/config.
+Every error names `fromDocuments` as its operation,
+with the code, cause, `awsCommand` and stack of whatever failed. What the
+constructor refuses, before any request; otherwise whatever
+[addDocuments](#adddocuments) raises. If the write fails — including partway
+through a multi-batch write — `context.instance` carries the constructed
+(and possibly partially-written) store, so the caller can act on
+`context.writtenIds` without reconstructing an equivalent instance from the
+same embeddings/config.
 
 #### Overrides
 
@@ -678,7 +681,7 @@ instance from the same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1025](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1025)
+Defined in: [s3-vectors.ts:1026](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1026)
 
 Create a store, embed the given texts and add them to it.
 
@@ -718,10 +721,11 @@ The constructed store, after the write
 
 #### Throws
 
-`VALIDATION` when `texts` is not an array or the
-metadata array's length disagrees with it; otherwise whatever
-[fromDocuments](#fromdocuments) raises, including the constructed instance on
-`context.instance`.
+Every error names `fromTexts` as its operation.
+`VALIDATION` when `texts` is not an array or the metadata array's length
+disagrees with it; otherwise whatever [fromDocuments](#fromdocuments) raises, with its
+code, cause, `awsCommand`, stack and — once the store was constructed —
+`context.instance` unchanged.
 
 #### Overrides
 

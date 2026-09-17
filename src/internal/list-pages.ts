@@ -2,6 +2,7 @@ import { ListVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { renderValue } from '../shared/describe.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
+import { rebuildWithContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
@@ -91,7 +92,8 @@ function assertPageSize(pageSize: number | undefined, operation: string, scope: 
  * `pagesScanned` and `yielded`. A `403` also gets the one hint AWS's own
  * message omits: listing *with* metadata or data needs `s3vectors:GetVectors`
  * on top of `s3vectors:ListVectors`, which is the usual cause and is
- * impossible to guess from "Access Denied".
+ * impossible to guess from "Access Denied". Rebuilt through
+ * {@link rebuildWithContext}, so the stack is still that of the request failure.
  */
 function explainListing(
   error: unknown,
@@ -105,12 +107,11 @@ function explainListing(
       ? ' Listing with metadata or data requires the s3vectors:GetVectors permission in ' +
         'addition to s3vectors:ListVectors.'
       : '';
-  return new S3VectorsError(
-    `${base.message}${hint}`,
-    base.code,
-    { ...base.context, pagesScanned, yielded },
-    base.cause,
-  );
+  return rebuildWithContext(base, `${base.message}${hint}`, {
+    ...base.context,
+    pagesScanned,
+    yielded,
+  });
 }
 
 /**

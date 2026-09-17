@@ -30,8 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`context.operation` is the public method on every error, a failed AWS
-  request included.** Five paths named the AWS command instead: a refused
+- **`context.operation` is the public method the caller invoked on every
+  error, a failed AWS request included.** Five paths named the AWS command
+  instead: a refused
   `GetIndex`, `CreateIndex` or `PutVectors` reported `operation: "GetIndex"`,
   `"CreateIndex"` or `"PutVectors"` from `addVectors` and `addDocuments`, a
   refused `DeleteVectors` reported `"DeleteVectors"` from `delete`, and a
@@ -46,6 +47,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CreateIndex`, `DeleteVectors` and `DeleteIndex`; a branch on the method
   (`operation === 'addDocuments'`) now also sees that method's request
   failures.
+
+  The retriever and the static factories reported the method they ran
+  underneath instead. A retriever's failures named `similaritySearch` or
+  `maxMarginalRelevanceSearch` — only its own `invoke` signal firing named
+  `retriever.invoke` — and `fromDocuments`/`fromTexts` named `constructor` for
+  a configuration the store refused and `addDocuments` for a failed write. Each
+  now names itself — `retriever.invoke` (through `batch` and `stream` too),
+  `fromDocuments`, `fromTexts` — with the code, cause, `awsCommand`, stack and
+  `context.instance` unchanged. **Migration:** match `retriever.invoke`,
+  `fromDocuments` or `fromTexts` where a branch expected the underlying
+  method's name from those calls.
 
 - **`addVectors` requires every vector in the call to share one dimension, and
   checks it before writing anything.** It was checked per batch, so a call whose
@@ -240,6 +252,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `listDocuments` and `listVectors` — also carried no
   `vectorBucketName`/`indexName`. `createDocument` now takes the operation,
   bucket and index as a required parameter; every caller supplies its own.
+
+- **Every failure out of `retriever.invoke` is an `S3VectorsError`.** A
+  callback handler with `raiseError` set that threw, and `@langchain/core`'s
+  refusal of a non-positive `timeout`, escaped the retriever as raw errors —
+  through `batch` and `stream` as well. Both are `UNEXPECTED_ERROR` now, with
+  the original as `cause`.
+
+- **Two decorated errors lost the stack of the failure they decorated.** A
+  failed `GetVectors` batch reported with `context.foundIds`, and a failed
+  listing page reported with `pagesScanned`, `yielded` and the IAM hint, were
+  built as new errors, so their stacks started at the decorator rather than
+  where the request failure was wrapped. They are rebuilt the way every other
+  decorated error is, and keep it.
+
+- **An abort raised by the index tracker carried the SDK client.** The tracker
+  handed its own context — the client included — to its abort checks, so an
+  `ABORTED` from a write waiting on a shared index check, or from `deleteIndex`,
+  had `context.client`, which `JSON.stringify(error.context)` and a structured
+  logger render. An abort error names only the operation, bucket and index,
+  whatever object the scope it is given is.
 
 - **Concurrent writes waiting on one index check each name themselves.** The
   first write to an index shares its `GetIndex`/`CreateIndex` with every write

@@ -1,4 +1,8 @@
-import { QueryVectorsCommand } from '@aws-sdk/client-s3vectors';
+import {
+  GetVectorsCommand,
+  ListVectorsCommand,
+  QueryVectorsCommand,
+} from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
@@ -87,6 +91,45 @@ describe('AmazonS3Vectors — a rebuilt error keeps the original throw site', ()
     const stack = String((error as Error).stack);
     expect(stack).toContain('re-issue the original query');
     expect(stack.split('\n')[1]).not.toContain('_explainPaginationFailure');
+  });
+
+  it('a partial GetVectors failure keeps the frames of the wrapped request failure', async () => {
+    const { store, mock } = createTestStore();
+    mock
+      .on(GetVectorsCommand, { keys: ['found'] })
+      .resolves({ vectors: [{ key: 'found', metadata: { _page_content: 'x' } }] });
+    mock.on(GetVectorsCommand, { keys: ['failing'] }).rejects(new Error('socket closed'));
+
+    const error = await store
+      .getByIds(['found', 'failing'], { batchSize: 1 })
+      .catch((e: unknown) => e);
+
+    const stack = String((error as Error).stack);
+    // `withFoundIds` adds the retrieved ids to the failure `wrapAwsError` built;
+    // the stack must still be that failure's, under the decorated header.
+    expect(stack).toContain('already retrieved');
+    // By file, not function name: coverage instrumentation shifts the names.
+    expect(stack).toContain('wrap-error.ts');
+    expect(stack).not.toContain('decorate.ts');
+  });
+
+  it('a listing failure keeps the frames of the wrapped request failure', async () => {
+    const { store, mock } = createTestStore();
+    mock
+      .on(ListVectorsCommand)
+      .rejects(Object.assign(new Error('denied'), { name: 'AccessDeniedException' }));
+
+    const error = await (async () => {
+      for await (const _doc of store.listDocuments()) break;
+    })().catch((e: unknown) => e);
+
+    const stack = String((error as Error).stack);
+    // `explainListing` adds the IAM hint and the progress counters to the
+    // failure `wrapAwsError` built; the stack must still be that failure's.
+    expect(stack).toContain('s3vectors:GetVectors');
+    // By file, not function name: coverage instrumentation shifts the names.
+    expect(stack).toContain('wrap-error.ts');
+    expect(stack).not.toContain('decorate.ts');
   });
 
   // The splice recognises V8's frame format rather than assuming it. An

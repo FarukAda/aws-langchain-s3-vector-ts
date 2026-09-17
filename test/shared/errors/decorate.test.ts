@@ -1,6 +1,10 @@
 import { describe, it, expect } from '@jest/globals';
 
-import { attachInstance, attachPartialIds } from '../../../src/shared/errors/decorate.js';
+import {
+  attachInstance,
+  attachOperation,
+  attachPartialIds,
+} from '../../../src/shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../../../src/shared/errors/error-code.js';
 import { S3VectorsError } from '../../../src/shared/errors/s3-vectors-error.js';
 
@@ -144,6 +148,84 @@ describe('attachPartialIds', () => {
   });
 });
 
+describe('attachOperation', () => {
+  /** The frames under a stack's header line. */
+  const framesOf = (error: Error): string => {
+    const stack = error.stack ?? '';
+    return stack.slice(stack.indexOf('\n    at '));
+  };
+
+  const failed = (
+    message = 'addVectors failed on PutVectors (ThrottledException): slow',
+  ): S3VectorsError =>
+    new S3VectorsError(
+      message,
+      S3VectorsErrorCode.THROTTLED,
+      { operation: 'addVectors', awsCommand: 'PutVectors', ...SCOPE, writtenIds: ['a'] },
+      new Error('slow'),
+    );
+
+  it('returns the error itself when it already names the operation', () => {
+    const original = failed();
+    expect(attachOperation(original, 'addVectors', SCOPE)).toBe(original);
+  });
+
+  it('names the new operation and keeps the code, cause, stack and every other field', () => {
+    const original = failed();
+    const renamed = attachOperation(original, 'fromDocuments', SCOPE);
+    expect(renamed).not.toBe(original);
+    expect(renamed.code).toBe(original.code);
+    expect(renamed.cause).toBe(original.cause);
+    expect(renamed.context).toEqual({ ...original.context, operation: 'fromDocuments' });
+    expect(framesOf(renamed)).toBe(framesOf(original));
+  });
+
+  it('never touches the original', () => {
+    const original = failed();
+    attachOperation(original, 'fromDocuments', SCOPE);
+    expect(original.context.operation).toBe('addVectors');
+    expect(original.message.startsWith('addVectors failed')).toBe(true);
+  });
+
+  it('swaps the operation leading the message and keeps everything after it', () => {
+    const renamed = attachOperation(
+      failed('addVectors failed on PutVectors: slow 1 vector(s) were already durably written.'),
+      'retriever.invoke',
+      SCOPE,
+    );
+    expect(renamed.message).toBe(
+      'retriever.invoke failed on PutVectors: slow 1 vector(s) were already durably written.',
+    );
+    expect(renamed.stack?.startsWith(`S3VectorsError: ${renamed.message}`)).toBe(true);
+  });
+
+  it('keeps a message that does not lead with the operation whole', () => {
+    // Including one that merely starts with the same letters.
+    for (const message of ['k must be a positive integer', 'addVectorsX failed']) {
+      expect(attachOperation(failed(message), 'fromDocuments', SCOPE).message).toBe(message);
+    }
+  });
+
+  it('keeps a non-enumerable instance where it was attached', () => {
+    const instance = { marker: 'the store' };
+    const withInstance = attachInstance(failed(), 'fromDocuments', SCOPE, instance);
+    const renamed = attachOperation(withInstance, 'fromTexts', SCOPE);
+    expect(renamed.context.instance).toBe(instance);
+    expect(Object.keys(renamed.context)).not.toContain('instance');
+  });
+
+  it.each([
+    ['with a scope', SCOPE, { operation: 'retriever.invoke', ...SCOPE }],
+    ['without one', undefined, { operation: 'retriever.invoke' }],
+  ])('wraps a value that is not one of ours as UNEXPECTED_ERROR, %s', (_label, scope, context) => {
+    const cause = new Error('handler blew up');
+    const wrapped = attachOperation(cause, 'retriever.invoke', scope);
+    expect(wrapped.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(wrapped.cause).toBe(cause);
+    expect(wrapped.context).toEqual(context);
+  });
+});
+
 describe('attachInstance', () => {
   const instance = { marker: 'the store' };
 
@@ -163,5 +245,11 @@ describe('attachInstance', () => {
     const decorated = attachInstance(coded(), 'fromDocuments', SCOPE, instance);
     expect(decorated.message).toBe('original failed');
     expect(decorated.code).toBe(S3VectorsErrorCode.THROTTLED);
+  });
+
+  it('names the factory the caller invoked, not the write it ran', () => {
+    const decorated = attachInstance(coded(), 'fromDocuments', SCOPE, instance);
+    expect(decorated.context.operation).toBe('fromDocuments');
+    expect(decorated.context.requestId).toBe('r-1');
   });
 });

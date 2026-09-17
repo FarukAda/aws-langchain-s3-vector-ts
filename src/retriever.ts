@@ -9,6 +9,7 @@ import {
 
 import { raceAbort, type StoreScope } from './internal/signals.js';
 import type { AmazonS3Vectors } from './s3-vectors.js';
+import { attachOperation } from './shared/errors/decorate.js';
 
 /**
  * Fields {@link AmazonS3Vectors.asRetriever} accepts: everything
@@ -115,19 +116,28 @@ export class AmazonS3VectorsRetriever<
    * completes. To cancel the request itself, pass `signal` to
    * {@link AmazonS3Vectors.asRetriever} instead.
    * @returns The retrieved documents
-   * @throws {S3VectorsError} `ABORTED` when the config signal fires;
-   * otherwise whatever the underlying search raises.
+   * @throws {S3VectorsError} Every error names `retriever.invoke` as its
+   * operation. `ABORTED` when the config signal fires; otherwise whatever the
+   * underlying search raises, with its code, cause, `awsCommand` and stack
+   * unchanged. A failure core raises on the way that is not one of this
+   * package's errors — a callback handler with `raiseError` set that throws, or
+   * a non-positive `timeout` — is `UNEXPECTED_ERROR`, with it as the cause.
+   * `batch` and `stream` run through this method, so they report the same.
    */
   override async invoke(
     input: string,
     options?: RunnableConfig,
   ): Promise<DocumentInterface<Record<string, unknown>>[]> {
-    return await raceAbort(
-      async () => await super.invoke(input, options),
-      options?.signal,
-      'retriever.invoke',
-      this.#scope,
-    );
+    try {
+      return await raceAbort(
+        async () => await super.invoke(input, options),
+        options?.signal,
+        'retriever.invoke',
+        this.#scope,
+      );
+    } catch (error: unknown) {
+      throw attachOperation(error, 'retriever.invoke', this.#scope);
+    }
   }
 
   /**
@@ -139,7 +149,8 @@ export class AmazonS3VectorsRetriever<
    * @returns The retrieved documents, at most `k` of them
    * @throws {S3VectorsError} Whatever the dispatched search raises —
    * `ABORTED` for a fired field signal, `VALIDATION` for a bad `k`, `filter`
-   * or `searchKwargs`, or the class an AWS failure maps to.
+   * or `searchKwargs`, or the class an AWS failure maps to — which
+   * {@link invoke}, the method callers reach this through, reports as its own.
    */
   override async _getRelevantDocuments(
     query: string,

@@ -231,12 +231,12 @@ function describeDiagnostics(diagnostics: AwsDiagnostics): string {
  *
  * Throws: nothing. It runs inside error handling.
  *
- * Guarantees: this is the one place that format is stated. {@link wrapAwsError}
- * and {@link wrapCallerError} build their messages here, and so does anything
- * that has to re-state a wrapped failure under another context, which is what
- * keeps the message from disagreeing with the context it describes.
+ * Guarantees: this is the one place that format is stated, and both
+ * {@link wrapAwsError} and {@link wrapCallerError} build their messages here.
+ * It leads with the operation, which is what lets `attachOperation` report the
+ * failure under another method's name without rebuilding the rest of it.
  */
-export function failureMessage(context: S3VectorsErrorContext, cause: unknown): string {
+function failureMessage(context: S3VectorsErrorContext, cause: unknown): string {
   const failed = context.awsCommand === undefined ? 'failed' : `failed on ${context.awsCommand}`;
   return `${context.operation} ${failed}${describeDiagnostics(context)}: ${toError(cause).message}`;
 }

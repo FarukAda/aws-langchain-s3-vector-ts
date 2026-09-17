@@ -1,6 +1,6 @@
 import { describeValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
-import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
+import { S3VectorsError, type S3VectorsErrorContext } from '../shared/errors/s3-vectors-error.js';
 import { toError } from '../shared/errors/wrap-error.js';
 
 /** The bucket and index an error should name. */
@@ -9,6 +9,17 @@ export interface StoreScope {
   readonly vectorBucketName: string;
   /** The index inside it. */
   readonly indexName: string;
+}
+
+/**
+ * The context an error raised here records: the operation, and the bucket and
+ * index — picked out by name rather than spread, because a `StoreScope` is
+ * structural and a caller may hand over a wider object. The index tracker hands
+ * over its own context, which also holds the SDK client, and a live client must
+ * never reach an error a logger will render.
+ */
+function errorContext(operation: string, scope: StoreScope): S3VectorsErrorContext {
+  return { operation, vectorBucketName: scope.vectorBucketName, indexName: scope.indexName };
 }
 
 /**
@@ -66,7 +77,7 @@ function assertSignal(
       `${describeValue(signal)}). The operation would have run without being cancellable. ` +
       'Pass an AbortSignal, or omit the option.',
     S3VectorsErrorCode.VALIDATION,
-    { operation, ...scope },
+    errorContext(operation, scope),
   );
 }
 
@@ -125,7 +136,7 @@ function abortError(operation: string, signal: AbortSignal, scope: StoreScope): 
   return new S3VectorsError(
     `${operation} was aborted.`,
     S3VectorsErrorCode.ABORTED,
-    { operation, ...scope },
+    errorContext(operation, scope),
     toError(signal.reason),
   );
 }

@@ -2,6 +2,7 @@ import { GetVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { chunk } from '../shared/batching.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
+import { rebuildWithContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
@@ -97,7 +98,8 @@ function collectSettled(
  * in the message when anything was retrieved, so a log line alone shows the
  * fetch was partial. A failed request also carries `awsCommand: "GetVectors"`;
  * a sibling batch's `AWS_INVALID_RESPONSE` about a response that did arrive
- * passes through without one.
+ * passes through without one. Rebuilt through {@link rebuildWithContext}, so the
+ * stack is still that of the failure being decorated.
  */
 function withFoundIds(
   reason: unknown,
@@ -110,14 +112,13 @@ function withFoundIds(
     ...scope,
   });
   const foundIds = [...found.keys()];
-  return new S3VectorsError(
+  return rebuildWithContext(
+    base,
     foundIds.length > 0
       ? `${base.message} ${foundIds.length} vector(s) were already retrieved before this ` +
           'failure — see error.context.foundIds.'
       : base.message,
-    base.code,
     { ...base.context, foundIds },
-    base.cause,
   );
 }
 

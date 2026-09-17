@@ -62,6 +62,27 @@ describe('checkAborted', () => {
     expect((cause as Error).message).toContain('took too long');
   });
 
+  it('names only the bucket and index, whatever else the scope object carries', () => {
+    // The index tracker passes its own context, which also holds the SDK client.
+    // A structural `StoreScope` can carry more than it declares, and none of it
+    // may reach an error a logger will render.
+    const ac = new AbortController();
+    ac.abort();
+    const wider = { ...SCOPE, client: { secret: 'the client' } };
+    const aborted = thrownBy(() => {
+      checkAborted('op', ac.signal, wider);
+    });
+    const refused = thrownBy(() => {
+      checkAborted('op', 'not a signal' as never, wider);
+    });
+    for (const error of [aborted, refused]) {
+      expect((error as { context: Record<string, unknown> }).context).toEqual({
+        operation: 'op',
+        ...SCOPE,
+      });
+    }
+  });
+
   it('preserves the default DOMException reason as the cause', () => {
     const ac = new AbortController();
     ac.abort();

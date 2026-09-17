@@ -21,12 +21,12 @@ import { renderValue } from '../shared/describe.js';
 import { isAwsConflictException } from '../shared/errors/aws-conflict.js';
 import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
-import { rebuildWithContext } from '../shared/errors/decorate.js';
+import { attachOperation } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
-import { isS3VectorsError, S3VectorsError } from '../shared/errors/s3-vectors-error.js';
-import { failureMessage, wrapAwsError } from '../shared/errors/wrap-error.js';
+import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
+import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { DistanceMetric, VectorDataType } from '../types.js';
-import { checkAborted, raceAbort, sendOptions } from './signals.js';
+import { checkAborted, raceAbort, sendOptions, type StoreScope } from './signals.js';
 
 /** The client and the index a lifecycle call acts on. */
 export interface IndexContext {
@@ -486,30 +486,6 @@ async function createIndex(
 }
 
 /**
- * The shared index check's failure, reported as another caller's own.
- *
- * Concurrent callers share one `GetIndex`/`CreateIndex` sequence, so its
- * failure is raised once, naming the method that started it. Every other
- * method waiting on it receives this: a new error naming its own `operation`,
- * with the same class, code, cause, `awsCommand` and every other context
- * field — and, through {@link rebuildWithContext}, the stack of the code that
- * actually failed. Rebuilt rather than edited, because the caller that started
- * the check holds the original, and an error is readonly once raised.
- *
- * Only a failed request's message names the operation — `wrapAwsError` builds
- * it from the context — so that message is built again the same way, from the
- * new context. The check's other failures, the `INDEX_CONFIG_MISMATCH` from
- * {@link assertKeysAgree} and the `VALIDATION` from {@link assertCreatable},
- * never name it, and keep theirs.
- */
-function reportedAs(failure: S3VectorsError, operation: string): S3VectorsError {
-  const context = { ...failure.context, operation };
-  const message =
-    context.awsCommand === undefined ? failure.message : failureMessage(context, failure.cause);
-  return rebuildWithContext(failure, message, context);
-}
-
-/**
  * Build the existence tracker for one index.
  *
  * Accepts: the client and the index it acts on, plus the configuration a
@@ -546,6 +522,8 @@ export function createIndexLifecycle(
 ): IndexLifecycle {
   let knownToExist = false;
   let memo: Promise<void> | null = null;
+  // What an error names. Never `ctx` itself, which also holds the client.
+  const scope: StoreScope = { vectorBucketName: ctx.vectorBucketName, indexName: ctx.indexName };
 
   return {
     async ensureExists(
@@ -553,7 +531,7 @@ export function createIndexLifecycle(
       signal: AbortSignal | undefined,
       operation: string,
     ): Promise<void> {
-      checkAborted(operation, signal, ctx);
+      checkAborted(operation, signal, scope);
       if (knownToExist) return;
 
       memo ??= (async () => {
@@ -582,13 +560,11 @@ export function createIndexLifecycle(
       // are waiting on.
       const shared = memo;
       try {
-        await raceAbort(() => shared, signal, operation, ctx);
+        await raceAbort(() => shared, signal, operation, scope);
       } catch (error: unknown) {
         // The memo's failure names whichever method started it. Every other
         // method waiting on it reports the same failure as its own.
-        throw isS3VectorsError(error) && error.context.operation !== operation
-          ? reportedAs(error, operation)
-          : error;
+        throw attachOperation(error, operation, scope);
       }
     },
 
@@ -597,7 +573,7 @@ export function createIndexLifecycle(
     },
 
     async deleteIndex(signal: AbortSignal | undefined, operation: string): Promise<void> {
-      checkAborted(operation, signal, ctx);
+      checkAborted(operation, signal, scope);
 
       // Serialise behind any creation already running. Without this, a
       // creation that started before this delete settles after it and
@@ -611,7 +587,7 @@ export function createIndexLifecycle(
       // `DeleteIndex` was then issued anyway with an already-aborted signal.
       if (memo) {
         const settled = memo.catch(() => undefined);
-        await raceAbort(() => settled, signal, operation, ctx);
+        await raceAbort(() => settled, signal, operation, scope);
       }
 
       try {

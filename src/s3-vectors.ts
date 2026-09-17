@@ -34,7 +34,7 @@ import {
   type AmazonS3VectorsRetrieverFields,
 } from './retriever.js';
 import { renderValue, type RecordRef } from './shared/describe.js';
-import { attachInstance } from './shared/errors/decorate.js';
+import { attachInstance, attachOperation } from './shared/errors/decorate.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
 import { wrapCallerError } from './shared/errors/wrap-error.js';
@@ -1017,10 +1017,11 @@ export class AmazonS3Vectors extends VectorStore {
    * @param config - The store configuration, plus the `ids`, `batchSize` and
    * `signal` the write takes
    * @returns The constructed store, after the write
-   * @throws {S3VectorsError} `VALIDATION` when `texts` is not an array or the
-   * metadata array's length disagrees with it; otherwise whatever
-   * {@link fromDocuments} raises, including the constructed instance on
-   * `context.instance`.
+   * @throws {S3VectorsError} Every error names `fromTexts` as its operation.
+   * `VALIDATION` when `texts` is not an array or the metadata array's length
+   * disagrees with it; otherwise whatever {@link fromDocuments} raises, with its
+   * code, cause, `awsCommand`, stack and — once the store was constructed —
+   * `context.instance` unchanged.
    */
   static override async fromTexts(
     texts: string[],
@@ -1078,7 +1079,11 @@ export class AmazonS3Vectors extends VectorStore {
       (text, i) => new Document({ pageContent: text, metadata: metaArray[i] ?? {} }),
     );
 
-    return AmazonS3Vectors.fromDocuments(documents, embeddings, config);
+    try {
+      return await AmazonS3Vectors.fromDocuments(documents, embeddings, config);
+    } catch (error: unknown) {
+      throw attachOperation(error, 'fromTexts');
+    }
   }
 
   /**
@@ -1089,18 +1094,27 @@ export class AmazonS3Vectors extends VectorStore {
    * @param config - The store configuration, plus the `ids`, `batchSize` and
    * `signal` the write takes
    * @returns The constructed store, after the write
-   * @throws If the write fails — including partway through a multi-batch
-   * write — the thrown {@link S3VectorsError}'s `context.instance` carries
-   * the constructed (and possibly partially-written) store, so the caller
-   * can act on `context.writtenIds` without reconstructing an equivalent
-   * instance from the same embeddings/config.
+   * @throws {S3VectorsError} Every error names `fromDocuments` as its operation,
+   * with the code, cause, `awsCommand` and stack of whatever failed. What the
+   * constructor refuses, before any request; otherwise whatever
+   * {@link addDocuments} raises. If the write fails — including partway
+   * through a multi-batch write — `context.instance` carries the constructed
+   * (and possibly partially-written) store, so the caller can act on
+   * `context.writtenIds` without reconstructing an equivalent instance from the
+   * same embeddings/config.
    */
   static override async fromDocuments(
     docs: DocumentInterface[],
     embeddings: EmbeddingsInterface,
     config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<AmazonS3Vectors> {
-    const instance = new AmazonS3Vectors(embeddings, config);
+    let instance: AmazonS3Vectors;
+    try {
+      instance = new AmazonS3Vectors(embeddings, config);
+    } catch (error: unknown) {
+      // No store, so no bucket or index this package has validated to name.
+      throw attachOperation(error, 'fromDocuments');
+    }
     try {
       await instance.addDocuments(docs, {
         // Omitted rather than passed as `undefined`, so the options bag says

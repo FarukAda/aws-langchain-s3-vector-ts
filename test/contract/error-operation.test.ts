@@ -9,6 +9,7 @@ import {
   QueryVectorsCommand,
 } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
+import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { Document } from '@langchain/core/documents';
 import type { DocumentType } from '@smithy/types';
 
@@ -30,9 +31,11 @@ import {
  * failed when one did.
  *
  * `S3VectorsErrorContext.operation` is the one field always present, and the
- * contract is that it holds the *public method's* name — never the AWS
- * command's, not even when an AWS request is what failed — so a failure points
- * at something the caller wrote. The request is a field of its own,
+ * contract is that it holds the name of the *public method the caller invoked*
+ * — never the AWS command's, not even when an AWS request is what failed, and
+ * never that of another public method the invoked one runs through, as a
+ * retriever runs a search and a factory constructs a store and writes to it —
+ * so a failure points at something the caller wrote. The request is a field of its own,
  * `awsCommand`: set on every error that wraps a failed AWS request, and absent
  * from every other. Both are easy to get wrong in a way nothing notices: the
  * strings are passed down through several layers, and a wrong one still
@@ -99,8 +102,14 @@ describe('every error names the public method that raised it', () => {
     const error = await run(store).catch((e: unknown) => e);
     expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
     expect((error as { context: { operation: string } }).context.operation).toBe(operation);
-    // Refused before any request, so no request is named.
-    expect(contextOf(error)).not.toHaveProperty('awsCommand');
+    // Refused before any request, so no request is named — and nothing but the
+    // method and its target is: `deleteIndex`'s abort check once carried the
+    // SDK client along with them.
+    expect(Object.keys(contextOf(error)).sort()).toEqual([
+      'indexName',
+      'operation',
+      'vectorBucketName',
+    ]);
   });
 
   it('an abort while waiting on a shared index creation names the write, not the wait', async () => {
@@ -132,6 +141,15 @@ describe('every error names the public method that raised it', () => {
     releaseGetIndex();
     expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
     expect((error as { context: { operation: string } }).context.operation).toBe('addVectors');
+    // Exactly these: the index tracker's own context also holds the SDK client,
+    // which must never reach an error a logger will render.
+    expect(Object.keys(contextOf(error)).sort()).toEqual([
+      'attemptedIds',
+      'indexName',
+      'operation',
+      'vectorBucketName',
+      'writtenIds',
+    ]);
   });
 
   // The casts are the case under test: TypeScript refuses a signal in the
@@ -602,5 +620,214 @@ describe('writes sharing one index check each name their own method', () => {
       operation: 'deleteIndex',
       awsCommand: 'DeleteIndex',
     });
+  });
+});
+
+/** A callback handler that fails the way core lets one fail: `raiseError` rethrows it. */
+class ThrowingHandler extends BaseCallbackHandler {
+  name = 'throwing-handler';
+
+  constructor() {
+    super({ raiseError: true });
+  }
+
+  override handleRetrieverStart(): never {
+    throw new Error('handler blew up');
+  }
+}
+
+/** A store whose query model throws, as a provider outage does. */
+const storeWithFailingModel = (): Store => {
+  const { client } = createMockClient();
+  return new AmazonS3Vectors(
+    {
+      ...createMockEmbeddings(),
+      embedQuery: async (): Promise<number[]> => {
+        throw new Error('provider down');
+      },
+    },
+    { ...BASE_CONFIG, client },
+  );
+};
+
+describe('a retriever invocation names itself, whatever fails underneath', () => {
+  // A retriever is a public method of its own: whatever its search raises is
+  // reported as `retriever.invoke`, with the request, class and cause intact.
+  it.each([
+    ['similarity', 'QueryVectors', {}],
+    ['mmr', 'QueryVectors', { searchType: 'mmr' as const }],
+    ['mmr', 'GetVectors', { searchType: 'mmr' as const }],
+  ])('a %s retriever whose %s fails', async (_type, command, fields) => {
+    const { store, mock } = createTestStore();
+    FAIL[command]!(mock);
+    const error = await store
+      .asRetriever({ k: 1, ...fields })
+      .invoke('q')
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+    expect(contextOf(error)).toMatchObject({
+      operation: 'retriever.invoke',
+      awsCommand: command,
+      ...BASE_CONFIG,
+    });
+    expect((error as Error).message.startsWith(`retriever.invoke failed on ${command} (`)).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    [
+      S3VectorsErrorCode.VALIDATION,
+      (): Promise<unknown> => createTestStore().store.asRetriever({ k: 0 }).invoke('q'),
+    ],
+    [
+      S3VectorsErrorCode.EMBEDDINGS_MISSING,
+      (): Promise<unknown> => {
+        const { client } = createMockClient();
+        return new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client }).asRetriever().invoke('q');
+      },
+    ],
+    [
+      S3VectorsErrorCode.UNEXPECTED_ERROR,
+      (): Promise<unknown> => storeWithFailingModel().asRetriever().invoke('q'),
+    ],
+    [
+      S3VectorsErrorCode.ABORTED,
+      (): Promise<unknown> =>
+        createTestStore().store.asRetriever({ k: 1, signal: fired() }).invoke('q'),
+    ],
+  ])('%s from the search underneath', async (code, run) => {
+    const error = await run().catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(code);
+    expect(contextOf(error)['operation']).toBe('retriever.invoke');
+    expect(contextOf(error)).not.toHaveProperty('awsCommand');
+  });
+
+  it('a callback handler that throws reaches the caller coded, not raw', async () => {
+    // Core rethrows a `raiseError` handler's own failure out of `invoke`: caller
+    // code, and so UNEXPECTED_ERROR, with the handler's error as the cause.
+    const { store, mock } = createTestStore();
+    const error = await store
+      .asRetriever({ k: 1, callbacks: [new ThrowingHandler()] })
+      .invoke('q')
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(contextOf(error)).toMatchObject({ operation: 'retriever.invoke', ...BASE_CONFIG });
+    expect(((error as Error).cause as Error).message).toBe('handler blew up');
+    expect(mock.calls()).toHaveLength(0);
+  });
+
+  it("core's refusal of a non-positive timeout reaches the caller coded, not raw", async () => {
+    const { store } = createTestStore();
+    const error = await store
+      .asRetriever({ k: 1 })
+      .invoke('q', { timeout: 0 })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(contextOf(error)['operation']).toBe('retriever.invoke');
+  });
+
+  it('batch and stream run through invoke, so they report it too', async () => {
+    const { store, mock } = createTestStore();
+    FAIL['QueryVectors']!(mock);
+    const retriever = store.asRetriever({ k: 1 });
+
+    const fromBatch = await retriever.batch(['q']).catch((e: unknown) => e);
+    expect(contextOf(fromBatch)).toMatchObject({
+      operation: 'retriever.invoke',
+      awsCommand: 'QueryVectors',
+    });
+
+    const [returned] = await retriever.batch(['q'], undefined, { returnExceptions: true });
+    expect(contextOf(returned)['operation']).toBe('retriever.invoke');
+
+    const fromStream = await (async () => {
+      for await (const _chunk of await retriever.stream('q')) break;
+    })().catch((e: unknown) => e);
+    expect(contextOf(fromStream)).toMatchObject({
+      operation: 'retriever.invoke',
+      awsCommand: 'QueryVectors',
+    });
+  });
+
+  it('keeps the stack of the code that actually failed', async () => {
+    const { store, mock } = createTestStore();
+    FAIL['QueryVectors']!(mock);
+    const error = await store
+      .asRetriever({ k: 1 })
+      .invoke('q')
+      .catch((e: unknown) => e);
+    const stack = String((error as Error).stack);
+    expect(stack.startsWith('S3VectorsError: retriever.invoke failed on QueryVectors')).toBe(true);
+    // Raised where the request failed; renaming it must not become its origin.
+    // Files, not function names: coverage instrumentation shifts the names.
+    expect(stack).toContain('query-pages.ts');
+    expect(stack).toContain('wrap-error.ts');
+    expect(stack).not.toContain('decorate.ts');
+  });
+});
+
+describe('the static factories name themselves, whatever fails underneath', () => {
+  it.each([
+    [
+      'fromDocuments',
+      (config: object): Promise<unknown> =>
+        AmazonS3Vectors.fromDocuments([doc()], createMockEmbeddings(), config as never),
+    ],
+    [
+      'fromTexts',
+      (config: object): Promise<unknown> =>
+        AmazonS3Vectors.fromTexts(['x'], {}, createMockEmbeddings(), config as never),
+    ],
+  ])('%s, when the store cannot be constructed', async (operation, run) => {
+    const { client, mock } = createMockClient();
+    const error = await run({ ...BASE_CONFIG, client, distanceMetric: 'manhattan' }).catch(
+      (e: unknown) => e,
+    );
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(contextOf(error)['operation']).toBe(operation);
+    expect(contextOf(error)).not.toHaveProperty('instance');
+    expect(mock.calls()).toHaveLength(0);
+  });
+
+  it.each([
+    [
+      'fromDocuments',
+      (client: object): Promise<unknown> =>
+        AmazonS3Vectors.fromDocuments([doc()], createMockEmbeddings(), {
+          ...BASE_CONFIG,
+          client: client as never,
+        }),
+    ],
+    [
+      'fromTexts',
+      (client: object): Promise<unknown> =>
+        AmazonS3Vectors.fromTexts(['x'], {}, createMockEmbeddings(), {
+          ...BASE_CONFIG,
+          client: client as never,
+        }),
+    ],
+  ])('%s, when its write fails', async (operation, run) => {
+    const { client, mock } = createMockClient();
+    FAIL['PutVectors']!(mock);
+    const error = await run(client).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+    expect(contextOf(error)).toMatchObject({
+      operation,
+      awsCommand: 'PutVectors',
+      writtenIds: [],
+      ...BASE_CONFIG,
+    });
+    // The constructed store, for recovery — still a non-enumerable handle.
+    expect((contextOf(error)['instance'] as AmazonS3Vectors).indexName).toBe(BASE_CONFIG.indexName);
+    expect(Object.keys(contextOf(error))).not.toContain('instance');
+    expect((error as Error).message.startsWith(`${operation} failed on PutVectors (`)).toBe(true);
+
+    const stack = String((error as Error).stack);
+    // Raised where the request failed; renaming it must not become its origin.
+    // Files, not function names: coverage instrumentation shifts the names.
+    expect(stack).toContain('put-batch.ts');
+    expect(stack).toContain('wrap-error.ts');
+    expect(stack).not.toContain('decorate.ts');
   });
 });

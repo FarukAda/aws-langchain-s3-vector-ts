@@ -6,7 +6,7 @@
 
 # Interface: AmazonS3VectorsRetrieverFields\<V\>
 
-Defined in: [retriever.ts:17](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L17)
+Defined in: [retriever.ts:18](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L18)
 
 Fields [AmazonS3Vectors.asRetriever](../classes/AmazonS3Vectors.md#asretriever) accepts: everything
 `@langchain/core` documents, plus `signal`.
@@ -23,7 +23,7 @@ Fields [AmazonS3Vectors.asRetriever](../classes/AmazonS3Vectors.md#asretriever) 
 
 > `readonly` `optional` **callbacks?**: `Callbacks`
 
-Defined in: [retriever.ts:42](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L42)
+Defined in: [retriever.ts:43](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L43)
 
 Core's callbacks, passed through unchanged. Unlike the search methods, a signal here is not rejected — this is a field, not the callbacks *slot*.
 
@@ -33,7 +33,7 @@ Core's callbacks, passed through unchanged. Unlike the search methods, a signal 
 
 > `readonly` `optional` **filter?**: `V`\[`"FilterType"`\]
 
-Defined in: [retriever.ts:21](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L21)
+Defined in: [retriever.ts:22](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L22)
 
 Metadata filter applied to every search this retriever runs.
 
@@ -43,7 +43,7 @@ Metadata filter applied to every search this retriever runs.
 
 > `readonly` `optional` **k?**: `number`
 
-Defined in: [retriever.ts:19](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L19)
+Defined in: [retriever.ts:20](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L20)
 
 Documents to retrieve per query.
 
@@ -57,7 +57,7 @@ Documents to retrieve per query.
 
 > `readonly` `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [retriever.ts:38](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L38)
+Defined in: [retriever.ts:39](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L39)
 
 Run metadata, passed through to core's callback machinery unchanged.
 
@@ -67,7 +67,7 @@ Run metadata, passed through to core's callback machinery unchanged.
 
 > `readonly` `optional` **searchKwargs?**: `VectorStoreRetrieverMMRSearchKwargs`
 
-Defined in: [retriever.ts:25](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L25)
+Defined in: [retriever.ts:26](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L26)
 
 `fetchK` and `lambda`, honoured only when `searchType` is `'mmr'`.
 
@@ -77,7 +77,7 @@ Defined in: [retriever.ts:25](https://github.com/FarukAda/aws-langchain-s3-vecto
 
 > `readonly` `optional` **searchType?**: `"similarity"` \| `"mmr"`
 
-Defined in: [retriever.ts:23](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L23)
+Defined in: [retriever.ts:24](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L24)
 
 `'similarity'` (default) or `'mmr'`.
 
@@ -91,7 +91,7 @@ Defined in: [retriever.ts:23](https://github.com/FarukAda/aws-langchain-s3-vecto
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [retriever.ts:34](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L34)
+Defined in: [retriever.ts:35](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L35)
 
 Cancels the AWS requests this retriever makes — genuinely, because a
 retriever field needs no per-invocation state and so can be threaded into
@@ -106,7 +106,7 @@ the request already in flight.
 
 > `readonly` `optional` **tags?**: `string`[]
 
-Defined in: [retriever.ts:36](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L36)
+Defined in: [retriever.ts:37](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L37)
 
 Run tags. This store's type is appended to whatever is given, as core does.
 
@@ -116,6 +116,6 @@ Run tags. This store's type is appended to whatever is given, as core does.
 
 > `readonly` `optional` **verbose?**: `boolean`
 
-Defined in: [retriever.ts:40](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L40)
+Defined in: [retriever.ts:41](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L41)
 
 Core's verbose flag, passed through unchanged.

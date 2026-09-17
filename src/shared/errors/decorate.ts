@@ -9,7 +9,9 @@ import { wrapCallerError } from './wrap-error.js';
 /**
  * Normalise `error` into an `S3VectorsError`, unchanged if it already is one.
  *
- * Accepts: any thrown value, the operation to name, and the scope to record.
+ * Accepts: any thrown value, the operation to name, and the scope to record —
+ * `undefined` when no bucket or index is known yet, as for a store that failed
+ * to construct.
  *
  * Returns: the value itself when it is already one of this library's errors —
  * so the layer nearest the failure keeps ownership of the message and the
@@ -34,7 +36,7 @@ import { wrapCallerError } from './wrap-error.js';
 function normalizeToS3VectorsError(
   error: unknown,
   operation: string,
-  scope: StoreScope,
+  scope: StoreScope | undefined,
 ): S3VectorsError {
   return isS3VectorsError(error) ? error : wrapCallerError(error, { operation, ...scope });
 }
@@ -75,6 +77,61 @@ export function rebuildWithContext(
     }
   }
   return rebuilt;
+}
+
+/**
+ * Report a failure as the error of the public method the caller invoked.
+ *
+ * Accepts: any thrown value; that method (`"retriever.invoke"`,
+ * `"fromDocuments"`, or one of several concurrent callers sharing one index
+ * check); and the bucket and index to name should the value not be one of this
+ * package's errors — `undefined` when none is known yet.
+ *
+ * Returns: the error itself when it already names `operation` — nothing to
+ * rebuild. Otherwise a new error naming `operation`, with the same class, code
+ * and cause, every other context field (a non-enumerable `instance` included,
+ * still non-enumerable), and — through {@link rebuildWithContext} — the stack
+ * of the code that actually failed. A value that is not one of this package's
+ * errors is first wrapped as `UNEXPECTED_ERROR` under `operation`: whatever
+ * reaches a caller is coded, whichever path it took.
+ *
+ * The message changes only where it reports the operation: a message built
+ * around the operation's name leads with it, followed by a space —
+ * `"addDocuments failed on PutVectors (…): …"`, `"similaritySearch was
+ * aborted."`. That leading name is swapped, and everything after it — a
+ * decoration such as the ids already written included — is kept. A message
+ * that does not lead with the old name is kept whole, as is a method's call
+ * signature quoted inside one as a remedy, which names what to call rather
+ * than what was called.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: the original is never mutated. Its context and message are
+ * readonly, and whoever else holds it — the first of several callers sharing
+ * one failure — must go on seeing what it reported.
+ */
+export function attachOperation(
+  error: unknown,
+  operation: string,
+  scope?: StoreScope,
+): S3VectorsError {
+  const base = normalizeToS3VectorsError(error, operation, scope);
+  const previous = base.context.operation;
+  if (previous === operation) return base;
+
+  // Descriptors, not a spread: a spread would drop the non-enumerable
+  // `instance` a factory attached for recovery.
+  const context = Object.defineProperties(
+    {},
+    {
+      ...Object.getOwnPropertyDescriptors(base.context),
+      operation: { value: operation, enumerable: true },
+    },
+  ) as S3VectorsErrorContext;
+  const message = base.message.startsWith(`${previous} `)
+    ? `${operation}${base.message.slice(previous.length)}`
+    : base.message;
+  return rebuildWithContext(base, message, context);
 }
 
 /**
@@ -142,11 +199,13 @@ export function attachContext(
 /**
  * Attach the store a static factory had already constructed when it failed.
  *
- * Accepts: the thrown value, the operation, the scope, and the instance.
+ * Accepts: the thrown value, the factory the caller invoked, the scope, and the
+ * instance.
  *
- * Returns: the normalised error with `context.instance` set — so a caller can
- * act on `context.writtenIds` against the exact store the ids were written to,
- * instead of rebuilding an equivalent one from the same config by hand.
+ * Returns: the error reported as that factory's, through
+ * {@link attachOperation}, with `context.instance` set — so a caller can act on
+ * `context.writtenIds` against the exact store the ids were written to, instead
+ * of rebuilding an equivalent one from the same config by hand.
  *
  * Throws: nothing.
  *
@@ -162,7 +221,7 @@ export function attachInstance<T extends object>(
   scope: StoreScope,
   instance: T,
 ): S3VectorsError {
-  const base = normalizeToS3VectorsError(error, operation, scope);
+  const base = attachOperation(error, operation, scope);
   const context: S3VectorsErrorContext = { ...base.context };
   Object.defineProperty(context, 'instance', {
     value: instance,

@@ -6,7 +6,7 @@
 
 # Class: AmazonS3VectorsRetriever\<V\>
 
-Defined in: [retriever.ts:71](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L71)
+Defined in: [retriever.ts:72](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L72)
 
 The retriever [AmazonS3Vectors.asRetriever](AmazonS3Vectors.md#asretriever) returns.
 
@@ -46,7 +46,7 @@ Both may be supplied at once; they are independent.
 
 > **new AmazonS3VectorsRetriever**\<`V`\>(`fields`): `AmazonS3VectorsRetriever`\<`V`\>
 
-Defined in: [retriever.ts:95](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L95)
+Defined in: [retriever.ts:96](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L96)
 
 #### Parameters
 
@@ -79,7 +79,7 @@ search runs, by the same guards a direct call goes through.
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [retriever.ts:85](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L85)
+Defined in: [retriever.ts:86](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L86)
 
 The field signal: threaded into every AWS request this retriever makes.
 
@@ -93,7 +93,7 @@ from the property being absent.
 
 > **\_getRelevantDocuments**(`query`, `runManager?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: [retriever.ts:144](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L144)
+Defined in: [retriever.ts:155](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L155)
 
 Core's extension point, overridden only to thread the field signal.
 
@@ -122,7 +122,8 @@ The retrieved documents, at most `k` of them
 
 Whatever the dispatched search raises —
 `ABORTED` for a fired field signal, `VALIDATION` for a bad `k`, `filter`
-or `searchKwargs`, or the class an AWS failure maps to.
+or `searchKwargs`, or the class an AWS failure maps to — which
+[invoke](#invoke), the method callers reach this through, reports as its own.
 
 #### Overrides
 
@@ -134,7 +135,7 @@ or `searchKwargs`, or the class an AWS failure maps to.
 
 > **invoke**(`input`, `options?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: [retriever.ts:121](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L121)
+Defined in: [retriever.ts:127](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L127)
 
 Run the retriever, honouring a config signal as far as core allows.
 
@@ -164,8 +165,13 @@ The retrieved documents
 
 #### Throws
 
-`ABORTED` when the config signal fires;
-otherwise whatever the underlying search raises.
+Every error names `retriever.invoke` as its
+operation. `ABORTED` when the config signal fires; otherwise whatever the
+underlying search raises, with its code, cause, `awsCommand` and stack
+unchanged. A failure core raises on the way that is not one of this
+package's errors — a callback handler with `raiseError` set that throws, or
+a non-positive `timeout` — is `UNEXPECTED_ERROR`, with it as the cause.
+`batch` and `stream` run through this method, so they report the same.
 
 #### Overrides
 
@@ -177,7 +183,7 @@ otherwise whatever the underlying search raises.
 
 > `static` **lc\_name**(): `string`
 
-Defined in: [retriever.ts:74](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L74)
+Defined in: [retriever.ts:75](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L75)
 
 #### Returns
 

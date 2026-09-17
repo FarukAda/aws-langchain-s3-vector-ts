@@ -5,16 +5,11 @@ import { S3VectorsErrorCode } from './error-code.js';
 export interface S3VectorsErrorContext {
   /**
    * The public method the caller invoked — `"addDocuments"`, `"getByIds"`,
-   * `"deleteIndex"`, `"retriever.invoke"` — on every error, one raised by a
-   * failed AWS request included. Never the name of an AWS command: the request
-   * that failed is {@link awsCommand}.
-   *
-   * A method that does its work by calling another public method reports that
-   * method's failures under that method's name: a retriever's search under
-   * `"similaritySearch"` or `"maxMarginalRelevanceSearch"` (only the signal
-   * given to `invoke` itself firing is `"retriever.invoke"`), and
-   * `fromDocuments`/`fromTexts` under `"constructor"` and `"addDocuments"`
-   * (`fromTexts`'s own argument checks are `"fromTexts"`).
+   * `"deleteIndex"`, `"fromDocuments"`, `"retriever.invoke"`, `"constructor"` —
+   * on every error, whatever raised it: an argument check, a failed AWS request,
+   * caller-supplied code, or another public method the invoked one runs
+   * through. Never the name of an AWS command: the request that failed is
+   * {@link awsCommand}.
    */
   readonly operation: string;
   /**
