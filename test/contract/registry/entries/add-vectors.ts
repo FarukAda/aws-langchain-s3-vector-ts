@@ -199,7 +199,7 @@ export const addVectorsContract: EntryPointContract<AddVectorsInput> = {
     [S3VectorsErrorCode.KMS_ERROR]: WRITE_FAILURE,
     [S3VectorsErrorCode.AWS_REQUEST_FAILED]: WRITE_FAILURE,
   },
-  // A batch whose vectors disagree on dimension is refused as
+  // Vectors that disagree on dimension, anywhere in the call, are refused as
   // INDEX_CONFIG_MISMATCH rather than VALIDATION, deliberately: what the caller
   // has to decide is which index they meant, not how to reshape an argument.
   outOfDomainCodes: new Set([

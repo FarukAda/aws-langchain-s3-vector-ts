@@ -198,7 +198,7 @@ export const AMBIENTS: readonly Ambient[] = [
   },
   {
     label: 'timeout',
-    // What the SDK's own HTTP handler raises for a timed-out, refused or reset
+    // What the SDK's own HTTP handler raises for a timed-out, reset or broken
     // connection: a plain Error named TimeoutError, carrying no `$metadata`.
     respond: () => {
       throw Object.assign(new Error('socket hang up'), { name: 'TimeoutError' });

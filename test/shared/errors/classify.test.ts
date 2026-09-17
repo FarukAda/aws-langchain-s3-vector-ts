@@ -88,4 +88,13 @@ describe('classifyAwsError', () => {
   it("maps the SDK's own TimeoutError to SERVICE_UNAVAILABLE, the class its retry strategy puts it in", () => {
     expect(classifyAwsError(named('TimeoutError'))).toBe(S3VectorsErrorCode.SERVICE_UNAVAILABLE);
   });
+
+  it('maps a refused connection to AWS_REQUEST_FAILED, because the SDK does not rename it', () => {
+    // `@smithy/node-http-handler` renames only ECONNRESET, EPIPE and ETIMEDOUT
+    // to TimeoutError. A refused connection reaches here as a plain Error
+    // carrying its `code`, so it is not a TimeoutError and gets the catch-all.
+    const refused = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    expect(refused.name).toBe('Error');
+    expect(classifyAwsError(refused)).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
+  });
 });

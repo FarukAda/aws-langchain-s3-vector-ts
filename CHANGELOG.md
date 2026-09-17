@@ -10,12 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`error.context.recordIndex` and `error.context.recordId`.** A refusal about
-  one element of a list — a document, its metadata, a vector, a text passed to
-  fromTexts, or an id — now says which one: its position in *your* input,
-  counted over the whole call rather than within a batch, and its id when it has
-  one. The message leads with the same, as `Document at index 400 (id
-  "ticket-400"): …`. Both fields are optional and appear only on errors about a
-  single element of a list.
+  one element of a list — a document, its metadata, a vector, a text or a
+  `metadatas` entry passed to fromTexts, or an id — now says which one: its
+  position in *your* input, counted over the whole call rather than within a
+  batch, and its id when it has one. The message leads with the same, as
+  `Document at index 400 (id "ticket-400"): …`. Both fields are optional and
+  appear only on errors about a single element of a list.
 
 ### Changed
 
@@ -33,11 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   T3-19). This is the rule metadata already followed, and it is the one place
   the filter check refuses something the service would take.
 
-- **A timed-out, refused or reset connection is `SERVICE_UNAVAILABLE`.** The SDK's
-  HTTP handler raises `TimeoutError` for a connection, socket-idle or request
-  timeout and for `ECONNRESET`/`ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`, and its retry
-  strategy treats that name as transient alongside `RequestTimeoutException` —
-  which this package already mapped to `SERVICE_UNAVAILABLE`. It was
+- **A timed-out or reset connection is `SERVICE_UNAVAILABLE`.** The SDK's HTTP
+  handler raises `TimeoutError` for a connection, socket-idle or request timeout
+  and for `ECONNRESET`/`EPIPE`/`ETIMEDOUT`, and its retry strategy treats that
+  name as transient alongside `RequestTimeoutException` — which this package
+  already mapped to `SERVICE_UNAVAILABLE`. It was
   `AWS_REQUEST_FAILED`, so retry logic keyed on the documented transient codes
   treated a timeout as a hard failure; only `context.retryable` said otherwise.
   A caller branching on `AWS_REQUEST_FAILED` for timeouts must switch to
@@ -53,13 +53,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it and failed at AWS, taking every other document in the same `PutVectors` call
   down with them. They are `VALIDATION` now, naming the key.
 
-- **A metadata key or string value containing an unpaired UTF-16 surrogate is
-  refused locally.** Page content is stored as metadata, so text cut mid-emoji
-  reached AWS, which fails the whole request with `SerializationException` and the
-  message "UnknownError"
+- **A string containing an unpaired UTF-16 surrogate is refused locally,
+  wherever it would be sent to AWS.** AWS fails the whole request carrying one
+  with `SerializationException` and the message "UnknownError"
   ([`docs/evidence/string-encoding.md`](./docs/evidence/string-encoding.md),
-  T3-15). That surfaced as an `AWS_REQUEST_FAILED` naming nothing; it is
-  `VALIDATION` now, naming the key and the position of the stray code unit.
+  T3-15), which surfaced as an `AWS_REQUEST_FAILED` naming nothing. It is
+  `VALIDATION` now, naming where the string was found and the position of the
+  stray code unit. The boundaries: a metadata key or string, page content
+  included — it is stored as metadata, and text cut mid-emoji is the usual
+  source; a vector id, on `addVectors`, `addDocuments`, `delete` and `getByIds`;
+  a filter's field name or string; and, at construction,
+  `pageContentMetadataKey`, a `nonFilterableMetadataKeys` entry, a tag key or
+  value, and `encryptionConfiguration.kmsKeyArn`, which made `CreateIndex` — or,
+  for the page-content key, every write — fail.
 
 - **The README said `NaN` passes the metadata type check.** It has been refused
   since the value-type rules landed; the section now says so, and why.
@@ -71,14 +77,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   list. `getByIds` now refuses it locally with `VALIDATION`, naming its position,
   as `delete` already did. A repeated id is still accepted.
 
-- **An id containing an unpaired UTF-16 surrogate is refused on every path** —
-  `addVectors`, `addDocuments`, `delete` and `getByIds` — instead of failing the
-  request at AWS with `SerializationException`
-  ([`docs/evidence/string-encoding.md`](./docs/evidence/string-encoding.md), T3-15).
-
 - **`delete` documented only half of its id rules.** Its `@throws` named a missing
   or non-array `ids`; the per-id rules and the refusal of a repeated id were
   enforced but unstated.
+
+- **`similaritySearchVectorWithScore` documented one of the codes it raises, and
+  the *Errors* tables said every `VALIDATION` is raised before any AWS call.**
+  The search's `@throws` named only `AWS_INVALID_RESPONSE`, and the text searches
+  defer to it; it names every code now. Three `VALIDATION`s come later — a
+  model's output, a `nonFilterableMetadataKeys` list no index can be created
+  with, and response metadata that cannot be copied — and the tables say when
+  each is raised.
 
 - **A write refuses an input it cannot store before spending anything.** Metadata
   and vector checks ran inside each batch's write — after `addDocuments` had
@@ -133,17 +142,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Filter operands are checked against the type each operator takes.** Only
   `$in`/`$nin` being non-empty was checked, so `$in: [null]`, `$exists: "yes"`,
   `$gt: "2020"` and `$eq: ["a"]` all reached AWS (T3-16). Each is `VALIDATION` now,
-  naming the path, and the documentation's promise of "a non-empty array of
-  primitives" is finally what the check enforces.
+  naming the path, and the check enforces each operator's exact operand rule.
 
 - **A field's operator object may hold only comparison operators.** An empty
   object, a key that is not an operator, and `$and`/`$or` under a field were
   passed through — two unit tests asserted they should be, pending evidence.
   The evidence says AWS rejects all three (T3-18), and so does this package now.
-
-- **A filter string or field name containing an unpaired UTF-16 surrogate is
-  refused locally**, instead of failing the request with `SerializationException`
-  ([`docs/evidence/string-encoding.md`](./docs/evidence/string-encoding.md), T3-15).
 
 - **A missing query model names the search that needed it.** Every read path
   reported `context.operation: "query"`, so logs could not tell
@@ -156,12 +160,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handling, where a second failure replaces the first. Pagination errors built
   their own copy of that splice; they now share the one guarded implementation.
 
-- **A configuration string AWS cannot decode is refused at construction.**
-  `pageContentMetadataKey`, a `nonFilterableMetadataKeys` entry, a tag key or
-  value, or `encryptionConfiguration.kmsKeyArn` containing an unpaired UTF-16
-  surrogate made `CreateIndex` — or, for the page-content key, every write — fail
-  with `SerializationException` (T3-15). A `kmsKeyArn` that is not a string is
-  refused too.
+- **An `encryptionConfiguration.kmsKeyArn` that is not a string is refused at
+  construction.** It was passed to `CreateIndex` unchecked.
 
 - **The documentation counted the options a `client` excludes as five.** They are
   eight: the three timeouts were added to the rule and left out of the prose in

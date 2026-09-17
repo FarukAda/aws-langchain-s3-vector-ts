@@ -441,10 +441,22 @@ export class AmazonS3Vectors extends VectorStore {
    * @param signal - Abort an in-progress search. Cancels the `QueryVectors`
    * call currently in flight and stops any further pagination.
    * @returns Array of `[Document, distance]` tuples, ordered by similarity
-   * @throws A coded `AWS_INVALID_RESPONSE` error if a result is missing its
+   * @throws {S3VectorsError} `VALIDATION` for `k`, the filter, a `signal` that
+   * is not an `AbortSignal`, or a query vector S3 Vectors would refuse (not an
+   * array, a dimension outside 1–4096, a non-finite component, zero norm on a
+   * cosine index), before any request; `ABORTED` when the signal fires, before
+   * or during a request; `INDEX_CONFIG_MISMATCH` when the index's distance
+   * metric differs from the store's; `AWS_INVALID_RESPONSE` for a response that
+   * is not an object, names no recognisable metric, holds `vectors` that are
+   * not a list of objects, or holds a result without a usable numeric
    * `distance` — this always requests `returnDistance: true`, so a missing
-   * value means a malformed response rather than a legitimately scoreless
-   * result. Fails closed instead of defaulting to the best possible score.
+   * value means a malformed response, and it fails closed instead of defaulting
+   * to the best possible score; `QUERY_PAGE_LIMIT_EXCEEDED` when the 1,000-page
+   * ceiling is reached with pages outstanding and fewer than `k` results;
+   * `VALIDATION` for result metadata `structuredClone` cannot copy, reachable
+   * only from a non-conforming client; otherwise the class the `QueryVectors`
+   * failure maps to, carrying `pagesScanned` and `resultsCollected` when a page
+   * after the first failed.
    */
   async similaritySearchVectorWithScore(
     query: number[],
@@ -484,11 +496,13 @@ export class AmazonS3Vectors extends VectorStore {
    * @param signal - Abort an in-progress search (see {@link similaritySearchVectorWithScore}).
    * @returns `[document, distance]` pairs, nearest first, at most `k` of them.
    * Fewer than `k` is normal for a filtered search over a sparse index.
-   * @throws {S3VectorsError} `EMBEDDINGS_MISSING` when no query-side model is
-   * configured; `VALIDATION` for a query that is not a string, `k`, the
-   * filter, or a signal in the callbacks slot — all before the billable
-   * `embedQuery`; otherwise whatever {@link similaritySearchVectorWithScore}
-   * raises.
+   * @throws {S3VectorsError} `VALIDATION` for a query that is not a string,
+   * `k`, the filter, a signal in the callbacks slot or a `signal` that is not an
+   * `AbortSignal`, and `ABORTED` for a signal that has already fired — all
+   * before the billable `embedQuery`; `EMBEDDINGS_MISSING` when no query-side
+   * model is configured; `UNEXPECTED_ERROR` when that model throws; otherwise
+   * whatever {@link similaritySearchVectorWithScore} raises for the embedded
+   * query.
    */
   override async similaritySearchWithScore(
     query: string,
@@ -520,9 +534,11 @@ export class AmazonS3Vectors extends VectorStore {
    * @param signal - Abort, checked before the billable embed call
    * @returns `[document, distance]` pairs, nearest first
    * @throws {S3VectorsError} `VALIDATION` for a query that is not a string,
-   * `k` or the filter, `ABORTED` for an already-fired signal — all before
-   * `embedQuery`, which is billable and cannot be cancelled; otherwise
-   * whatever the vector search raises.
+   * `k`, the filter or a `signal` that is not an `AbortSignal`, `ABORTED` for
+   * an already-fired signal — all before `embedQuery`, which is billable and
+   * cannot be cancelled; `EMBEDDINGS_MISSING` when no query-side model is
+   * configured; `UNEXPECTED_ERROR` when that model throws; otherwise whatever
+   * the vector search raises.
    */
   async #textSearch(
     operation: string,
@@ -615,8 +631,9 @@ export class AmazonS3Vectors extends VectorStore {
    * them. Higher is better, which is the opposite direction from the raw
    * distance {@link similaritySearchWithScore} returns.
    * @throws {S3VectorsError} `VALIDATION` on a euclidean index with no
-   * `relevanceScoreFn` — there is no correct conversion to fall back to;
-   * otherwise whatever {@link similaritySearchWithScore} raises.
+   * `relevanceScoreFn`, before the billable `embedQuery` — there is no correct
+   * conversion to fall back to; `UNEXPECTED_ERROR` when `relevanceScoreFn`
+   * throws; otherwise whatever {@link similaritySearchWithScore} raises.
    */
   async similaritySearchWithRelevanceScores(
     query: string,
@@ -657,12 +674,14 @@ export class AmazonS3Vectors extends VectorStore {
    * @returns At most `k` documents, most relevant first, each distinct. Fewer
    * than `k` when the index holds fewer candidates than asked for.
    * @throws {S3VectorsError} `VALIDATION` for a query that is not a string, a
-   * missing options object, `k`, `fetchK`, `lambda`, the filter or a signal in
-   * the callbacks slot, before the billable `embedQuery`; `VALIDATION` for an
-   * embedded query vector S3 Vectors would refuse (not an array, a dimension
-   * outside 1–4096, a non-finite component, zero norm on a cosine index), before
-   * any request; `EMBEDDINGS_MISSING` when no query-side model is configured;
-   * otherwise whatever the search and fetch raise.
+   * missing options object, `k`, `fetchK`, `lambda`, the filter, a signal in
+   * the callbacks slot or a `signal` that is not an `AbortSignal`, and
+   * `ABORTED` for a signal that has already fired, before the billable
+   * `embedQuery`; `VALIDATION` for an embedded query vector S3 Vectors would
+   * refuse (not an array, a dimension outside 1–4096, a non-finite component,
+   * zero norm on a cosine index), before any request; `EMBEDDINGS_MISSING` when
+   * no query-side model is configured; `UNEXPECTED_ERROR` when that model
+   * throws; otherwise whatever the search and fetch raise.
    */
   override async maxMarginalRelevanceSearch(
     query: string,

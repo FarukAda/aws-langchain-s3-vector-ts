@@ -1,4 +1,4 @@
-# T3-1 and T3-11 — filter validation
+# T3-1, T3-11 to T3-13 and T3-16 to T3-19 — filter validation
 
 Run conditions: run 1 in [`README.md`](./README.md). Index: dimension 4, `cosine`, one stored vector
 with metadata `{ g: 'a' }`.

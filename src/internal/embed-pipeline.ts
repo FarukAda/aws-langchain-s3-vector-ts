@@ -30,7 +30,7 @@ export interface EmbedPipelineOptions<T> extends OperationScope {
 /**
  * Embed items batch by batch and write each batch as it is ready.
  *
- * Accepts: the documents and their ids, the batch size and concurrency cap,
+ * Accepts: the items and their ids, the batch size and concurrency cap,
  * and the two side-effecting steps (`embed`, `put`) the store supplies.
  *
  * Returns: nothing on success; the caller already holds the ids.

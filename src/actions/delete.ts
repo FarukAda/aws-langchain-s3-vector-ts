@@ -28,11 +28,12 @@ export interface DeleteOptions extends Omit<BatchedOperation, 'operation'> {
  *
  * Throws: `ABORTED` for an already-fired signal, before any request;
  * `VALIDATION` when `ids` is missing, is not an array, holds anything that is
- * not a 1–1024 character string, repeats a key, or when `deleteAll` is passed —
- * the flag this package used to accept for destroying the index, now refused
- * with a message naming `deleteIndex()`; `VALIDATION` for a batch size outside
- * 1–500; otherwise the class the `DeleteVectors` failure maps to, carrying
- * `context.deletedIds` — every id confirmed deleted before it.
+ * not a 1–1024 character string or not well-formed UTF-16, repeats a key, or
+ * when `deleteAll` is passed — the flag this package used to accept for
+ * destroying the index, now refused with a message naming `deleteIndex()`;
+ * `VALIDATION` for a batch size outside 1–500; otherwise the class the
+ * `DeleteVectors` failure maps to, carrying `context.deletedIds` — every id
+ * confirmed deleted before it.
  *
  * Guarantees:
  * - **This never destroys the index.** `delete` means "remove stored documents

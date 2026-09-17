@@ -3,11 +3,15 @@ import { S3VectorsErrorCode } from './error-code.js';
 
 /**
  * The name the SDK's own HTTP handler gives a request that timed out, or whose
- * connection was refused, reset or broken: `@smithy/node-http-handler` raises
- * it for a connection, socket-idle or request timeout, and renames
- * `ECONNRESET`, `ECONNREFUSED`, `EPIPE` and `ETIMEDOUT` to it. The SDK's retry
- * strategy classifies it as transient, alongside `RequestTimeoutException`
- * (`@smithy/core` `retry/service-error-classification`, `TRANSIENT_ERROR_CODES`).
+ * connection was reset or broken: `@smithy/node-http-handler` raises it for a
+ * connection, socket-idle or request timeout, and renames `ECONNRESET`, `EPIPE`
+ * and `ETIMEDOUT` to it. The SDK's retry strategy classifies it as transient,
+ * alongside `RequestTimeoutException` (`@smithy/core`
+ * `retry/service-error-classification`, `TRANSIENT_ERROR_CODES`).
+ *
+ * A refused connection is not renamed. That strategy retries `ECONNREFUSED` by
+ * matching the error's `code`, but the error keeps its own name, so it is not
+ * this.
  *
  * It is not a service exception, so it is not in the table below, which lists
  * exactly the exceptions the service declares.

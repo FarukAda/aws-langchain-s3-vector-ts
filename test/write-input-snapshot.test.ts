@@ -32,6 +32,14 @@ function keysSent(mock: AwsClientStub<S3VectorsClient>): string[][] {
     .map((call) => (call.args[0].input.vectors ?? []).map((vector) => vector.key as string));
 }
 
+function vectorsSent(mock: AwsClientStub<S3VectorsClient>): number[][][] {
+  return mock
+    .commandCalls(PutVectorsCommand)
+    .map((call) =>
+      (call.args[0].input.vectors ?? []).map((vector) => vector.data?.float32 as number[]),
+    );
+}
+
 function documentsFor(count: number): Document[] {
   return Array.from({ length: count }, (_, i) => new Document({ pageContent: `doc ${i}` }));
 }
@@ -80,6 +88,17 @@ describe('a write is unaffected by mutating its inputs while it runs', () => {
 
     await expect(pending).resolves.toHaveLength(3);
     expect(keysSent(mock).flat()).toHaveLength(3);
+  });
+
+  it('addVectors writes the vectors it validated when the caller replaces one mid-flight', async () => {
+    const vectors = vectorsFor(3);
+    const pending = store.addVectors(vectors, documentsFor(3), { batchSize: 1 });
+    // Synchronous, so it lands after the list was checked and before the third
+    // batch is sliced — a vector the check would have refused, had it seen it.
+    vectors[2] = [Number.NaN, 0, 0];
+
+    await expect(pending).resolves.toHaveLength(3);
+    expect(vectorsSent(mock)).toEqual(vectorsFor(3).map((vector) => [vector]));
   });
 
   it('addDocuments writes the ids it validated', async () => {

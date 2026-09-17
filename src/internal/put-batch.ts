@@ -62,8 +62,8 @@ export async function sendAws<T>(
  * Guarantees:
  * - It validates nothing. Every rule on a write's input is applied to the whole
  *   input before its first batch is written (`prepareRecords`,
- *   `assertWriteVectors`), so a batch that reaches here is one AWS can take, and
- *   no rule is stated twice.
+ *   `assertWriteVectors`), so a batch that reaches here breaks no rule this
+ *   package can check locally, and no rule is stated twice.
  * - Batch 0 ensures the index exists, at the dimension of its first vector,
  *   before writing.
  * - Nothing about an existing index is validated here beyond its existence. AWS

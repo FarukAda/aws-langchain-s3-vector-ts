@@ -1,6 +1,23 @@
 /** Stable error codes surfaced by {@link S3VectorsError}. */
 export enum S3VectorsErrorCode {
-  /** Caller-supplied arguments were invalid (counts, names, empty batch). */
+  /**
+   * Caller input was invalid — an argument, option, id, document, metadata,
+   * vector, filter or configuration value this package can tell will not work —
+   * or an embeddings model returned something other than one storable vector per
+   * document, or an unusable query vector, or a non-conforming client returned
+   * metadata `structuredClone` cannot copy.
+   *
+   * Raised before any AWS call and before any billable embedding, except:
+   * - a model's output, refused after that embedding call and before the
+   *   request it would feed — on a write carrying `writtenIds`, because earlier
+   *   batches may already be written;
+   * - a `nonFilterableMetadataKeys` list no index can be created with (more than
+   *   10 keys with the page-content key, or a key outside 1–63 characters),
+   *   refused when a write first creates the index: after its `GetIndex` and,
+   *   for `addDocuments`, after the first batch is embedded, with nothing
+   *   written;
+   * - uncopyable response metadata, refused after that response.
+   */
   VALIDATION = 'VALIDATION',
   /**
    * The bucket or index is not there (`NotFoundException`, 404).
@@ -19,8 +36,8 @@ export enum S3VectorsErrorCode {
   /**
    * `InternalServerException` (500), `ServiceUnavailableException` (503) or
    * `RequestTimeoutException` (408), or the SDK's own `TimeoutError` — a
-   * connection, socket-idle or request timeout, or a connection refused, reset
-   * or broken on the way. All transient, and already retried by the SDK before
+   * connection, socket-idle or request timeout, or a connection reset or broken
+   * on the way. All transient, and already retried by the SDK before
    * reaching here. A 503 from `PutVectors` is also AWS's documented response to a
    * batch exceeding resource capacity, which backoff cannot fix.
    */
@@ -45,8 +62,10 @@ export enum S3VectorsErrorCode {
    *
    * The vector *dimension* is not among them. AWS enforces it on every write,
    * and this package never had it to compare against — it is decided by the
-   * first vector written, not by configuration. A batch whose own vectors
-   * disagree on dimension is a different thing, and raises this code too.
+   * first vector written, not by configuration. Vectors a write is given that
+   * disagree with each other on dimension are a different thing, and raise this
+   * code too — anywhere in an `addVectors` call, before any request; within one
+   * embedded batch for `addDocuments`, before that batch is written.
    */
   INDEX_CONFIG_MISMATCH = 'INDEX_CONFIG_MISMATCH',
   /** The caller-supplied `AbortSignal` fired before or during the operation. */

@@ -53,7 +53,7 @@ export interface EntryPointContract<I> {
    *
    * Most out-of-domain input is a plain caller mistake and gets `VALIDATION`.
    * A few are refused more specifically on purpose and the narrower code is the
-   * better answer: vectors of differing dimension in one batch are
+   * better answer: vectors a write is given that differ in dimension are
    * `INDEX_CONFIG_MISMATCH`, because the caller's real problem is which index
    * they are writing to, not the shape of their argument. Declaring that here
    * keeps it a decision rather than an exception.

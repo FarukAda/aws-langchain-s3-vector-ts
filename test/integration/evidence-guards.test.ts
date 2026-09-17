@@ -8,6 +8,7 @@ import {
   GetVectorsCommand,
   PutVectorsCommand,
   QueryVectorsCommand,
+  type QueryVectorsCommandOutput,
   S3VectorsClient,
 } from '@aws-sdk/client-s3vectors';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
@@ -344,7 +345,7 @@ if (!env) {
         }),
       );
 
-    const queryWith = (filter: DocumentType): Promise<unknown> =>
+    const queryWith = (filter: DocumentType): Promise<QueryVectorsCommandOutput> =>
       client.send(
         new QueryVectorsCommand({
           ...scope,
@@ -553,10 +554,17 @@ if (!env) {
 
     // ── T3-19 — docs/evidence/filter-validation.md ─────────────────────
 
-    it('T3-19: a non-finite number is sent as a string — accepted by $eq, $in and the shorthand, rejected by a range operator', async () => {
-      await expect(queryWith({ g: Number.NaN })).resolves.toBeDefined();
-      await expect(queryWith({ g: { $eq: Number.NaN } })).resolves.toBeDefined();
-      await expect(queryWith({ g: { $in: [Number.NaN] } })).resolves.toBeDefined();
+    it('T3-19: a non-finite number is sent as a string — accepted by $eq, $in and the shorthand, matching nothing, and rejected by a range operator', async () => {
+      // A rejection fails the await, so each of these also asserts acceptance.
+      const matchCount = async (filter: DocumentType): Promise<number> =>
+        (await queryWith(filter)).vectors?.length ?? 0;
+      // The control: every vector holds `g: 'a'`, so a filter on `g` can match.
+      // Without it, an empty result for an unrelated reason would look like
+      // confirmation.
+      expect(await matchCount({ g: 'a' })).toBeGreaterThan(0);
+      expect(await matchCount({ g: Number.NaN })).toBe(0);
+      expect(await matchCount({ g: { $eq: Number.NaN } })).toBe(0);
+      expect(await matchCount({ g: { $in: [Number.NaN] } })).toBe(0);
       for (const bad of [Number.NaN, Number.POSITIVE_INFINITY]) {
         const failure = await failureOf(() => queryWith({ g: { $gt: bad } }));
         expect(failure.name).toBe('ValidationException');

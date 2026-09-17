@@ -10,8 +10,10 @@ import type { OperationScope } from './operation.js';
 
 /**
  * A vector key is 1–1024 characters
- * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_PutInputVector.html;
- * GetVectors and DeleteVectors keys carry the same bounds).
+ * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_PutInputVector.html).
+ * GetVectors and DeleteVectors keys carry the same bounds
+ * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_GetVectors.html,
+ * https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_DeleteVectors.html).
  */
 const KEY_MIN_LENGTH = 1;
 const KEY_MAX_LENGTH = 1024;
