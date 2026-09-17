@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
-import { Document, type DocumentInterface } from '@langchain/core/documents';
 
 import { embedAndWrite } from '../../src/internal/embed-pipeline.js';
+import type { WriteRecord } from '../../src/internal/records.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 
 /**
@@ -14,8 +14,14 @@ const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 
 const after = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-const docs = (n: number): DocumentInterface[] =>
-  Array.from({ length: n }, (_, i) => new Document({ pageContent: `d-${i}` }));
+/** What the write path hands the pipeline: records that already know their size. */
+const docs = (n: number): WriteRecord[] =>
+  Array.from({ length: n }, (_, i) => ({
+    key: `id-${i}`,
+    text: `d-${i}`,
+    metadata: { _page_content: `d-${i}` },
+    metadataBytes: Buffer.byteLength(JSON.stringify({ _page_content: `d-${i}` })),
+  }));
 
 const ids = (n: number): string[] => Array.from({ length: n }, (_, i) => `id-${i}`);
 
@@ -172,5 +178,44 @@ describe('embedAndWrite', () => {
       ...SCOPE,
     });
     expect(offsets).toEqual([0, 2, 4]);
+  });
+});
+
+describe('embedAndWrite — a batch that becomes several requests', () => {
+  /** Records whose metadata alone fills more than half a request body. */
+  const heavy = (n: number): WriteRecord[] =>
+    Array.from({ length: n }, (_, i) => ({
+      key: `id-${i}`,
+      text: `d-${i}`,
+      metadata: { _page_content: `d-${i}` },
+      metadataBytes: 11 * 1024 * 1024,
+    }));
+
+  it('stops sending the rest of a split batch once one of its requests has failed', async () => {
+    const puts: number[] = [];
+    const error = await embedAndWrite({
+      operation: 'addDocuments',
+      ...SCOPE,
+      items: heavy(4),
+      ids: ids(4),
+      // Two records per batch, and two records never fit one request, so each
+      // batch is two requests. The first batch is written alone; the second
+      // fails on its first request while its second is still to be dispatched.
+      batchSize: 2,
+      maxConcurrent: 1,
+      embed: async (batch) => batch.map(() => [0.1, 0.2]),
+      put: async (_batch, offset) => {
+        puts.push(offset);
+        if (offset === 2) throw new Error('put boom');
+      },
+    }).then(
+      () => {
+        throw new Error('expected the write to fail');
+      },
+      (e: unknown) => e,
+    );
+
+    expect(puts).toEqual([0, 1, 2]);
+    expect(contextOf(error)['writtenIds']).toEqual(['id-0', 'id-1']);
   });
 });

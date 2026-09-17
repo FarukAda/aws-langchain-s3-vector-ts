@@ -330,7 +330,9 @@ export class AmazonS3Vectors extends VectorStore {
    * document's own `id` is used if it has one (e.g. a `Document` returned
    * by {@link getByIds}, enabling a natural read-modify-write upsert); a
    * fresh UUID is generated only for documents with no `id` of their own.
-   * @param options.batchSize - Number of vectors per `PutVectors` call (default: 200)
+   * @param options.batchSize - Vectors per batch (default: 200). One batch is
+   * one `PutVectors` call unless its body would exceed the 20 MiB AWS accepts,
+   * in which case it is split across several before anything is sent.
    * @param options.signal - Abort an in-progress write. Cancels the AWS SDK
    * request currently in flight and stops any further `PutVectors` calls
    * from starting; a batch's `PutVectors` call already in flight when the
@@ -406,7 +408,10 @@ export class AmazonS3Vectors extends VectorStore {
    * document's own `id` is used if it has one (e.g. a `Document` returned
    * by {@link getByIds}, enabling a natural read-modify-write upsert); a
    * fresh UUID is generated only for documents with no `id` of their own.
-   * @param options.batchSize - Number of documents per embedding + put batch (default: 200)
+   * @param options.batchSize - Documents per embedding batch (default: 200).
+   * Each batch is embedded in one call and written in one, unless its vectors
+   * would exceed the 20 MiB request body AWS accepts — then that batch is
+   * written in several requests, in order.
    * @param options.signal - Abort an in-progress write. `embedDocuments`
    * itself can't be cancelled mid-call (LangChain's `EmbeddingsInterface`
    * has no signal support), so a batch already being embedded when the

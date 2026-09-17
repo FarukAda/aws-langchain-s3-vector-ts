@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Write batches are split to fit AWS's request limit.** S3 Vectors refuses a
+  request body over 20 MiB — exactly and inclusively: 20,971,520 bytes is
+  accepted and one byte more comes back `ValidationException` "Request body
+  exceeds max allowed size" (`docs/evidence/request-payload-limit.md`). The
+  default batch of 200 records at 4,096 dimensions carrying 39 KB of page
+  content is 23.9 MiB, and AWS's own guidance to write "batches up to the
+  maximum batch size of 500 vectors" reaches it sooner still. `addVectors` and
+  `addDocuments` now split such a batch across as many `PutVectors` requests as
+  it needs, before sending anything, so `batchSize` is the ceiling on records
+  per request rather than a promise of one request. Nothing changes for a batch
+  that already fits, which is every batch that was not being refused. A failure
+  partway through a split batch reports the ids its earlier requests wrote, as
+  a failure between batches always has.
+
 - **`error.context.recordIndex` and `error.context.recordId`.** A refusal about
   one element of a list — a document, its metadata, a vector, a text or a
   `metadatas` entry passed to fromTexts, or an id — now says which one: its

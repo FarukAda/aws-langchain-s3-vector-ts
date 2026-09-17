@@ -93,3 +93,47 @@ export function recordBytesUpperBound(record: RecordSize, dimension: number): nu
     ENTRY_FIXED_BYTES
   );
 }
+
+/**
+ * Split records into the requests that will carry them.
+ *
+ * Accepts: records in caller order, the dimension their vectors share, the
+ * batch size the caller asked for, and the bucket and index every request
+ * names.
+ *
+ * Returns: consecutive runs covering every record, each holding at most
+ * `batchSize` of them and bounded to {@link MAX_REQUEST_BODY_BYTES} by
+ * {@link recordBytesUpperBound}. A batch that already fits comes back as one
+ * run, which is every batch this package has ever sent except the ones AWS
+ * refused.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: a run always holds at least one record, so the split terminates
+ * however large a record is — the largest one the write path accepts (4,096
+ * dimensions, 40 KB of metadata, a 1,024-character key) bounds at about 148 KB,
+ * three orders of magnitude inside the limit.
+ */
+export function requestRuns<T extends RecordSize>(
+  records: readonly T[],
+  dimension: number,
+  batchSize: number,
+  scope: StoreScope,
+): T[][] {
+  const budget = MAX_REQUEST_BODY_BYTES - envelopeBytes(scope);
+  const runs: T[][] = [];
+  let run: T[] = [];
+  let bytes = 0;
+  for (const record of records) {
+    const size = recordBytesUpperBound(record, dimension);
+    if (run.length > 0 && (run.length >= batchSize || bytes + size > budget)) {
+      runs.push(run);
+      run = [];
+      bytes = 0;
+    }
+    run.push(record);
+    bytes += size;
+  }
+  if (run.length > 0) runs.push(run);
+  return runs;
+}

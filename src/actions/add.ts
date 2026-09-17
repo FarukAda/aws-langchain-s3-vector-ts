@@ -13,8 +13,8 @@ import {
 import { assertIdsWellFormed, resolveWriteIds } from '../internal/ids.js';
 import { assertWriteVectors } from '../internal/limits.js';
 import { prepareRecords, type WriteRecord } from '../internal/records.js';
+import { requestRuns } from '../internal/request-size.js';
 import { checkAborted, type StoreScope } from '../internal/signals.js';
-import { chunk } from '../shared/batching.js';
 import { describeValue } from '../shared/describe.js';
 import type { MetadataConfig } from '../shared/metadata.js';
 import type { DistanceMetric } from '../types.js';
@@ -52,7 +52,12 @@ export interface AddVectorsOptions extends StoreScope {
    * UUID minted only where there is none.
    */
   readonly ids?: string[] | undefined;
-  /** Vectors per `PutVectors` call: 1–500, defaulting to 200. */
+  /**
+   * Vectors per batch: 1–500, defaulting to 200. A batch is one `PutVectors`
+   * call unless its body would exceed the 20 MiB AWS accepts, in which case it
+   * is split across several — the count is the caller's ceiling, not a promise
+   * about the number of requests.
+   */
   readonly batchSize?: number | undefined;
   /** How many of those calls may be in flight at once. */
   readonly maxConcurrent: number;
@@ -159,6 +164,9 @@ function resolveIds(
  *   both pass does an empty input return `[]`, still without a request.
  * - The first batch is written alone, because it is the one that may create the
  *   index; the rest run at most `maxConcurrent` at a time.
+ * - No request exceeds the 20 MiB body AWS accepts: a batch whose vectors and
+ *   metadata would not fit one is split across several, before the first
+ *   request rather than after AWS refuses it.
  */
 export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
   const { vectors, documents, signal, writeConfig } = opts;
@@ -204,7 +212,11 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
   if (vectors.length === 0) return [];
 
   await runBatchesConcurrently(
-    chunk(records, batchSize),
+    // By count *and* by size: `batchSize` records, and never a body over the
+    // 20 MiB AWS accepts. Both vectors and metadata are already in hand here,
+    // so the split happens before the first request and every batch below is
+    // exactly one of them.
+    requestRuns(records, vectorSnapshot[0]!.length, batchSize, scope),
     ids,
     opts.maxConcurrent,
     { operation: 'addVectors', ...scope },

@@ -1,7 +1,7 @@
 import { chunk, offsetBatches } from '../shared/batching.js';
 import { attachPartialIds } from '../shared/errors/decorate.js';
-import { writeFirstBatch } from './concurrency.js';
 import type { OperationScope } from './operation.js';
+import { requestRuns, type RecordSize } from './request-size.js';
 import { checkAborted, type StoreScope } from './signals.js';
 
 export interface EmbedPipelineOptions<T> extends OperationScope {
@@ -9,7 +9,10 @@ export interface EmbedPipelineOptions<T> extends OperationScope {
   readonly items: readonly T[];
   /** One id per item, already resolved and validated. */
   readonly ids: string[];
-  /** Items per batch: one embed call and one write call each. */
+  /**
+   * Items per batch: one embed call each, and one write call unless the batch's
+   * vectors would not fit a single request body.
+   */
   readonly batchSize: number;
   /** How many writes may be un-settled at once; embedding pauses when full. */
   readonly maxConcurrent: number;
@@ -23,7 +26,11 @@ export interface EmbedPipelineOptions<T> extends OperationScope {
    * position in the caller's input. Never called concurrently with itself.
    */
   readonly embed: (batch: T[], offset: number) => Promise<number[][]>;
-  /** Write one embedded batch. Called with the batch's offset into `items`. */
+  /**
+   * Write one request's worth of an embedded batch, given its offset into
+   * `items`. A batch too large for one request is handed to this more than
+   * once, in order.
+   */
   readonly put: (batch: T[], offset: number, vectors: number[][]) => Promise<void>;
 }
 
@@ -59,8 +66,15 @@ export interface EmbedPipelineOptions<T> extends OperationScope {
  * - No new work starts after a known failure, and the error is thrown only
  *   after every put already in flight has settled — a slower sibling that
  *   succeeds after another rejects is never missing from `writtenIds`.
+ * - A batch whose embedded vectors would not fit the 20 MiB request body AWS
+ *   accepts becomes several requests, each reported on its own: a failure
+ *   partway through one batch still names the ids the earlier requests wrote.
+ *   The dimension that decides this is not known until the batch is embedded,
+ *   which is why the split lives here and not where the items were chunked.
  */
-export async function embedAndWrite<T>(opts: EmbedPipelineOptions<T>): Promise<void> {
+export async function embedAndWrite<T extends RecordSize>(
+  opts: EmbedPipelineOptions<T>,
+): Promise<void> {
   const { operation, ids, signal, embed, put } = opts;
   const scope: StoreScope = {
     vectorBucketName: opts.vectorBucketName,
@@ -71,16 +85,51 @@ export async function embedAndWrite<T>(opts: EmbedPipelineOptions<T>): Promise<v
   const batches = chunk([...opts.items], opts.batchSize);
   const firstBatch = batches[0]!;
 
+  /**
+   * The requests one embedded batch becomes. Only a batch whose vectors would
+   * not fit the 20 MiB body limit becomes more than one, and the dimension that
+   * decides it is not known until the batch has been embedded — which is why
+   * this splits here rather than where the items were chunked.
+   */
+  const runsOf = (
+    batch: T[],
+    batchOffset: number,
+    vectors: number[][],
+  ): { records: T[]; vectors: number[][]; offset: number }[] => {
+    const runs: { records: T[]; vectors: number[][]; offset: number }[] = [];
+    let local = 0;
+    for (const records of requestRuns(batch, vectors[0]!.length, batch.length, scope)) {
+      runs.push({
+        records,
+        vectors: vectors.slice(local, local + records.length),
+        offset: batchOffset + local,
+      });
+      local += records.length;
+    }
+    return runs;
+  };
+
   checkAborted(operation, signal, scope);
-  const writtenIds = await writeFirstBatch(firstBatch, ids, operation, scope, async () => {
-    await put(firstBatch, 0, await embed(firstBatch, 0));
-  });
+  const writtenIds: string[] = [];
+  try {
+    const firstVectors = await embed(firstBatch, 0);
+    // Sequentially: the first request is the one that creates the index, and
+    // the ids of the requests that did land are what a failure has to report.
+    for (const run of runsOf(firstBatch, 0, firstVectors)) {
+      await put(run.records, run.offset, run.vectors);
+      writtenIds.push(...ids.slice(run.offset, run.offset + run.records.length));
+    }
+  } catch (error: unknown) {
+    throw attachPartialIds(error, operation, scope, 'writtenIds', writtenIds, ids);
+  }
 
   const rest = offsetBatches(batches.slice(1), firstBatch.length);
 
   const inFlight = new Set<Promise<void>>();
-  /** Ids by batch index, flattened in order at the end so reports keep document order. */
+  /** Ids by request, flattened in order at the end so reports keep document order. */
   const settledIds: (string[] | undefined)[] = [];
+  /** Which slot in {@link settledIds} the next request owns; a batch may be several. */
+  let slot = 0;
   // The separate flag is needed because `unknown` cannot rule out a rejection
   // reason of null or undefined.
   let firstError: unknown;
@@ -121,11 +170,14 @@ export async function embedAndWrite<T>(opts: EmbedPipelineOptions<T>): Promise<v
     }
     // A sibling put may have failed while this batch was being embedded.
     if (hasError) break;
-    launchPut(i, batch, batchOffset, vectors);
-    if (inFlight.size >= opts.maxConcurrent) {
-      // Tracked promises never reject (recordError absorbs the rejection),
-      // so racing them only ever waits for one to settle.
-      await Promise.race(inFlight);
+    for (const run of runsOf(batch, batchOffset, vectors)) {
+      if (hasError) break;
+      launchPut(slot++, run.records, run.offset, run.vectors);
+      if (inFlight.size >= opts.maxConcurrent) {
+        // Tracked promises never reject (recordError absorbs the rejection),
+        // so racing them only ever waits for one to settle.
+        await Promise.race(inFlight);
+      }
     }
   }
 

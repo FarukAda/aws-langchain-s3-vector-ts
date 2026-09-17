@@ -5,6 +5,7 @@ import {
   MAX_REQUEST_BODY_BYTES,
   envelopeBytes,
   recordBytesUpperBound,
+  requestRuns,
 } from '../../src/internal/request-size.js';
 import { MAX_DIMENSION } from '../../src/shared/aws-limits.js';
 
@@ -100,5 +101,42 @@ describe('recordBytesUpperBound', () => {
       MAX_DIMENSION,
     );
     expect(envelopeBytes(SCOPE) + bound).toBeLessThan(MAX_REQUEST_BODY_BYTES);
+  });
+});
+
+describe('requestRuns', () => {
+  const record = (key: string, metadataBytes = 10): { key: string; metadataBytes: number } => ({
+    key,
+    metadataBytes,
+  });
+
+  it('has nothing to send for no records', () => {
+    expect(requestRuns([], 4, 200, SCOPE)).toEqual([]);
+  });
+
+  it('keeps a batch that fits as a single request', () => {
+    const records = [record('a'), record('b'), record('c')];
+    expect(requestRuns(records, 4, 200, SCOPE)).toEqual([records]);
+  });
+
+  it('splits by the caller batch size first', () => {
+    const records = [record('a'), record('b'), record('c')];
+    expect(requestRuns(records, 4, 2, SCOPE)).toEqual([[records[0], records[1]], [records[2]]]);
+  });
+
+  it('splits by size when the records are large, whatever the batch size allows', () => {
+    // Eight megabytes of metadata each: two fit one request, three do not.
+    const records = [
+      record('a', 8 * 1024 * 1024),
+      record('b', 8 * 1024 * 1024),
+      record('c', 8 * 1024 * 1024),
+    ];
+    const runs = requestRuns(records, 4, 200, SCOPE);
+    expect(runs.map((run) => run.length)).toEqual([2, 1]);
+  });
+
+  it('gives a record that fills a request on its own one of its own', () => {
+    const records = [record('a', 19 * 1024 * 1024), record('b', 19 * 1024 * 1024)];
+    expect(requestRuns(records, 4, 200, SCOPE).map((run) => run.length)).toEqual([1, 1]);
   });
 });
