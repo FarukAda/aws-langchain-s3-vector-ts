@@ -98,7 +98,7 @@ and they are the actionable half of an otherwise opaque rejection.
 
 > `readonly` `optional` **foundIds?**: `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:140](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L140)
+Defined in: [shared/errors/s3-vectors-error.ts:142](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L142)
 
 Ids confirmed found (and already fetched) before a partial fetch failure —
 either a `GetVectors` batch rejecting while sibling batches in the same
@@ -134,7 +134,7 @@ The index the failed operation named. Absent only on a failure raised before one
 
 > `readonly` `optional` **instance?**: [`AmazonS3Vectors`](../classes/AmazonS3Vectors.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:165](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L165)
+Defined in: [shared/errors/s3-vectors-error.ts:167](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L167)
 
 The store constructed by a `fromDocuments`/`fromTexts` factory call that
 failed partway through writing. Only ever set on an error thrown by
@@ -248,13 +248,15 @@ against the requested `k` to see how far short it fell. Set alongside
 
 > `readonly` `optional` **retryable?**: `boolean`
 
-Defined in: [shared/errors/s3-vectors-error.ts:130](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L130)
+Defined in: [shared/errors/s3-vectors-error.ts:132](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L132)
 
 Whether the failed AWS call is worth retrying after a backoff. `true` for
 throttling (`TooManyRequestsException`, HTTP 429), transient service errors
 (`ServiceUnavailableException`, `InternalServerException`,
 `RequestTimeoutException`, HTTP 5xx), a `TimeoutError` from the SDK's own
-HTTP handler, and anything the SDK itself marked `$retryable`.
+HTTP handler, a refused, reset or unreachable connection (classified by
+`code` the same way the SDK's own retry strategy classifies it), and
+anything the SDK itself marked `$retryable`.
 
 Set alongside [awsErrorName](#awserrorname), on any AWS-shaped cause and whatever
 code the error was given — `false` is a real answer and means "this will

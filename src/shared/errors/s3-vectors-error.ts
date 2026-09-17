@@ -116,7 +116,9 @@ export interface S3VectorsErrorContext {
    * throttling (`TooManyRequestsException`, HTTP 429), transient service errors
    * (`ServiceUnavailableException`, `InternalServerException`,
    * `RequestTimeoutException`, HTTP 5xx), a `TimeoutError` from the SDK's own
-   * HTTP handler, and anything the SDK itself marked `$retryable`.
+   * HTTP handler, a refused, reset or unreachable connection (classified by
+   * `code` the same way the SDK's own retry strategy classifies it), and
+   * anything the SDK itself marked `$retryable`.
    *
    * Set alongside {@link awsErrorName}, on any AWS-shaped cause and whatever
    * code the error was given — `false` is a real answer and means "this will

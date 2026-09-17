@@ -1,5 +1,5 @@
 import { renderValue } from '../describe.js';
-import { SDK_TIMEOUT_ERROR_NAME } from './classify.js';
+import { SDK_TIMEOUT_ERROR_NAME, SDK_TRANSIENT_NETWORK_ERROR_CODES } from './classify.js';
 import { S3VectorsErrorCode } from './error-code.js';
 import {
   isS3VectorsError,
@@ -108,12 +108,14 @@ function metadataOf(candidate: { $metadata?: unknown }): AwsMetadata | undefined
  * Whether a failed AWS call is worth retrying after a backoff.
  *
  * @returns `true` when the SDK marked it retryable, when the exception name is
- * one of the documented transient ones, or when the status is 429 or 5xx. The
- * SDK's own strategy has usually already retried these, so `true` here means
- * those attempts were exhausted.
+ * one of the documented transient ones, when the status is 429 or 5xx, or when
+ * the error's `code` is one of {@link SDK_TRANSIENT_NETWORK_ERROR_CODES} — a
+ * refused, reset or unreachable connection, classified the same way the SDK's
+ * own retry strategy classifies it. The SDK's own strategy has usually already
+ * retried these, so `true` here means those attempts were exhausted.
  */
 function isRetryable(
-  candidate: { $retryable?: unknown },
+  candidate: { $retryable?: unknown; code?: unknown },
   name: string | undefined,
   httpStatusCode: number | undefined,
 ): boolean {
@@ -121,7 +123,8 @@ function isRetryable(
     candidate.$retryable !== undefined ||
     (name !== undefined && RETRYABLE_AWS_ERROR_NAMES.has(name)) ||
     httpStatusCode === 429 ||
-    (httpStatusCode !== undefined && httpStatusCode >= 500)
+    (httpStatusCode !== undefined && httpStatusCode >= 500) ||
+    (typeof candidate.code === 'string' && SDK_TRANSIENT_NETWORK_ERROR_CODES.has(candidate.code))
   );
 }
 
@@ -132,9 +135,11 @@ function isRetryable(
  * `cause`. Every read is shape-checked.
  *
  * Only an AWS-shaped cause contributes anything: one carrying the SDK's
- * `$metadata`, or one whose name follows the service-exception convention
- * (`…Exception`). A plain `TypeError` from caller code, or an `AbortError`,
- * is not an AWS error and must not be presented as one.
+ * `$metadata`, one whose name follows the service-exception convention
+ * (`…Exception`), or one whose `code` is a Node.js system error the SDK's own
+ * retry strategy treats as transient (a refused, reset or unreachable
+ * connection). A plain `TypeError` from caller code, or an `AbortError`, is
+ * not an AWS error and must not be presented as one.
  */
 function awsDiagnostics(cause: unknown): AwsDiagnostics {
   if (typeof cause !== 'object' || cause === null) return {};
@@ -143,6 +148,7 @@ function awsDiagnostics(cause: unknown): AwsDiagnostics {
     $metadata?: unknown;
     $retryable?: unknown;
     fieldList?: unknown;
+    code?: unknown;
   };
   const name = typeof candidate.name === 'string' ? candidate.name : undefined;
   const metadata = metadataOf(candidate);
@@ -153,8 +159,15 @@ function awsDiagnostics(cause: unknown): AwsDiagnostics {
   // exception, but it is the SDK's own failure rather than a caller's bug — and
   // with a socket timeout now applied by default it is one callers will
   // actually see, so it has to arrive carrying a retryability verdict.
+  // A refused, reset or unreachable connection carries neither `$metadata` nor
+  // a recognised name either — it keeps whatever name Node gave it — but its
+  // `code` is one the SDK's own retry strategy treats as transient, so it gets
+  // the same treatment.
+  const isTransientNetworkError =
+    typeof candidate.code === 'string' && SDK_TRANSIENT_NETWORK_ERROR_CODES.has(candidate.code);
   const isSdkFailure =
-    name !== undefined && (name.endsWith('Exception') || name === SDK_TIMEOUT_ERROR_NAME);
+    (name !== undefined && (name.endsWith('Exception') || name === SDK_TIMEOUT_ERROR_NAME)) ||
+    isTransientNetworkError;
   if (metadata === undefined && !isSdkFailure) return {};
 
   const out: {

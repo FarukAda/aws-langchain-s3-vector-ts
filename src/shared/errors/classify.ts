@@ -11,12 +11,37 @@ import { S3VectorsErrorCode } from './error-code.js';
  *
  * A refused connection is not renamed. That strategy retries `ECONNREFUSED` by
  * matching the error's `code`, but the error keeps its own name, so it is not
- * this.
+ * this — {@link SDK_TRANSIENT_NETWORK_ERROR_CODES} classifies it the same way
+ * the SDK's retry strategy does, by `code` rather than by name.
  *
  * It is not a service exception, so it is not in the table below, which lists
  * exactly the exceptions the service declares.
  */
 export const SDK_TIMEOUT_ERROR_NAME = 'TimeoutError';
+
+/**
+ * The Node.js system error codes the SDK's own retry strategy treats as
+ * transient regardless of an error's `name` — `@smithy/core`
+ * `dist-cjs/submodules/retry/index.js`, `isTransientError`, matching
+ * `NODEJS_TIMEOUT_ERROR_CODES` (`ECONNRESET`, `ECONNREFUSED`, `EPIPE`,
+ * `ETIMEDOUT`) and `NODEJS_NETWORK_ERROR_CODES` (`EHOSTUNREACH`, `ENETUNREACH`,
+ * `ENOTFOUND`, `EAI_AGAIN`) against `error.code`.
+ *
+ * `@smithy/node-http-handler` renames only three of these eight —
+ * `ECONNRESET`, `EPIPE`, `ETIMEDOUT` — to {@link SDK_TIMEOUT_ERROR_NAME}. The
+ * other five, including `ECONNREFUSED`, reach this library as a plain `Error`
+ * carrying the code but keeping its own `name`, which is what this set is for.
+ */
+export const SDK_TRANSIENT_NETWORK_ERROR_CODES: ReadonlySet<string> = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'EPIPE',
+  'ETIMEDOUT',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+]);
 
 /**
  * Exception name to error class. Names are literal types on every exception the
@@ -49,7 +74,11 @@ const BY_NAME: Readonly<Record<string, S3VectorsErrorCode>> = {
  * Returns: one {@link S3VectorsErrorCode}, selected by the exception's `name`.
  * An abort is classified first: the caller cancelled, so nothing failed. The
  * SDK's own {@link SDK_TIMEOUT_ERROR_NAME} is `SERVICE_UNAVAILABLE`, the class
- * of the service's own timeout.
+ * of the service's own timeout. A declared service exception name always keeps
+ * its own class. Only once neither of those matched is the error's `code`
+ * checked against {@link SDK_TRANSIENT_NETWORK_ERROR_CODES}, so a refused,
+ * reset or unreachable connection is `SERVICE_UNAVAILABLE` too, the same class
+ * the SDK's own retry strategy puts it in.
  *
  * Throws: nothing.
  *
@@ -60,11 +89,12 @@ export function classifyAwsError(error: unknown): S3VectorsErrorCode {
   if (isAbortError(error)) return S3VectorsErrorCode.ABORTED;
   if (typeof error !== 'object' || error === null) return S3VectorsErrorCode.AWS_REQUEST_FAILED;
   // A non-string `name` needs no guard of its own: `Object.hasOwn` coerces the
-  // key and finds nothing, so it falls through to the catch-all like any other
-  // unrecognised value.
-  const { name } = error as { name?: unknown };
+  // key and finds nothing, so it falls through to the code check like any
+  // other unrecognised value.
+  const { name, code } = error as { name?: unknown; code?: unknown };
   if (name === SDK_TIMEOUT_ERROR_NAME) return S3VectorsErrorCode.SERVICE_UNAVAILABLE;
-  return Object.hasOwn(BY_NAME, name as string)
-    ? (BY_NAME[name as string] as S3VectorsErrorCode)
+  if (Object.hasOwn(BY_NAME, name as string)) return BY_NAME[name as string] as S3VectorsErrorCode;
+  return typeof code === 'string' && SDK_TRANSIENT_NETWORK_ERROR_CODES.has(code)
+    ? S3VectorsErrorCode.SERVICE_UNAVAILABLE
     : S3VectorsErrorCode.AWS_REQUEST_FAILED;
 }

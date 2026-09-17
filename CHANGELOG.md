@@ -33,15 +33,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   T3-19). This is the rule metadata already followed, and it is the one place
   the filter check refuses something the service would take.
 
-- **A timed-out or reset connection is `SERVICE_UNAVAILABLE`.** The SDK's HTTP
-  handler raises `TimeoutError` for a connection, socket-idle or request timeout
-  and for `ECONNRESET`/`EPIPE`/`ETIMEDOUT`, and its retry strategy treats that
-  name as transient alongside `RequestTimeoutException` — which this package
-  already mapped to `SERVICE_UNAVAILABLE`. It was
-  `AWS_REQUEST_FAILED`, so retry logic keyed on the documented transient codes
-  treated a timeout as a hard failure; only `context.retryable` said otherwise.
-  A caller branching on `AWS_REQUEST_FAILED` for timeouts must switch to
-  `SERVICE_UNAVAILABLE`.
+- **A timed-out, reset, refused or unreachable connection is
+  `SERVICE_UNAVAILABLE`.** The SDK's HTTP handler raises `TimeoutError` for a
+  connection, socket-idle or request timeout and for
+  `ECONNRESET`/`EPIPE`/`ETIMEDOUT`, and its retry strategy treats that name as
+  transient alongside `RequestTimeoutException` — which this package already
+  mapped to `SERVICE_UNAVAILABLE`. That was `AWS_REQUEST_FAILED` before, so
+  retry logic keyed on the documented transient codes treated a timeout as a
+  hard failure; only `context.retryable` said otherwise. The same retry
+  strategy also matches five more Node.js system error codes directly by
+  `code`, without renaming the error, so the error keeps its own `name`:
+  `ECONNREFUSED` (refused), `EHOSTUNREACH`/`ENETUNREACH` (unreachable) and
+  `ENOTFOUND`/`EAI_AGAIN` (DNS failure). Those five are now
+  `SERVICE_UNAVAILABLE` too, instead of `AWS_REQUEST_FAILED`. A caller
+  branching on `AWS_REQUEST_FAILED` for a timeout, a reset, a refused or an
+  unreachable connection must switch to `SERVICE_UNAVAILABLE`.
 
 - **A `nonFilterableMetadataKeys` list no index could ever be created with is
   refused at construction, not on the first write.** Merged with

@@ -6,7 +6,7 @@
 
 # Class: S3VectorsError
 
-Defined in: [shared/errors/s3-vectors-error.ts:197](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L197)
+Defined in: [shared/errors/s3-vectors-error.ts:199](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L199)
 
 The single error type this library surfaces.
 
@@ -44,7 +44,7 @@ drop it.
 
 > **new S3VectorsError**(`message`, `code`, `context`, `cause?`): `S3VectorsError`
 
-Defined in: [shared/errors/s3-vectors-error.ts:202](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L202)
+Defined in: [shared/errors/s3-vectors-error.ts:204](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L204)
 
 #### Parameters
 
@@ -78,7 +78,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:202](https://github.com/FarukAda/
 
 > `readonly` **\[S3\_VECTORS\_ERROR\_BRAND\]**: `true` = `true`
 
-Defined in: [shared/errors/s3-vectors-error.ts:198](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L198)
+Defined in: [shared/errors/s3-vectors-error.ts:200](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L200)
 
 ***
 
@@ -86,7 +86,7 @@ Defined in: [shared/errors/s3-vectors-error.ts:198](https://github.com/FarukAda/
 
 > `readonly` **code**: [`S3VectorsErrorCode`](../enumerations/S3VectorsErrorCode.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:199](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L199)
+Defined in: [shared/errors/s3-vectors-error.ts:201](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L201)
 
 ***
 
@@ -94,4 +94,4 @@ Defined in: [shared/errors/s3-vectors-error.ts:199](https://github.com/FarukAda/
 
 > `readonly` **context**: [`S3VectorsErrorContext`](../interfaces/S3VectorsErrorContext.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:200](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L200)
+Defined in: [shared/errors/s3-vectors-error.ts:202](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L202)

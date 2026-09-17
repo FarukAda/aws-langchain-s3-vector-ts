@@ -248,6 +248,32 @@ describe('wrapAwsError', () => {
     },
   );
 
+  it('marks a refused connection retryable even with no $metadata at all', () => {
+    // The SDK's own retry strategy matches this by `code`, not by `name` — the
+    // error keeps its own name, so `metadata === undefined` alone would
+    // otherwise drop it out with no diagnostics at all.
+    const cause = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, { operation: 'op' });
+    expect(err.context.retryable).toBe(true);
+    expect(err.context.awsErrorName).toBe('Error');
+  });
+
+  it('marks a refused connection retryable when it does carry $metadata', () => {
+    const cause = Object.assign(new Error('connect ECONNREFUSED'), {
+      code: 'ECONNREFUSED',
+      $metadata: {},
+    });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, { operation: 'op' });
+    expect(err.context.retryable).toBe(true);
+  });
+
+  it('gives a code outside the SDK retry strategy set (EACCES) no AWS diagnostics, with no $metadata either', () => {
+    const cause = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'op' });
+    expect(err.context.retryable).toBeUndefined();
+    expect(err.context.awsErrorName).toBeUndefined();
+  });
+
   it('returns an already-S3VectorsError unchanged', () => {
     const original = new S3VectorsError('v', S3VectorsErrorCode.VALIDATION, { operation: 'x' });
     expect(wrapAwsError(original, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'y' })).toBe(

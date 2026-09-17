@@ -32,9 +32,11 @@ export enum S3VectorsErrorCode {
    * `InternalServerException` (500), `ServiceUnavailableException` (503) or
    * `RequestTimeoutException` (408), or the SDK's own `TimeoutError` — a
    * connection, socket-idle or request timeout, or a connection reset or broken
-   * on the way. All transient, and already retried by the SDK before
-   * reaching here. A 503 from `PutVectors` is also AWS's documented response to a
-   * batch exceeding resource capacity, which backoff cannot fix.
+   * on the way. Also a refused, unreachable or DNS-failed connection, matched
+   * by `code` the same way the SDK's own retry strategy matches it. All
+   * transient, and already retried by the SDK before reaching here. A 503 from
+   * `PutVectors` is also AWS's documented response to a batch exceeding
+   * resource capacity, which backoff cannot fix.
    */
   SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
   /** `AccessDeniedException` (403). An IAM problem, not a retryable one. */

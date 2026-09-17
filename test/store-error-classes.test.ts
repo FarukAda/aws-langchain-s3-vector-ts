@@ -88,4 +88,12 @@ describe('store — a timed-out or reset connection (R7)', () => {
     expect(error.code).toBe(S3VectorsErrorCode.SERVICE_UNAVAILABLE);
     expect(error.context).toMatchObject({ awsErrorName: 'TimeoutError', retryable: true });
   });
+
+  it('is SERVICE_UNAVAILABLE and retryable for a refused connection too, classified by code rather than name', async () => {
+    const error = (await writeFailingWith(
+      Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:443'), { code: 'ECONNREFUSED' }),
+    )) as { code: string; context: Record<string, unknown> };
+    expect(error.code).toBe(S3VectorsErrorCode.SERVICE_UNAVAILABLE);
+    expect(error.context).toMatchObject({ awsErrorName: 'Error', retryable: true });
+  });
 });

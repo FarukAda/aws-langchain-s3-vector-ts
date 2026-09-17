@@ -89,12 +89,47 @@ describe('classifyAwsError', () => {
     expect(classifyAwsError(named('TimeoutError'))).toBe(S3VectorsErrorCode.SERVICE_UNAVAILABLE);
   });
 
-  it('maps a refused connection to AWS_REQUEST_FAILED, because the SDK does not rename it', () => {
-    // `@smithy/node-http-handler` renames only ECONNRESET, EPIPE and ETIMEDOUT
-    // to TimeoutError. A refused connection reaches here as a plain Error
-    // carrying its `code`, so it is not a TimeoutError and gets the catch-all.
-    const refused = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
-    expect(refused.name).toBe('Error');
-    expect(classifyAwsError(refused)).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
+  it.each([
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'EPIPE',
+    'ETIMEDOUT',
+    'EHOSTUNREACH',
+    'ENETUNREACH',
+    'ENOTFOUND',
+    'EAI_AGAIN',
+  ])(
+    'maps a plain Error carrying code %s to SERVICE_UNAVAILABLE, the class the SDK retry strategy puts it in',
+    (code) => {
+      // `@smithy/node-http-handler` renames only ECONNRESET, EPIPE and ETIMEDOUT
+      // to TimeoutError; the other five, including ECONNREFUSED, reach here
+      // keeping their own name and carrying only `code`.
+      const error = Object.assign(new Error(`synthetic ${code}`), { code });
+      expect(error.name).toBe('Error');
+      expect(classifyAwsError(error)).toBe(S3VectorsErrorCode.SERVICE_UNAVAILABLE);
+    },
+  );
+
+  it('maps a code outside the SDK retry strategy set (EACCES) to AWS_REQUEST_FAILED', () => {
+    const error = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    expect(classifyAwsError(error)).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
+  });
+
+  it('maps a non-string code to AWS_REQUEST_FAILED, so the string check cannot throw', () => {
+    const error = Object.assign(new Error('odd'), { code: 42 });
+    expect(classifyAwsError(error)).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
+  });
+
+  it('maps an AbortError carrying a transient network code to ABORTED, because the caller cancelled', () => {
+    const error = Object.assign(new Error('aborted'), { name: 'AbortError', code: 'ECONNRESET' });
+    expect(classifyAwsError(error)).toBe(S3VectorsErrorCode.ABORTED);
+  });
+
+  it('keeps a declared service exception name even when it carries a transient network code', () => {
+    const error = Object.assign(new Error('denied'), {
+      name: 'AccessDeniedException',
+      code: 'ECONNREFUSED',
+    });
+    expect(classifyAwsError(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
   });
 });

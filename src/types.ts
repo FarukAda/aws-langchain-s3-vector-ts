@@ -201,9 +201,10 @@ export interface AmazonS3VectorsConfig {
   readonly maxAttempts?: number;
 
   /**
-   * AWS SDK retry mode. Throttling (`TooManyRequestsException`), 5xx errors and
-   * the SDK's own `TimeoutError` are retried by the SDK. Not accepted together
-   * with `client`, which carries its own.
+   * AWS SDK retry mode. Throttling (`TooManyRequestsException`), 5xx errors,
+   * the SDK's own `TimeoutError`, and a refused, reset or unreachable
+   * connection (matched by its Node.js system error code) are retried by the
+   * SDK. Not accepted together with `client`, which carries its own.
    */
   readonly retryMode?: 'standard' | 'adaptive' | 'legacy';
 
