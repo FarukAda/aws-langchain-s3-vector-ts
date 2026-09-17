@@ -133,7 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A filter string or field name containing an unpaired UTF-16 surrogate is
   refused locally**, instead of failing the request with `SerializationException`
-  (T3-15).
+  ([`docs/evidence/string-encoding.md`](./docs/evidence/string-encoding.md), T3-15).
 
 ## [1.0.0-rc.2] - 2026-09-16
 

@@ -231,8 +231,9 @@ function assertLogicalBranch(
  *
  * Throws: `VALIDATION` for an array, a non-plain object, `{}`, more than one key
  * (T3-17), a comparison operator standing where a field name belongs, an unknown
- * `$`-prefixed key, a field name that is not well-formed UTF-16 (T3-15), a
- * malformed logical branch, or a field condition S3 Vectors would refuse.
+ * `$`-prefixed key, a field name that is not well-formed UTF-16
+ * (docs/evidence/string-encoding.md, T3-15), a malformed logical branch, or a
+ * field condition S3 Vectors would refuse.
  */
 function assertConditions(
   value: unknown,
@@ -320,7 +321,8 @@ function assertConditions(
  * - a comparison operator where a field name belongs, or an unknown
  *   `$`-prefixed key;
  * - an `$and`/`$or` whose value is not a non-empty array of conditions;
- * - a field name that is not well-formed UTF-16 (T3-15);
+ * - a field name that is not well-formed UTF-16
+ *   (docs/evidence/string-encoding.md, T3-15);
  * - a field's operator object that is empty, or holds a key that is not a
  *   comparison operator, `$and`/`$or` included (T3-18);
  * - an operand its operator does not take (T3-16): `$eq`, `$ne` and the
@@ -336,7 +338,8 @@ function assertConditions(
  * service would accept what it becomes (T3-19), because the filter would then
  * silently match nothing, or compare against a number nobody chose. Every other
  * rule is documented (userguide `s3-vectors-metadata-filtering.html`) or
- * confirmed live (`docs/evidence/filter-validation.md`).
+ * confirmed live (`docs/evidence/filter-validation.md`; the UTF-16 rule in
+ * `docs/evidence/string-encoding.md`).
  *
  * And the local check is worth more here than almost anywhere else in this
  * package, because AWS's entire diagnosis is the string `"Invalid filter"`,
