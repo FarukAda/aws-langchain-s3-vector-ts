@@ -198,7 +198,7 @@ if (!env) {
 
     // ── Minor 4: later-batch dimension validation ───────────────────────
 
-    it('lets AWS reject a later batch, and reports what already landed', async () => {
+    it('refuses addVectors input whose later batch differs in dimension, before writing any batch', async () => {
       const { store } = newStore();
       await store.addVectors([[0.1, 0.2, 0.3, 0.4]], [new Document({ pageContent: 'a' })], {
         ids: ['a'],
@@ -215,10 +215,48 @@ if (!env) {
         )
         .catch((e: unknown) => e);
 
-      // The write path no longer pre-validates a dimension against cached
-      // index configuration; AWS enforces it. What this package still owes the
-      // caller is an accurate account of what landed before the failure —
-      // batch 0 committed, batch 1 did not.
+      // The whole input is checked before the first batch is written, so the
+      // mismatch is refused locally and batch 0 never lands.
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
+      expect((error as { context: Record<string, unknown> }).context).toMatchObject({
+        recordIndex: 1,
+        recordId: 'c',
+      });
+      expect(await store.getByIds(['b'])).toEqual([undefined]);
+    }, 120_000);
+
+    it('lets AWS reject a later addDocuments batch the model embedded at another dimension, and reports what already landed', async () => {
+      // A model's output exists only one batch at a time, so a later batch that
+      // disagrees with the index cannot be refused before earlier batches are
+      // written. AWS enforces the index dimension; what this package owes the
+      // caller is an accurate account of what landed — batch 0, not batch 1.
+      let batch = 0;
+      const shifting: EmbeddingsInterface = {
+        async embedDocuments(docs: string[]): Promise<number[][]> {
+          const dimension = batch === 0 ? DIM : DIM * 2;
+          batch += 1;
+          return docs.map((_, i) => Array.from({ length: dimension }, (__, d) => (i + d + 1) / 10));
+        },
+        async embedQuery(): Promise<number[]> {
+          return Array.from({ length: DIM }, (_, d) => (d + 1) / 10);
+        },
+      };
+      const indexName = `remediation-${randomUUID().slice(0, 8)}`;
+      createdIndexes.push(indexName);
+      const store = new AmazonS3Vectors(shifting, {
+        vectorBucketName: safeEnv.bucketName,
+        indexName,
+        region: safeEnv.region,
+        distanceMetric: 'cosine',
+      });
+
+      const error = await store
+        .addDocuments([new Document({ pageContent: 'b' }), new Document({ pageContent: 'c' })], {
+          ids: ['b', 'c'],
+          batchSize: 1,
+        })
+        .catch((e: unknown) => e);
+
       const context = (error as { context: Record<string, unknown> }).context;
       expect(context['awsErrorName']).toBe('ValidationException');
       expect(context['writtenIds']).toEqual(['b']);
