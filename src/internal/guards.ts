@@ -260,3 +260,30 @@ export function assertK(operation: string, scope: StoreScope, k: number): void {
     throw validationError(operation, scope, `k (${k}) exceeds AWS's topK limit of ${MAX_TOP_K}.`);
   }
 }
+
+/**
+ * Reject a text query that is not a string, before it is embedded.
+ *
+ * Accepts: whatever arrived as the query.
+ *
+ * Returns: nothing. Any string passes — an empty one, and one that is not
+ * well-formed UTF-16, included — because the text goes to the embeddings model,
+ * never to AWS, and the model decides what it can embed.
+ *
+ * Throws: `VALIDATION`, naming what arrived.
+ *
+ * Guarantees: checked before the billable, uncancellable `embedQuery`. The type
+ * already requires a string of a typed caller; an untyped one reaches this with
+ * whatever a query-string parser produced — an array for a repeated parameter,
+ * `undefined` for a missing one — and each of those used to be embedded.
+ */
+export function assertQueryText(operation: string, scope: StoreScope, query: unknown): void {
+  if (typeof query !== 'string') {
+    throw validationError(
+      operation,
+      scope,
+      `The query must be a string (received ${describeValue(query)}). It is the text the ` +
+        'embeddings model embeds.',
+    );
+  }
+}

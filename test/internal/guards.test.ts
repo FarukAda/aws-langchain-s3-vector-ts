@@ -7,6 +7,7 @@ import {
   assertIdsOption,
   assertIsArray,
   assertK,
+  assertQueryText,
   rejectSignalInCallbacksSlot,
   validationError,
 } from '../../src/internal/guards.js';
@@ -174,5 +175,31 @@ describe('validationError with a record', () => {
       recordIndex: 3,
       recordId: 'k',
     });
+  });
+});
+
+describe('assertQueryText', () => {
+  it.each([
+    ['an ordinary string', 'space adventure'],
+    ['an empty string, which the model decides about', ''],
+    ['an ill-formed string, which never reaches AWS', 'x\ud800'],
+  ])('accepts %s', (_label, query) => {
+    expect(() => {
+      assertQueryText('similaritySearch', SCOPE, query);
+    }).not.toThrow();
+  });
+
+  it.each([
+    ['undefined', undefined, 'an undefined'],
+    ['an array, as a repeated query-string parameter arrives', ['a', 'b'], 'an array'],
+    ['a number', 42, 'a number'],
+  ])('refuses %s', (_label, query, kind) => {
+    const error = thrown(() => {
+      assertQueryText('similaritySearch', SCOPE, query);
+    });
+    expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(error.message).toBe(
+      `The query must be a string (received ${kind}). It is the text the embeddings model embeds.`,
+    );
   });
 });

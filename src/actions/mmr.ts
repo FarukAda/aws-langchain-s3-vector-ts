@@ -3,6 +3,7 @@ import { maximalMarginalRelevance } from '@langchain/core/utils/math';
 
 import { validateFilter } from '../internal/filter.js';
 import { fetchVectorsByKey } from '../internal/get-vectors.js';
+import { assertQueryVector } from '../internal/limits.js';
 import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
 import type { StoreScope } from '../internal/signals.js';
@@ -103,10 +104,11 @@ export function assertMmrParameters(
  *
  * Returns: at most `k` documents, most relevant first.
  *
- * Throws: `VALIDATION` for `k`, `fetchK` or `lambda`, before any request;
- * `ABORTED` for `signal`; `AWS_INVALID_RESPONSE` when a vector comes back
- * without data despite `returnData`; otherwise whatever the underlying search
- * and fetch raise.
+ * Throws: `VALIDATION` for `k`, `fetchK`, `lambda`, the filter, or a query
+ * vector S3 Vectors would refuse (see `assertQueryVector`) — all before any
+ * request; `ABORTED` for `signal`; `AWS_INVALID_RESPONSE` when a vector comes
+ * back without data despite `returnData`; otherwise whatever the underlying
+ * search and fetch raise.
  *
  * Guarantees: a candidate the search listed but the fetch no longer holds —
  * deleted between the two calls — is skipped silently. MMR is a ranking
@@ -132,14 +134,23 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
 
   assertMmrParameters(k, fetchK, lambda, operation, scope);
   validateFilter(opts.filter, operation, scope);
+  // The rules `searchByVector` applies, which MMR skipped: the same unusable
+  // embedding got a precise local error from one search method, and a bare AWS
+  // rejection after a billable round trip from the other.
+  assertQueryVector(opts.queryVector, {
+    operation,
+    distanceMetric: opts.distanceMetric,
+    ...scope,
+  });
 
   // No abort check of its own: `queryPages` below checks before its first
   // request, and nothing billable happens in between. A second check here
   // could not change any observable outcome — a statement that cannot be
   // observed is one more thing to keep true for no reason.
   //
-  // Candidates: keys and metadata, no scores — MMR ranks by vector, not by the
-  // service's distance.
+  // Candidates: keys only. MMR ranks by vector, and the documents it returns
+  // are built from the `GetVectors` response, which carries the metadata —
+  // asking `QueryVectors` for it as well quadrupled that response for nothing.
   const candidates = await queryPages({
     client: opts.client,
     operation,
@@ -147,7 +158,7 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
     k: fetchK,
     queryVector: opts.queryVector,
     filter: opts.filter,
-    returnMetadata: true,
+    returnMetadata: false,
     returnDistance: false,
     signal,
     ...scope,

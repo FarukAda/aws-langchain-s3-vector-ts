@@ -1,4 +1,4 @@
-import { QueryVectorsCommand } from '@aws-sdk/client-s3vectors';
+import { GetVectorsCommand, QueryVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
@@ -876,5 +876,65 @@ describe('AmazonS3Vectors text search — checks before the billable embedQuery'
 
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect(embeddings.embedQuery).not.toHaveBeenCalled();
+  });
+});
+
+describe('a text query that is not a string is refused before it is embedded (N5)', () => {
+  it.each([
+    [
+      'similaritySearch',
+      (store: AmazonS3Vectors, q: unknown) => store.similaritySearch(q as string, 1),
+    ],
+    [
+      'similaritySearchWithScore',
+      (store: AmazonS3Vectors, q: unknown) => store.similaritySearchWithScore(q as string, 1),
+    ],
+    [
+      'similaritySearchWithRelevanceScores',
+      (store: AmazonS3Vectors, q: unknown) =>
+        store.similaritySearchWithRelevanceScores(q as string, 1),
+    ],
+    [
+      'maxMarginalRelevanceSearch',
+      (store: AmazonS3Vectors, q: unknown) =>
+        store.maxMarginalRelevanceSearch(q as string, { k: 1 }),
+    ],
+  ])('%s', async (operation, run) => {
+    const { store, mock, embeddings } = createTestStore();
+    const error = await run(store, ['a', 'b']).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toBe(
+      'The query must be a string (received an array). It is the text the embeddings model embeds.',
+    );
+    expect((error as { context: { operation: string } }).context.operation).toBe(operation);
+    expect(embeddings.embedQuery).not.toHaveBeenCalled();
+    expect(mock.calls()).toHaveLength(0);
+  });
+});
+
+describe('an unusable query embedding is refused before any request on every search path (R4)', () => {
+  const zero = {
+    embedDocuments: async (texts: string[]) => texts.map(() => [0, 0, 0]),
+    embedQuery: async () => [0, 0, 0],
+  };
+
+  it.each([
+    ['similaritySearch', (store: AmazonS3Vectors) => store.similaritySearch('q', 1)],
+    [
+      'maxMarginalRelevanceSearch',
+      (store: AmazonS3Vectors) => store.maxMarginalRelevanceSearch('q', { k: 1 }),
+    ],
+    [
+      'an MMR retriever',
+      (store: AmazonS3Vectors) => store.asRetriever({ k: 1, searchType: 'mmr' }).invoke('q'),
+    ],
+  ])('%s', async (_label, run) => {
+    const { client, mock } = createMockClient();
+    const store = new AmazonS3Vectors(zero, { ...BASE_CONFIG, client });
+    const error = await run(store).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain('Query vector has zero norm');
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+    expect(mock.commandCalls(GetVectorsCommand)).toHaveLength(0);
   });
 });

@@ -15,6 +15,7 @@ import { validateFilter } from './internal/filter.js';
 import {
   assertK,
   assertOptionsBag,
+  assertQueryText,
   rejectSignalInCallbacksSlot,
   validationError,
 } from './internal/guards.js';
@@ -499,9 +500,10 @@ export class AmazonS3Vectors extends VectorStore {
    * @returns `[document, distance]` pairs, nearest first, at most `k` of them.
    * Fewer than `k` is normal for a filtered search over a sparse index.
    * @throws {S3VectorsError} `EMBEDDINGS_MISSING` when no query-side model is
-   * configured; `VALIDATION` for `k`, the filter, or a signal in the
-   * callbacks slot — all before the billable `embedQuery`; otherwise whatever
-   * {@link similaritySearchVectorWithScore} raises.
+   * configured; `VALIDATION` for a query that is not a string, `k`, the
+   * filter, or a signal in the callbacks slot — all before the billable
+   * `embedQuery`; otherwise whatever {@link similaritySearchVectorWithScore}
+   * raises.
    */
   override async similaritySearchWithScore(
     query: string,
@@ -532,9 +534,10 @@ export class AmazonS3Vectors extends VectorStore {
    * @param filter - Metadata filter
    * @param signal - Abort, checked before the billable embed call
    * @returns `[document, distance]` pairs, nearest first
-   * @throws {S3VectorsError} `VALIDATION` for `k` or the filter, `ABORTED`
-   * for an already-fired signal — all before `embedQuery`, which is billable
-   * and cannot be cancelled; otherwise whatever the vector search raises.
+   * @throws {S3VectorsError} `VALIDATION` for a query that is not a string,
+   * `k` or the filter, `ABORTED` for an already-fired signal — all before
+   * `embedQuery`, which is billable and cannot be cancelled; otherwise
+   * whatever the vector search raises.
    */
   async #textSearch(
     operation: string,
@@ -547,6 +550,7 @@ export class AmazonS3Vectors extends VectorStore {
     // uncancellable — embedQuery call: an invalid k, an invalid filter, or a
     // signal that already fired should not cost an embedding round trip
     // before failing.
+    assertQueryText(operation, this.#scope, query);
     assertK(operation, this.#scope, k);
     validateFilter(filter, operation, this.#scope);
     // embedQuery has no signal support (LangChain's EmbeddingsInterface
@@ -667,8 +671,13 @@ export class AmazonS3Vectors extends VectorStore {
    *
    * @returns At most `k` documents, most relevant first, each distinct. Fewer
    * than `k` when the index holds fewer candidates than asked for.
-   * @throws {S3VectorsError} `VALIDATION` for `k`, `fetchK` or `lambda`, before
-   * the billable `embedQuery`; otherwise whatever the search and fetch raise.
+   * @throws {S3VectorsError} `VALIDATION` for a query that is not a string, a
+   * missing options object, `k`, `fetchK`, `lambda`, the filter or a signal in
+   * the callbacks slot, before the billable `embedQuery`; `VALIDATION` for an
+   * embedded query vector S3 Vectors would refuse (not an array, a dimension
+   * outside 1–4096, a non-finite component, zero norm on a cosine index), before
+   * any request; `EMBEDDINGS_MISSING` when no query-side model is configured;
+   * otherwise whatever the search and fetch raise.
    */
   override async maxMarginalRelevanceSearch(
     query: string,
@@ -677,6 +686,7 @@ export class AmazonS3Vectors extends VectorStore {
     signal?: AbortSignal,
   ): Promise<Document[]> {
     rejectSignalInCallbacksSlot('maxMarginalRelevanceSearch', this.#scope, callbacks);
+    assertQueryText('maxMarginalRelevanceSearch', this.#scope, query);
     assertOptionsBag('maxMarginalRelevanceSearch', this.#scope, options);
     if (options === undefined || options === null) {
       throw validationError(

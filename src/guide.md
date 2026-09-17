@@ -87,7 +87,7 @@ The library supports five search methods:
 | `similaritySearchVectorWithScore(vector, k, filter?, signal?)` | Raw vector | `[Document, distance][]` |
 | `maxMarginalRelevanceSearch(query, { k, fetchK, lambda }, callbacks?, signal?)` | Text string | `Document[]` |
 
-The text-based methods reserve a `Callbacks` slot (accepted and ignored) so they line up with LangChain’s own signatures; the vector-based one takes the `AbortSignal` one position earlier, since it has no callbacks slot. `k` and the filter are validated, and the signal is checked, *before* the query is embedded — an invalid argument or an already-aborted signal never costs a billable `embedQuery` call.
+The text-based methods reserve a `Callbacks` slot (accepted and ignored) so they line up with LangChain’s own signatures; the vector-based one takes the `AbortSignal` one position earlier, since it has no callbacks slot. The query is checked to be a string, `k` and the filter are validated, and the signal is checked, *before* the query is embedded; the embedded query vector is then held to the rules a stored vector is, before any request — an invalid argument or an already-aborted signal never costs a billable `embedQuery` call.
 
 Passing an `AbortSignal` in that `Callbacks` slot raises a coded `VALIDATION` error on all three text-based searches rather than being silently ignored: the search would otherwise run to completion, uncancelled, after already spending a billable `embedQuery` call. Pass it as the fifth argument instead.
 

@@ -86,6 +86,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its position inside a batch, which is wrong for every vector after the first
   batch — the report's `NaN` in vector #450 was reported as "index 50".
 
+- **MMR holds its query vector to the rules similarity search does.**
+  `similaritySearch` refused an empty, non-finite or zero-norm query vector
+  locally; `maxMarginalRelevanceSearch`, and so every `searchType: 'mmr'`
+  retriever, sent it to AWS and surfaced the bare "Query vector contains invalid
+  values or is invalid for this index" after a billable round trip. Both paths
+  now refuse it the same way, before any request.
+
+- **A text query that is not a string is refused before it is embedded.** Every
+  text search passed whatever it was given to the embeddings model — an array
+  from a repeated query-string parameter, `undefined` from a missing one — which
+  either embedded it or failed inside the provider. It is `VALIDATION` now, on
+  `similaritySearch`, `similaritySearchWithScore`,
+  `similaritySearchWithRelevanceScores` and `maxMarginalRelevanceSearch`, before
+  any billable call.
+
+- **MMR's candidate query no longer asks for metadata it discards.** The
+  documents it returns are built from the `GetVectors` response, so the metadata
+  on the `QueryVectors` candidates was never read — at about four times the
+  response size.
+
 ## [1.0.0-rc.2] - 2026-09-16
 
 A contract-first rework of the whole package. Every function was specified

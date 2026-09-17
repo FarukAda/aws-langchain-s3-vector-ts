@@ -49,16 +49,17 @@ function setup(present: string[] = Object.keys(VECTORS)) {
 }
 
 describe('mmrSearch', () => {
-  it('fetches candidates without scores, then their vectors with data', async () => {
+  it('fetches candidates as keys only, then their vectors and metadata', async () => {
     const { mock, run } = setup();
     await run();
     expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input).toMatchObject({
       topK: 3,
       returnDistance: false,
-      returnMetadata: true,
+      returnMetadata: false,
     });
     expect(mock.commandCalls(GetVectorsCommand)[0]!.args[0].input).toMatchObject({
       returnData: true,
+      returnMetadata: true,
     });
   });
 
@@ -217,4 +218,24 @@ describe('mmrSearch', () => {
     );
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
   });
+
+  it.each([
+    ['a zero vector', [0, 0, 0], 'Query vector has zero norm'],
+    [
+      'a NaN component',
+      [1, Number.NaN, 0],
+      'Query vector has a component at position 1 that is not a finite number',
+    ],
+    ['an empty vector', [], 'Query vector has dimension 0'],
+    ['a non-array', null, 'Query vector is not an array'],
+  ])(
+    'refuses %s before any request, as similarity search does (R4)',
+    async (_label, queryVector, message) => {
+      const { mock, run } = setup();
+      const error = await run({ queryVector }).catch((e: unknown) => e);
+      expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+      expect((error as Error).message).toContain(message);
+      expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+    },
+  );
 });
