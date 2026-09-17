@@ -125,17 +125,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **An invalid retriever configuration fails at `asRetriever()`, not at the
   first `invoke`.** A retriever's `k`, `filter`, `searchType`, `searchKwargs`
-  (`fetchK` and `lambda`, for `'mmr'`) and field `signal` are checked when it
-  is built — by the checks the search they configure applies, in that
-  search's order — and refused with `VALIDATION` naming `asRetriever`, or
-  `retriever.constructor` for a retriever constructed directly. They were
+  (an object holding `fetchK` and `lambda`, for `'mmr'`) and field `signal` are
+  checked when it is built — by the checks the search they configure applies,
+  in that search's order — and refused with `VALIDATION` naming `asRetriever`,
+  or `retriever.constructor` for a retriever constructed directly. They were
   checked only once a search ran, so an `invoke` handed an already-fired
   signal reported `ABORTED` for a retriever that could never have searched,
-  against the order above; and a `searchType` other than `'similarity'` or
-  `'mmr'` ran as a similarity search. `retriever.invoke` likewise checks that
-  its query is a string before it looks at its signal. **Migration:** a `try`
-  that caught a configuration `VALIDATION` from the first `invoke` must
-  surround `asRetriever()` instead.
+  against the order above; a `searchType` other than `'similarity'` or `'mmr'`
+  ran as a similarity search; and a `searchKwargs` that was not an object was
+  spread into the search's options as nothing. `asRetriever`'s argument is
+  read as every options bag is: `null` means no fields, as `undefined` does,
+  and one that is neither a number nor an object — a string, an array, `true`
+  — is `VALIDATION`; `asRetriever(null)` threw a raw `TypeError`, and a string
+  built a default retriever. `retriever.invoke` likewise checks its query, and
+  then its `timeout` — a whole number of milliseconds from 1 to 2,147,483,647
+  when present — before it looks at its signal. **Migration:** a `try` that
+  caught a configuration `VALIDATION` from the first `invoke` must surround
+  `asRetriever()` instead.
 
 ### Fixed
 
@@ -274,17 +280,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `vectorBucketName`/`indexName`. `createDocument` now takes the operation,
   bucket and index as a required parameter; every caller supplies its own.
 
-- **Every failure out of `retriever.invoke` and `asRetriever` is an
-  `S3VectorsError`.** A callback handler with `raiseError` set that threw, and
-  `@langchain/core`'s refusal of a non-positive `timeout`, escaped `invoke` as
-  raw errors, and `asRetriever(null)` threw a raw `TypeError`. All three are
-  `UNEXPECTED_ERROR` now, with the original as `cause`. A failure raised inside
-  `invoke` reaches core's `batch` and `stream` coded too. Two failures of
-  theirs never reach `invoke` and stay core's own: both refuse a non-positive
-  `timeout` before calling it, and `stream` rejects with its signal's reason
-  when its signal fires or its timeout passes.
+- **Every failure out of `retriever.invoke` and the retriever's construction
+  is an `S3VectorsError`.** A callback handler with `raiseError` set that
+  threw escaped `invoke` raw; it is `UNEXPECTED_ERROR` now, with its error as
+  `cause`. A `timeout` that could not work escaped raw too: `@langchain/core`
+  refused one of 0 or less, `null` included, and Node's `AbortSignal.timeout`
+  threw for a fraction, `NaN`, `Infinity`, a string or a delay past
+  4,294,967,295 — and ran one past 2,147,483,647 as 1 ms. Each is `VALIDATION`
+  now, before core reads it. `new AmazonS3VectorsRetriever(fields)` threw a
+  raw `TypeError` for `fields` that are not an object or hold no `vectorStore`
+  object; that is `VALIDATION` naming `retriever.constructor` and no store. A
+  failure raised inside `invoke` reaches core's `batch` and `stream` coded
+  too. Two failures of theirs never reach `invoke` and stay core's own: both
+  refuse a `timeout` of 0 or less before calling it, and `stream` rejects with
+  its signal's reason when its signal fires or its timeout passes.
 
-- **A positive `timeout` ends `retriever.invoke`.** Core turns it into a
+- **A `timeout` ends `retriever.invoke`.** Core turns it into a
   signal and never races that signal, so `invoke(query, { timeout: 20 })` ran
   to completion however long it took. It now rejects `ABORTED`, naming
   `retriever.invoke`, with the `TimeoutError` as `cause` — as a config signal

@@ -449,7 +449,7 @@ impossible to find or reconcile again.
 
 > **asRetriever**(`kOrFields?`, `filter?`, `callbacks?`, `tags?`, `metadata?`, `verbose?`): [`AmazonS3VectorsRetriever`](AmazonS3VectorsRetriever.md)\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1009](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1009)
+Defined in: [s3-vectors.ts:1012](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1012)
 
 Build a retriever over this store.
 
@@ -461,7 +461,8 @@ Build a retriever over this store.
 
 Documents to retrieve, or a fields object
 (`k`, `filter`, `searchType`, `searchKwargs`, `signal`, `tags`,
-`metadata`, `verbose`, `callbacks`)
+`metadata`, `verbose`, `callbacks`). `undefined` and `null` mean no
+fields, as for every options bag.
 
 ##### filter?
 
@@ -512,8 +513,8 @@ signal passed to `invoke(query, { signal })` ends that invocation only:
 core's `BaseRetriever.invoke` never hands the config to
 `_getRelevantDocuments` (`@langchain/core@1.2.11`
 `dist/retrievers/index.js:81`, `:85`), so no subclass can route it to the
-request. Both may be given at once. A positive `timeout` in that config
-ends the invocation the way its signal does.
+request. Both may be given at once. A `timeout` in that config ends the
+invocation the way its signal does.
 
 **Its fields are checked here**, by the checks the search they configure
 applies, so an invocation of the retriever this returns never fails on how
@@ -522,13 +523,15 @@ it was built.
 #### Throws
 
 Every error names `asRetriever` as its operation.
-`VALIDATION` for a `searchType` other than `'similarity'` or `'mmr'`; then,
-by the checks the search that type dispatches to applies, `k` — with
-`searchKwargs.fetchK` and `searchKwargs.lambda` for `'mmr'` — and the
+`VALIDATION` for a `kOrFields` that is neither a number nor an object — a
+string, an array, `true`; then for a `searchType` other than `'similarity'`
+or `'mmr'`; then, by the checks the search that type dispatches to applies,
+for `'mmr'` a `searchKwargs` that is not an object (`null` means none) and
+`k`, `searchKwargs.fetchK` and `searchKwargs.lambda`, and for either the
 filter; then a `signal` that is not an `AbortSignal`. A signal that has
 already fired is accepted here and is `ABORTED` when the retriever runs.
-`UNEXPECTED_ERROR` for a fields argument that cannot be read at all, such
-as `null`.
+`UNEXPECTED_ERROR` for anything else that throws while it is built, such as
+a `tags` that is not a list.
 
 #### Overrides
 
@@ -639,7 +642,7 @@ the `DeleteIndex` failure maps to. A missing index is not a failure.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1116](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1116)
+Defined in: [s3-vectors.ts:1119](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1119)
 
 Create a store and add the given documents to it.
 
@@ -691,7 +694,7 @@ same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1036](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1036)
+Defined in: [s3-vectors.ts:1039](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1039)
 
 Create a store, embed the given texts and add them to it.
 

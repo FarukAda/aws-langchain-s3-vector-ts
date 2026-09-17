@@ -139,7 +139,12 @@ describe('check order — (e) the retriever: its fields at creation, its query b
       (store) => store.asRetriever({ k: 1, searchType: 'mmr', searchKwargs: { lambda: 2 } }),
     ],
     ['mmr filter', (store) => store.asRetriever({ searchType: 'mmr', filter: { a: 1, b: 2 } })],
+    [
+      'mmr searchKwargs',
+      (store) => store.asRetriever({ searchType: 'mmr', searchKwargs: 'fetchK=5' as never }),
+    ],
     ['field signal type', (store) => store.asRetriever({ k: 1, signal: 'nope' as never })],
+    ['fields argument', (store) => store.asRetriever('k=4' as never)],
   ];
 
   it.each(FIELD_CASES)(
@@ -191,14 +196,42 @@ describe('check order — (e) the retriever: its fields at creation, its query b
     expect(mock.calls()).toHaveLength(0);
   });
 
+  // A timeout is input to `invoke`, so a malformed one is refused before a
+  // fired signal is looked at.
+  it.each([
+    ['0', 0],
+    ['a negative number', -1],
+    ['a fraction', 1.5],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['more than the longest timer delay', 2_147_483_648],
+    ['a string', '20'],
+    ['null', null],
+  ])('a timeout of %s with a fired signal is VALIDATION, not ABORTED', async (_label, timeout) => {
+    const { store, mock, embeddings } = createTestStore();
+    const error = await store
+      .asRetriever({ k: 1 })
+      .invoke('q', { timeout: timeout as number, signal: fired() })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as { context: object }).context).toEqual({
+      operation: 'retriever.invoke',
+      ...BASE_CONFIG,
+    });
+    expect(embeddings.embedQuery).not.toHaveBeenCalled();
+    expect(mock.calls()).toHaveLength(0);
+  });
+
   it('a valid invocation with a fired signal is ABORTED, before anything is spent', async () => {
     const { store, mock, embeddings } = createTestStore();
     for (const retriever of [
       store.asRetriever({ k: 1, filter: { genre: 'scifi' } }),
       store.asRetriever({ k: 1, searchType: 'mmr', searchKwargs: { fetchK: 2, lambda: 0.5 } }),
     ]) {
-      const error = await retriever.invoke('q', { signal: fired() }).catch((e: unknown) => e);
-      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
+      for (const config of [{ signal: fired() }, { signal: fired(), timeout: 2_147_483_647 }]) {
+        const error = await retriever.invoke('q', config).catch((e: unknown) => e);
+        expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
+      }
     }
     expect(embeddings.embedQuery).not.toHaveBeenCalled();
     expect(mock.calls()).toHaveLength(0);

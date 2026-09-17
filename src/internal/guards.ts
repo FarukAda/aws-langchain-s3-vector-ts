@@ -125,7 +125,9 @@ export function assertDocumentObjects(
 /**
  * Reject an options bag that is not one.
  *
- * Accepts: `undefined` and `null` (no options given) or a plain object.
+ * Accepts: `undefined` and `null` (no options given) or a plain object; and,
+ * for a bag that is not a method's options argument — a retriever's
+ * `searchKwargs`, say — the name to give it in the message.
  *
  * Returns: nothing.
  *
@@ -136,13 +138,18 @@ export function assertDocumentObjects(
  * default batching and no ids, telling the caller nothing, when what they had
  * done was pass the wrong argument.
  */
-export function assertOptionsBag(operation: string, scope: StoreScope, options: unknown): void {
+export function assertOptionsBag(
+  operation: string,
+  scope: StoreScope,
+  options: unknown,
+  name = 'The options argument',
+): void {
   if (options === undefined || options === null) return;
   if (!isObjectLike(options)) {
     throw validationError(
       operation,
       scope,
-      `The options argument must be an object (received ${describeValue(options)}). Passed ` +
+      `${name} must be an object (received ${describeValue(options)}). Passed ` +
         'anything else, every option in it would be read as unset rather than reported.',
     );
   }

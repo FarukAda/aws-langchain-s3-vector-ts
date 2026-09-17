@@ -14,11 +14,83 @@ import {
 
 import { resolveMmrParameters } from './actions/mmr.js';
 import { validateFilter } from './internal/filter.js';
-import { assertK, assertQueryText, validationError } from './internal/guards.js';
+import { assertK, assertOptionsBag, assertQueryText, validationError } from './internal/guards.js';
 import { assertSignal, raceAbort, type StoreScope } from './internal/signals.js';
 import type { AmazonS3Vectors } from './s3-vectors.js';
 import { renderValue } from './shared/describe.js';
 import { attachOperation } from './shared/errors/decorate.js';
+import { S3VectorsErrorCode } from './shared/errors/error-code.js';
+import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
+import { isObjectLike } from './shared/objects.js';
+
+/**
+ * The longest `timeout` that works: Node's timers run a longer delay after
+ * 1 ms instead (Node.js `timers` documentation, `setTimeout`), and
+ * `AbortSignal.timeout`, which core builds a timeout's signal with, does the
+ * same with a `TimeoutOverflowWarning`.
+ */
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * Refuse a runnable config `timeout` that could not work, before core reads it.
+ *
+ * Accepts: `undefined` (no timeout), or a whole number of milliseconds from 1
+ * to {@link MAX_TIMEOUT_MS}.
+ *
+ * Throws: `VALIDATION`, naming what arrived.
+ *
+ * Guarantees: at least as strict as core, which refuses a `timeout` of 0 or
+ * less, `null` included (`@langchain/core` `runnables/config`,
+ * `ensureConfig`), so no timeout core would refuse reaches it. What core
+ * accepts beyond that and cannot use is refused too: `AbortSignal.timeout`
+ * throws a raw `RangeError` for a fraction, `NaN`, `Infinity` or a delay past
+ * 4294967295, and a raw `TypeError` for a string, and runs anything past
+ * {@link MAX_TIMEOUT_MS} as 1 ms.
+ */
+function assertTimeout(operation: string, scope: StoreScope, timeout: unknown): void {
+  if (timeout === undefined) return;
+  if (
+    typeof timeout !== 'number' ||
+    !Number.isInteger(timeout) ||
+    timeout < 1 ||
+    timeout > MAX_TIMEOUT_MS
+  ) {
+    throw validationError(
+      operation,
+      scope,
+      `timeout must be a whole number of milliseconds from 1 to ${MAX_TIMEOUT_MS} ` +
+        `(received ${renderValue(timeout)}).`,
+    );
+  }
+}
+
+/**
+ * The constructor's fields, refused before core reads them.
+ *
+ * Core's constructor reads `fields.vectorStore`, and this class reads that
+ * store's bucket and index, so fields that are not an object, or hold no store
+ * object, would otherwise escape as a raw `TypeError`. No store is known, so
+ * the error names none.
+ */
+function requireRetrieverInput<T>(fields: T): T {
+  const fail: (detail: string) => never = (detail) => {
+    throw new S3VectorsError(
+      `AmazonS3VectorsRetriever cannot be built: ${detail}`,
+      S3VectorsErrorCode.VALIDATION,
+      { operation: 'retriever.constructor' },
+    );
+  };
+  if (!isObjectLike(fields)) {
+    fail(`the fields must be an object (received ${renderValue(fields)}).`);
+  }
+  if (!isObjectLike(fields.vectorStore)) {
+    fail(
+      'fields.vectorStore must be the store to read from ' +
+        `(received ${renderValue(fields.vectorStore)}).`,
+    );
+  }
+  return fields;
+}
 
 /**
  * Fields {@link AmazonS3Vectors.asRetriever} accepts: everything
@@ -31,7 +103,7 @@ export interface AmazonS3VectorsRetrieverFields<V extends AmazonS3Vectors = Amaz
   readonly filter?: V['FilterType'];
   /** `'similarity'` (default) or `'mmr'`; anything else is refused. @defaultValue `'similarity'` */
   readonly searchType?: 'similarity' | 'mmr';
-  /** `fetchK` and `lambda`, honoured — and checked — only when `searchType` is `'mmr'`. */
+  /** `fetchK` and `lambda`, honoured — and checked — only when `searchType` is `'mmr'`; `null` means none. */
   readonly searchKwargs?: VectorStoreRetrieverMMRSearchKwargs;
   /**
    * Cancels the AWS requests this retriever makes — genuinely, because a
@@ -106,15 +178,17 @@ export class AmazonS3VectorsRetriever<
    * retriever makes
    * @returns The retriever. Constructing one issues no request.
    * @throws {S3VectorsError} `VALIDATION`, naming `retriever.constructor` as
-   * its operation, for a field no search this retriever runs could accept:
-   * a `searchType` other than `'similarity'` or `'mmr'`; then, by the checks
-   * the search that type dispatches to applies itself, `k` (with `fetchK` and
-   * `lambda` from `searchKwargs` for `'mmr'`) and `filter`; then a `signal`
-   * that is not an `AbortSignal`. A signal that has already fired is not
-   * refused here: it is `ABORTED` when the retriever runs.
+   * its operation. First, naming no bucket or index, for `fields` that are not
+   * an object or whose `vectorStore` is not one. Then, naming the store's, for
+   * a field no search this retriever runs could accept: a `searchType` other
+   * than `'similarity'` or `'mmr'`; then, by the checks the search that type
+   * dispatches to applies itself, for `'mmr'` a `searchKwargs` that is not an
+   * object (`null` means none), `k`, `fetchK` and `lambda`, and for either
+   * `filter`; then a `signal` that is not an `AbortSignal`. A signal that has
+   * already fired is not refused here: it is `ABORTED` when the retriever runs.
    */
   constructor(fields: AmazonS3VectorsRetrieverInput<V>) {
-    super(fields);
+    super(requireRetrieverInput(fields));
     this.signal = fields.signal;
     this.#assertSearchFields('retriever.constructor');
   }
@@ -154,6 +228,7 @@ export class AmazonS3VectorsRetriever<
     // Widened, because the declared type is what an untyped caller can break.
     const searchType: unknown = this.searchType;
     if (searchType === 'mmr') {
+      assertOptionsBag(operation, scope, this.searchKwargs, '`searchKwargs`');
       const options = this.#mmrOptions;
       resolveMmrParameters(options, operation, scope);
       validateFilter(options.filter, operation, scope);
@@ -180,22 +255,23 @@ export class AmazonS3VectorsRetriever<
    * @param options - Core's runnable config. `options.signal` ends **this
    * invocation**: already fired, nothing is embedded or requested; fired
    * mid-query, the invocation rejects `ABORTED` while the request in flight
-   * completes. A positive `options.timeout` ends it the same way once that many
-   * milliseconds have passed. To cancel the request itself, pass `signal` to
+   * completes. `options.timeout`, when present, must be a whole number of
+   * milliseconds from 1 to 2,147,483,647 — the longest delay Node's timers
+   * honour — and ends the invocation the same way once that many milliseconds
+   * have passed. To cancel the request itself, pass `signal` to
    * {@link AmazonS3Vectors.asRetriever} instead.
    * @returns The retrieved documents
    * @throws {S3VectorsError} Every error names `retriever.invoke` as its
    * operation. Before anything is embedded or requested, in this order:
-   * `VALIDATION` for a query that is not a string, or a config `signal` that is
-   * not an `AbortSignal`; `UNEXPECTED_ERROR` for a non-positive `timeout`, which
-   * core refuses, with core's error as the cause; `ABORTED` for a config signal
-   * that has already fired. Then `ABORTED` when the config signal fires or the
-   * timeout passes mid-query, with the signal's reason — a `TimeoutError` for
-   * the timeout — as the cause; otherwise whatever the underlying search
-   * raises, with its code, cause, `awsCommand` and stack unchanged. A callback
-   * handler with `raiseError` set that throws is `UNEXPECTED_ERROR`, with its
-   * error as the cause. The retriever's own fields were checked when it was
-   * built.
+   * `VALIDATION` for a query that is not a string, a `timeout` outside that
+   * range (`null` included), or a config `signal` that is not an `AbortSignal`;
+   * `ABORTED` for a config signal that has already fired. Then `ABORTED` when
+   * the config signal fires or the timeout passes mid-query, with the signal's
+   * reason — a `TimeoutError` for the timeout — as the cause; otherwise
+   * whatever the underlying search raises, with its code, cause, `awsCommand`
+   * and stack unchanged. A callback handler with `raiseError` set that throws
+   * is `UNEXPECTED_ERROR`, with its error as the cause. The retriever's own
+   * fields were checked when it was built.
    *
    * Core's `batch` and `stream` call this method, so a failure raised inside it
    * reaches them as described, and `batch` hands it each input's signal and
@@ -210,6 +286,7 @@ export class AmazonS3VectorsRetriever<
   ): Promise<DocumentInterface<Record<string, unknown>>[]> {
     try {
       assertQueryText('retriever.invoke', this.#scope, input);
+      assertTimeout('retriever.invoke', this.#scope, options?.timeout);
       // Before core reads the config: combining a signal with a timeout's goes
       // through `AbortSignal.any`, which throws a raw `TypeError` for a value
       // that is not a signal.
@@ -295,10 +372,13 @@ export class AmazonS3VectorsRetriever<
  * @param tags - Positional tags, used only with the numeric form
  * @param metadata - Positional metadata, used only with the numeric form
  * @param verbose - Positional verbose flag, used only with the numeric form
- * @returns A configured {@link AmazonS3VectorsRetriever}
+ * @returns A configured {@link AmazonS3VectorsRetriever}. A `kOrFields` of
+ * `undefined` or `null` means no fields, as for every options bag.
  * @throws {S3VectorsError} Every error names `asRetriever`, the method the
- * caller invoked: whatever the retriever's constructor refuses, and
- * `UNEXPECTED_ERROR` for a fields argument that cannot be read at all. A
+ * caller invoked: `VALIDATION` for a `kOrFields` that is neither a number nor
+ * an object, by the options-bag check every method applies; whatever the
+ * retriever's constructor refuses; and `UNEXPECTED_ERROR` for anything else
+ * that throws while it is built, such as a `tags` that is not a list. A
  * `searchType` reaches the constructor as given, so one it does not recognise
  * is refused rather than read as `'similarity'`.
  */
@@ -311,20 +391,31 @@ export function createRetriever<V extends AmazonS3Vectors>(
   metadata?: Record<string, unknown>,
   verbose?: boolean,
 ): AmazonS3VectorsRetriever<V> {
+  const scope: StoreScope = {
+    vectorBucketName: store.vectorBucketName,
+    indexName: store.indexName,
+  };
   try {
+    // A number is `k`; anything else is the fields bag, read as every options
+    // bag is read.
+    if (typeof kOrFields !== 'number') {
+      assertOptionsBag(
+        'asRetriever',
+        scope,
+        kOrFields,
+        'The argument, when it is not a number `k`,',
+      );
+    }
     return buildRetriever(store, kOrFields, filter, callbacks, tags, metadata, verbose);
   } catch (error: unknown) {
-    throw attachOperation(error, 'asRetriever', {
-      vectorBucketName: store.vectorBucketName,
-      indexName: store.indexName,
-    });
+    throw attachOperation(error, 'asRetriever', scope);
   }
 }
 
-/** {@link createRetriever} without the renaming: the two argument shapes resolved into one retriever. */
+/** {@link createRetriever} without the renaming: the two argument shapes, already checked, resolved into one retriever. */
 function buildRetriever<V extends AmazonS3Vectors>(
   store: V,
-  kOrFields: number | AmazonS3VectorsRetrieverFields<V> | undefined,
+  kOrFields: number | AmazonS3VectorsRetrieverFields<V> | null | undefined,
   filter: V['FilterType'] | undefined,
   callbacks: Callbacks | undefined,
   tags: string[] | undefined,
@@ -332,7 +423,7 @@ function buildRetriever<V extends AmazonS3Vectors>(
   verbose: boolean | undefined,
 ): AmazonS3VectorsRetriever<V> {
   const fields: AmazonS3VectorsRetrieverFields<V> =
-    typeof kOrFields === 'number' || kOrFields === undefined ? {} : kOrFields;
+    typeof kOrFields === 'number' ? {} : (kOrFields ?? {});
   // Resolved first, so the object below reads as one rule per option rather than
   // a ternary per line.
   const k = typeof kOrFields === 'number' ? kOrFields : fields.k;

@@ -173,9 +173,21 @@ describe('a nullish argument is refused, not dereferenced', () => {
     expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
   });
 
-  it('asRetriever refuses null fields', () => {
+  it('asRetriever reads null fields as no options, as every options bag does', () => {
     const store = seededStore(createMockEmbeddings());
-    expect(() => store.asRetriever(null as unknown as never)).toThrow();
+    const retriever = store.asRetriever(null as unknown as never);
+    expect(retriever.k).toBe(4);
+    expect(retriever.searchType).toBe('similarity');
+    expect(retriever.tags).toEqual(['amazonS3Vectors']);
+  });
+
+  it('asRetriever refuses a fields argument that is neither a number nor an object', () => {
+    const store = seededStore(createMockEmbeddings());
+    for (const fields of ['k=4', [4], true]) {
+      expect(() => store.asRetriever(fields as unknown as never)).toThrow(
+        expect.objectContaining({ code: S3VectorsErrorCode.VALIDATION }),
+      );
+    }
   });
 });
 

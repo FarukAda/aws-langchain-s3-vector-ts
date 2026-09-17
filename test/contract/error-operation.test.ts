@@ -736,14 +736,15 @@ describe('a retriever invocation names itself, whatever fails underneath', () =>
     expect(mock.calls()).toHaveLength(0);
   });
 
-  it("core's refusal of a non-positive timeout reaches the caller coded, not raw", async () => {
+  it('a timeout core would refuse is refused first, as VALIDATION', async () => {
     const { store } = createTestStore();
     const error = await store
       .asRetriever({ k: 1 })
       .invoke('q', { timeout: 0 })
       .catch((e: unknown) => e);
-    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect(contextOf(error)['operation']).toBe('retriever.invoke');
+    expect((error as Error).cause).toBeUndefined();
   });
 
   it('batch and stream run a failure from inside invoke through it, so they report it too', async () => {
@@ -859,12 +860,43 @@ describe("a retriever's other public methods name themselves", () => {
     expect(contextOf(error)).toEqual({ operation: 'asRetriever', ...BASE_CONFIG });
   });
 
-  it('asRetriever, for a fields argument it cannot read at all', () => {
+  it.each([
+    ['a string', 'k=4'],
+    ['an array', [4]],
+    ['true', true],
+  ])('asRetriever, for a fields argument that is %s', (_label, fields) => {
     const { store } = createTestStore();
-    const error = captureSync(() => store.asRetriever(null as never));
+    const error = captureSync(() => store.asRetriever(fields as never));
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(contextOf(error)).toEqual({ operation: 'asRetriever', ...BASE_CONFIG });
+  });
+
+  it('asRetriever, for a field that throws while the retriever is built', () => {
+    // `tags` is spread into a list, as core's own `asRetriever` spreads it; a
+    // value that is not iterable fails there, and reaches the caller coded.
+    const { store } = createTestStore();
+    const error = captureSync(() => store.asRetriever({ tags: 5 as never }));
     expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
     expect(contextOf(error)).toEqual({ operation: 'asRetriever', ...BASE_CONFIG });
   });
+
+  it.each([
+    ['null', null, 'the fields must be an object (received null).'],
+    ['a string', 'k=4', 'the fields must be an object (received a string).'],
+    [
+      'no vectorStore',
+      {},
+      'fields.vectorStore must be the store to read from (received undefined).',
+    ],
+  ])(
+    'the constructor, for fields it cannot read — %s — naming no store',
+    (_label, fields, detail) => {
+      const error = captureSync(() => new AmazonS3VectorsRetriever(fields as never));
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+      expect(contextOf(error)).toEqual({ operation: 'retriever.constructor' });
+      expect((error as Error).message).toContain(detail);
+    },
+  );
 
   it('the constructor, when a retriever is built directly', () => {
     const { store } = createTestStore();

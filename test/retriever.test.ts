@@ -239,15 +239,38 @@ describe('a config timeout — invoke(query, { timeout })', () => {
     expect(await store.asRetriever({ k: 2 }).invoke('q', { timeout: 500 })).toHaveLength(2);
   });
 
-  it('refuses a non-positive one as core does, coded UNEXPECTED_ERROR', async () => {
+  it('refuses one that is not a whole number of milliseconds from 1 to 2147483647', async () => {
+    // Core refuses 0 and below; Node's `AbortSignal.timeout`, which core calls,
+    // throws for a fraction, NaN or Infinity, and fires after 1 ms for a delay
+    // past 2147483647. All are refused before either sees them.
     const { store, mock } = retrieverStore();
-    const error = await store
-      .asRetriever({ k: 1 })
-      .invoke('q', { timeout: 0 })
-      .catch((e: unknown) => e);
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
-    expect(((error as Error).cause as Error).message).toBe('Timeout must be a positive number');
+    const retriever = store.asRetriever({ k: 1 });
+    for (const [timeout, received] of [
+      [0, '0'],
+      [1.5, '1.5'],
+      [2_147_483_648, '2147483648'],
+      ['20', 'a string'],
+    ] as const) {
+      const error = await retriever
+        .invoke('q', { timeout: timeout as number })
+        .catch((e: unknown) => e);
+      expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+      expect((error as Error).message).toBe(
+        'timeout must be a whole number of milliseconds from 1 to 2147483647 ' +
+          `(received ${received}).`,
+      );
+    }
     expect(mock.calls()).toHaveLength(0);
+  });
+
+  it('accepts the bounds, and an absent timeout', async () => {
+    const { store } = retrieverStore();
+    const retriever = store.asRetriever({ k: 2 });
+    // An explicit `undefined` is what an untyped caller's absent option often is.
+    const absent = { timeout: undefined } as never;
+    for (const config of [{ timeout: 1_000 }, { timeout: 2_147_483_647 }, {}, absent]) {
+      expect(await retriever.invoke('q', config)).toHaveLength(2);
+    }
   });
 });
 
@@ -282,6 +305,18 @@ describe('a retriever is checked when it is built', () => {
     expect(() => store.asRetriever({ searchType: 7 as never })).toThrow(
       `searchType must be 'similarity' or 'mmr' (received 7).`,
     );
+  });
+
+  it('refuses an MMR searchKwargs that is not an object, and reads null as none', () => {
+    const { store } = retrieverStore();
+    for (const searchKwargs of ['fetchK=5', 5, [5]]) {
+      expect(() =>
+        store.asRetriever({ searchType: 'mmr', searchKwargs: searchKwargs as never }),
+      ).toThrow('`searchKwargs` must be an object');
+    }
+    expect(
+      store.asRetriever({ searchType: 'mmr', searchKwargs: null as never }).searchKwargs,
+    ).toBeNull();
   });
 });
 

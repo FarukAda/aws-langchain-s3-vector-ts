@@ -6,7 +6,7 @@
 
 # Class: AmazonS3VectorsRetriever\<V\>
 
-Defined in: [retriever.ts:87](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L87)
+Defined in: [retriever.ts:159](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L159)
 
 The retriever [AmazonS3Vectors.asRetriever](AmazonS3Vectors.md#asretriever) returns.
 
@@ -52,7 +52,7 @@ retriever was built.
 
 > **new AmazonS3VectorsRetriever**\<`V`\>(`fields`): `AmazonS3VectorsRetriever`\<`V`\>
 
-Defined in: [retriever.ts:116](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L116)
+Defined in: [retriever.ts:190](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L190)
 
 #### Parameters
 
@@ -73,12 +73,14 @@ The retriever. Constructing one issues no request.
 #### Throws
 
 `VALIDATION`, naming `retriever.constructor` as
-its operation, for a field no search this retriever runs could accept:
-a `searchType` other than `'similarity'` or `'mmr'`; then, by the checks
-the search that type dispatches to applies itself, `k` (with `fetchK` and
-`lambda` from `searchKwargs` for `'mmr'`) and `filter`; then a `signal`
-that is not an `AbortSignal`. A signal that has already fired is not
-refused here: it is `ABORTED` when the retriever runs.
+its operation. First, naming no bucket or index, for `fields` that are not
+an object or whose `vectorStore` is not one. Then, naming the store's, for
+a field no search this retriever runs could accept: a `searchType` other
+than `'similarity'` or `'mmr'`; then, by the checks the search that type
+dispatches to applies itself, for `'mmr'` a `searchKwargs` that is not an
+object (`null` means none), `k`, `fetchK` and `lambda`, and for either
+`filter`; then a `signal` that is not an `AbortSignal`. A signal that has
+already fired is not refused here: it is `ABORTED` when the retriever runs.
 
 #### Overrides
 
@@ -90,7 +92,7 @@ refused here: it is `ABORTED` when the retriever runs.
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [retriever.ts:101](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L101)
+Defined in: [retriever.ts:173](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L173)
 
 The field signal: threaded into every AWS request this retriever makes.
 
@@ -104,7 +106,7 @@ from the property being absent.
 
 > **\_getRelevantDocuments**(`query`, `runManager?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: [retriever.ts:271](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L271)
+Defined in: [retriever.ts:348](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L348)
 
 Core's extension point, overridden only to thread the field signal.
 
@@ -149,7 +151,7 @@ search it dispatches to (`similaritySearch` or
 
 > **addDocuments**(`documents`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [retriever.ts:245](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L245)
+Defined in: [retriever.ts:322](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L322)
 
 Add documents to the store this retriever reads from.
 
@@ -200,7 +202,7 @@ with its code, cause, context and stack unchanged.
 
 > **invoke**(`input`, `options?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: [retriever.ts:207](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L207)
+Defined in: [retriever.ts:283](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L283)
 
 Run the retriever, honouring a config signal and timeout as far as core
 allows.
@@ -220,8 +222,10 @@ The query text
 Core's runnable config. `options.signal` ends **this
 invocation**: already fired, nothing is embedded or requested; fired
 mid-query, the invocation rejects `ABORTED` while the request in flight
-completes. A positive `options.timeout` ends it the same way once that many
-milliseconds have passed. To cancel the request itself, pass `signal` to
+completes. `options.timeout`, when present, must be a whole number of
+milliseconds from 1 to 2,147,483,647 — the longest delay Node's timers
+honour — and ends the invocation the same way once that many milliseconds
+have passed. To cancel the request itself, pass `signal` to
 [AmazonS3Vectors.asRetriever](AmazonS3Vectors.md#asretriever) instead.
 
 #### Returns
@@ -234,16 +238,15 @@ The retrieved documents
 
 Every error names `retriever.invoke` as its
 operation. Before anything is embedded or requested, in this order:
-`VALIDATION` for a query that is not a string, or a config `signal` that is
-not an `AbortSignal`; `UNEXPECTED_ERROR` for a non-positive `timeout`, which
-core refuses, with core's error as the cause; `ABORTED` for a config signal
-that has already fired. Then `ABORTED` when the config signal fires or the
-timeout passes mid-query, with the signal's reason — a `TimeoutError` for
-the timeout — as the cause; otherwise whatever the underlying search
-raises, with its code, cause, `awsCommand` and stack unchanged. A callback
-handler with `raiseError` set that throws is `UNEXPECTED_ERROR`, with its
-error as the cause. The retriever's own fields were checked when it was
-built.
+`VALIDATION` for a query that is not a string, a `timeout` outside that
+range (`null` included), or a config `signal` that is not an `AbortSignal`;
+`ABORTED` for a config signal that has already fired. Then `ABORTED` when
+the config signal fires or the timeout passes mid-query, with the signal's
+reason — a `TimeoutError` for the timeout — as the cause; otherwise
+whatever the underlying search raises, with its code, cause, `awsCommand`
+and stack unchanged. A callback handler with `raiseError` set that throws
+is `UNEXPECTED_ERROR`, with its error as the cause. The retriever's own
+fields were checked when it was built.
 
 Core's `batch` and `stream` call this method, so a failure raised inside it
 reaches them as described, and `batch` hands it each input's signal and
@@ -262,7 +265,7 @@ signal and timeout itself, rejecting with the signal's reason rather than
 
 > `static` **lc\_name**(): `string`
 
-Defined in: [retriever.ts:90](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L90)
+Defined in: [retriever.ts:162](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L162)
 
 #### Returns
 
