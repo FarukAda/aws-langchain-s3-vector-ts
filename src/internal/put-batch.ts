@@ -6,6 +6,7 @@ import { classifyAwsError } from '../shared/errors/classify.js';
 import { attachContext } from '../shared/errors/decorate.js';
 import { wrapAwsError, type AwsCommand } from '../shared/errors/wrap-error.js';
 import type { AwsOperation, OperationScope } from './operation.js';
+import type { WriteRateLimiter } from './rate-limit.js';
 import type { WriteRecord } from './records.js';
 import type { StoreScope } from './signals.js';
 import { sendOptions } from './signals.js';
@@ -21,6 +22,8 @@ export interface PutBatchOptions extends AwsOperation {
   readonly ensureIndex?: ((dimension: number, signal?: AbortSignal) => Promise<void>) | undefined;
   /** Called when a write reports the index gone, so the next write re-checks. */
   readonly onIndexAbsent: () => void;
+  /** The store's write rate limit, waited on before the request is sent. */
+  readonly rateLimit: WriteRateLimiter;
 }
 
 /**
@@ -88,6 +91,10 @@ export async function putBatch(opts: PutBatchOptions): Promise<void> {
   if (opts.batchOffset === 0 && opts.ensureIndex !== undefined) {
     await opts.ensureIndex(vectors[0]!.length, signal);
   }
+
+  // After the index is ensured — creating one is a control-plane call, and the
+  // rate this waits on is the data plane's.
+  await opts.rateLimit.acquire(records.length, operation, scope, signal);
 
   try {
     await sendAws('PutVectors', { operation, ...scope }, () =>

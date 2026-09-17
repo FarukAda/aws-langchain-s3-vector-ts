@@ -345,6 +345,34 @@ export function failNonFilterableKeys(
 }
 
 /**
+ * `writeRateLimit`: `false`, or an object of positive, finite rates.
+ *
+ * @throws {S3VectorsError} `VALIDATION`. A rate of `0` would stop every write
+ * for ever and a negative or non-finite one has no meaning, so neither is read
+ * as "no limit" — that is what `false` says.
+ */
+function assertWriteRateLimit(value: unknown): void {
+  if (value === undefined || value === false) return;
+  if (!isObjectLike(value)) {
+    fail(
+      'config.writeRateLimit must be an object of rates, or false to turn pacing off ' +
+        `(received ${describeValue(value)}).`,
+    );
+  }
+  for (const option of ['vectorsPerSecond', 'requestsPerSecond'] as const) {
+    const rate: unknown = value[option];
+    if (rate === undefined) continue;
+    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0) {
+      fail(
+        `config.writeRateLimit.${option} must be a positive, finite number of ` +
+          `${option === 'vectorsPerSecond' ? 'vectors' : 'requests'} per second ` +
+          `(received ${describeOption(rate)}). Use false to turn pacing off.`,
+      );
+    }
+  }
+}
+
+/**
  * `relevanceScoreFn`: a function.
  *
  * @throws {S3VectorsError} `VALIDATION`. It is called for every search result,
@@ -482,6 +510,7 @@ export function assertValidConfig(config: AmazonS3VectorsConfig): void {
   assertPageContentKey(config.pageContentMetadataKey);
   assertNonFilterableKeys(config.nonFilterableMetadataKeys);
   assertRelevanceScoreFn(config.relevanceScoreFn);
+  assertWriteRateLimit(config.writeRateLimit);
   assertTags(config.tags);
   assertEncryption(config.encryptionConfiguration);
   assertRegion(config.region);

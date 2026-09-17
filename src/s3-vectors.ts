@@ -26,6 +26,11 @@ import {
   type IndexLifecycle,
 } from './internal/index-lifecycle.js';
 import { putBatch } from './internal/put-batch.js';
+import {
+  createWriteRateLimiter,
+  DEFAULT_WRITE_RATE_LIMIT,
+  type WriteRateLimiter,
+} from './internal/rate-limit.js';
 import type { WriteRecord } from './internal/records.js';
 import { checkAborted } from './internal/signals.js';
 import {
@@ -149,6 +154,13 @@ export class AmazonS3Vectors extends VectorStore {
   readonly tags: Record<string, string> | undefined;
   readonly maxConcurrentBatchCalls: number;
 
+  /**
+   * The rate every write on this store paces against, in AWS's own per-index
+   * units. Shared by every call, because the limit AWS enforces is a rate and
+   * `maxConcurrentBatchCalls` bounds only one call's requests in flight.
+   */
+  readonly #writeRateLimit: WriteRateLimiter;
+
   readonly #relevanceScoreFn: ((distance: number) => number) | undefined;
   readonly #queryEmbeddings: EmbeddingsInterface | undefined;
   readonly #client: S3VectorsClient;
@@ -244,6 +256,17 @@ export class AmazonS3Vectors extends VectorStore {
         `config.maxConcurrentBatchCalls must be a positive integer (received ${renderValue(config.maxConcurrentBatchCalls)}).`,
       );
     }
+    this.#writeRateLimit = createWriteRateLimiter(
+      config.writeRateLimit === false
+        ? false
+        : {
+            vectorsPerSecond:
+              config.writeRateLimit?.vectorsPerSecond ?? DEFAULT_WRITE_RATE_LIMIT.vectorsPerSecond,
+            requestsPerSecond:
+              config.writeRateLimit?.requestsPerSecond ??
+              DEFAULT_WRITE_RATE_LIMIT.requestsPerSecond,
+          },
+    );
     this.#relevanceScoreFn = config.relevanceScoreFn;
     this.#queryEmbeddings = config.queryEmbeddings;
 
@@ -802,6 +825,7 @@ export class AmazonS3Vectors extends VectorStore {
       client: this.#client,
       ...(params as { ids: string[] }),
       maxConcurrent: this.maxConcurrentBatchCalls,
+      rateLimit: this.#writeRateLimit,
       ...this.#scope,
     });
   }
@@ -1187,6 +1211,7 @@ export class AmazonS3Vectors extends VectorStore {
       onIndexAbsent: () => {
         this.#lifecycle.markAbsent();
       },
+      rateLimit: this.#writeRateLimit,
       signal,
       ...this.#scope,
     });

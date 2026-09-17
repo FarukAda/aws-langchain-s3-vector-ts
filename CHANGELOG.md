@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`writeRateLimit`: writes are paced to AWS's per-index limits.** S3 Vectors
+  allows up to 1,000 `PutVectors`/`DeleteVectors` requests and 2,500 vectors a
+  second per index, and nothing here bounded either: `maxConcurrentBatchCalls`
+  caps one call's requests in flight, so eight concurrent writes on one store
+  had eighty. Measured against the live service, eight concurrent `addVectors`
+  of 25,000 vectors ran at 18,078 vectors/s, drew 120
+  `TooManyRequestsException`s and failed **every** call with 63,800 of 200,000
+  vectors written. Every store now paces its writes and deletes against one
+  shared budget in those two units, defaulting to AWS's own numbers; the same
+  load then wrote all 200,000 vectors with no failures and no throttling at
+  all. Two alternatives were measured on that load and neither worked: a
+  store-wide cap of ten requests in flight still ran at 6,937 vectors/s and
+  failed every call, and the SDK's `adaptive` retry mode fell to 774 vectors/s
+  and still failed every call — a concurrency cap does not bound a rate
+  (`docs/evidence/write-rate.md`). Set `writeRateLimit` to raise the rates if
+  you have measured your own headroom, or to `false` to pace nothing.
+
 - **`flattenMetadata`, for documents a loader or splitter produced.** S3 Vectors
   stores no nested object, no `null`, no empty array and no mixed array — under
   a non-filterable key just as much as a filterable one, measured against the

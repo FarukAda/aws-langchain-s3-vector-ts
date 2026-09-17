@@ -2,6 +2,7 @@ import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
 import { putBatch, sendAws } from '../../src/internal/put-batch.js';
+import { createWriteRateLimiter } from '../../src/internal/rate-limit.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { createMockClient, sendOptionsOf } from '../helpers.js';
 
@@ -38,6 +39,7 @@ function setup() {
       onIndexAbsent: () => {
         absent.push(1);
       },
+      rateLimit: createWriteRateLimiter(false),
       ...SCOPE,
       ...more,
     });

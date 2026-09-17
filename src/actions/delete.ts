@@ -5,6 +5,7 @@ import { assertBatchSize, assertIsArray, validationError } from '../internal/gua
 import { assertIdsWellFormed } from '../internal/ids.js';
 import type { BatchedOperation } from '../internal/operation.js';
 import { sendAws } from '../internal/put-batch.js';
+import type { WriteRateLimiter } from '../internal/rate-limit.js';
 import { checkAborted, sendOptions } from '../internal/signals.js';
 import type { StoreScope } from '../internal/signals.js';
 import { chunk } from '../shared/batching.js';
@@ -16,6 +17,12 @@ const DEFAULT_DELETE_BATCH_SIZE = 500;
 export interface DeleteOptions extends Omit<BatchedOperation, 'operation'> {
   /** The vector ids to delete. Required, and never a stand-in for "all of them". */
   readonly ids: string[];
+  /**
+   * The store's write rate limit. `DeleteVectors` spends the same per-index
+   * budget as `PutVectors` — AWS counts them together — so it waits on the
+   * same limiter.
+   */
+  readonly rateLimit: WriteRateLimiter;
 }
 
 /**
@@ -96,19 +103,21 @@ export async function deleteVectors(opts: DeleteOptions): Promise<void> {
   const deletedIds: string[] = [];
   for (const group of chunk(chunk(ids, batchSize), opts.maxConcurrent)) {
     await settleGroup(
-      group.map(
-        (batchIds) => () =>
-          sendAws('DeleteVectors', { operation: 'delete', ...scope }, () =>
-            opts.client.send(
-              new DeleteVectorsCommand({
-                vectorBucketName: opts.vectorBucketName,
-                indexName: opts.indexName,
-                keys: batchIds,
-              }),
-              sendOptions(signal),
-            ),
-          ).then(() => batchIds),
-      ),
+      group.map((batchIds) => async (): Promise<string[]> => {
+        // The store's write budget, spent by deletes and writes alike.
+        await opts.rateLimit.acquire(batchIds.length, 'delete', scope, signal);
+        await sendAws('DeleteVectors', { operation: 'delete', ...scope }, () =>
+          opts.client.send(
+            new DeleteVectorsCommand({
+              vectorBucketName: opts.vectorBucketName,
+              indexName: opts.indexName,
+              keys: batchIds,
+            }),
+            sendOptions(signal),
+          ),
+        );
+        return batchIds;
+      }),
       { operation: 'delete', key: 'deletedIds', ...scope },
       deletedIds,
     );

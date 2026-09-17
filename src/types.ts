@@ -130,6 +130,30 @@ export interface AmazonS3VectorsConfig {
   readonly maxConcurrentBatchCalls?: number;
 
   /**
+   * How fast this store may write, in the two units AWS counts per vector
+   * index: vectors written or deleted per second, and `PutVectors` plus
+   * `DeleteVectors` calls per second. Shared by every call on the store, so
+   * concurrent writes pace against one budget rather than each other.
+   *
+   * Defaults to AWS's own documented limits — 2,500 vectors/s and 1,000
+   * requests/s — and `false` turns pacing off entirely.
+   *
+   * This exists because the limit AWS enforces is a *rate*, and nothing else
+   * here bounds one: `maxConcurrentBatchCalls` bounds the requests one call
+   * keeps in flight, so eight concurrent writes had eight times that. Measured
+   * against the live service, eight concurrent `addVectors` of 25,000 vectors
+   * with no limiter sent 18,078 vectors/s, drew 120 `TooManyRequestsException`s
+   * and failed **every** call with two thirds of the vectors unwritten; the
+   * same load paced by this wrote all of them without a single throttle. AWS
+   * tolerates a burst above the documented rate, so raise these if you have
+   * measured your own headroom — a single writer reached 6,026 vectors/s
+   * untouched — and lower them to share an index with another workload.
+   *
+   * @defaultValue `{ vectorsPerSecond: 2500, requestsPerSecond: 1000 }`
+   */
+  readonly writeRateLimit?: { vectorsPerSecond?: number; requestsPerSecond?: number } | false;
+
+  /**
    * Converts a raw distance into a relevance score, for
    * `similaritySearchWithRelevanceScores` and the retriever's score
    * threshold. Nothing else uses it: `similaritySearchWithScore` returns the
