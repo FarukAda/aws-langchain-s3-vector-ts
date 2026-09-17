@@ -82,6 +82,20 @@ describe('attachPartialIds', () => {
     expect(decorated.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
   });
 
+  it('does not present a caller-code failure as an AWS one just because it carries a network error code', () => {
+    // Whatever reaches `normalizeToS3VectorsError`'s wrapping branch came from
+    // caller-supplied code (an `embedDocuments` that threw), never an
+    // unwrapped AWS request failure — every AWS call site already wraps its
+    // own failures before they can reach here. A bare `ENOTFOUND` from the
+    // embeddings provider's own client must not pick up `awsErrorName`/
+    // `retryable` as if the AWS request itself had failed that way.
+    const networkError = Object.assign(new Error('getaddrinfo ENOTFOUND x'), { code: 'ENOTFOUND' });
+    const decorated = attachPartialIds(networkError, 'addDocuments', SCOPE, 'writtenIds', []);
+    expect(decorated.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(decorated.context.awsErrorName).toBeUndefined();
+    expect(decorated.context.retryable).toBeUndefined();
+  });
+
   it('keeps the frames of the code that actually failed', () => {
     const base = coded();
     base.stack = 'S3VectorsError: original failed\n    at theRealThrowSite (file.ts:1:1)';

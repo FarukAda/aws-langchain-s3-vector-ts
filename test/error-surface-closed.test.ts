@@ -36,6 +36,18 @@ function failingEmbeddings(message = 'embed down'): EmbeddingsInterface {
   };
 }
 
+/** An embeddings model that throws a given value instead of resolving. */
+function embeddingsThrowing(error: unknown): EmbeddingsInterface {
+  return {
+    embedDocuments: async () => {
+      throw error;
+    },
+    embedQuery: async () => {
+      throw error;
+    },
+  };
+}
+
 function seededStore(embeddings: EmbeddingsInterface, extra = {}): AmazonS3Vectors {
   const { client, mock } = createMockClient();
   mock.on(GetIndexCommand).resolves({ index: indexFixture() });
@@ -100,6 +112,46 @@ describe('an embeddings failure is coded on every read path, as it already is on
     });
     const error = await codedFailure(async () => store.similaritySearchWithRelevanceScores('q', 1));
     expect(error.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+  });
+});
+
+describe('a caller-code failure never picks up AWS diagnostics it did not earn', () => {
+  it('a network-coded embeddings failure through similaritySearch has no awsErrorName or retryable', async () => {
+    const networkError = Object.assign(new Error('getaddrinfo ENOTFOUND x'), { code: 'ENOTFOUND' });
+    const error = await codedFailure(async () =>
+      seededStore(embeddingsThrowing(networkError)).similaritySearch('q', 2),
+    );
+    expect(error.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(error.context.awsErrorName).toBeUndefined();
+    expect(error.context.retryable).toBeUndefined();
+  });
+
+  it('a network-coded embeddings failure through addDocuments has no awsErrorName or retryable', async () => {
+    const networkError = Object.assign(new Error('getaddrinfo ENOTFOUND x'), { code: 'ENOTFOUND' });
+    const error = await codedFailure(async () =>
+      seededStore(embeddingsThrowing(networkError)).addDocuments([
+        new Document({ pageContent: 'a' }),
+      ]),
+    );
+    expect(error.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(error.context.awsErrorName).toBeUndefined();
+    expect(error.context.retryable).toBeUndefined();
+  });
+
+  it('a thrown …Exception with $metadata from a model still carries AWS diagnostics', async () => {
+    // An AWS-SDK-based embeddings model (Bedrock, say) can legitimately throw
+    // one of these — unlike a bare Node.js system error code, this is
+    // genuinely about AWS either way, so it is still reported.
+    const sdkShaped = Object.assign(new Error('throttled'), {
+      name: 'ThrottlingException',
+      $metadata: { httpStatusCode: 429 },
+    });
+    const error = await codedFailure(async () =>
+      seededStore(embeddingsThrowing(sdkShaped)).similaritySearch('q', 2),
+    );
+    expect(error.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(error.context.awsErrorName).toBe('ThrottlingException');
+    expect(error.context.retryable).toBe(true);
   });
 });
 

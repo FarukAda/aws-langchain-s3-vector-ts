@@ -1,11 +1,10 @@
 import type { StoreScope } from '../../internal/signals.js';
-import { S3VectorsErrorCode } from './error-code.js';
 import {
   isS3VectorsError,
   S3VectorsError,
   type S3VectorsErrorContext,
 } from './s3-vectors-error.js';
-import { wrapAwsError } from './wrap-error.js';
+import { wrapCallerError } from './wrap-error.js';
 
 /**
  * Normalise `error` into an `S3VectorsError`, unchanged if it already is one.
@@ -21,19 +20,23 @@ import { wrapAwsError } from './wrap-error.js';
  * Guarantees: total. Every input yields an `S3VectorsError`, which is what lets
  * every decorator below assume one.
  *
- * `UNEXPECTED_ERROR` rather than `AWS_REQUEST_FAILED`: every AWS call in this
- * package already wraps its own failures, so a value reaching the wrapping
- * branch here came from caller-supplied code (an `embedDocuments` that threw) or
- * from input that bypassed validation. Neither is "an AWS request failed".
+ * `wrapCallerError`, not `wrapAwsError`: every AWS call in this package
+ * already wraps its own failures before they reach one of this file's
+ * callers (`settleGroup`/`writeFirstBatch` see only an already-wrapped
+ * `S3VectorsError` from a failed `PutVectors`/`DeleteVectors`, which the
+ * `isS3VectorsError` check above returns unchanged), so a value reaching the
+ * wrapping branch here came from caller-supplied code (an `embedDocuments`
+ * that threw) or from input that bypassed validation — never a bare AWS SDK
+ * error. Neither is "an AWS request failed", and neither should pick up
+ * `awsErrorName`/`retryable` from a Node.js system error code that happens to
+ * match one of the SDK's own.
  */
 function normalizeToS3VectorsError(
   error: unknown,
   operation: string,
   scope: StoreScope,
 ): S3VectorsError {
-  return isS3VectorsError(error)
-    ? error
-    : wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, { operation, ...scope });
+  return isS3VectorsError(error) ? error : wrapCallerError(error, { operation, ...scope });
 }
 
 /**

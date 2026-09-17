@@ -97,11 +97,18 @@ export interface S3VectorsErrorContext {
    * can branch on it without walking `cause`.
    *
    * Set on **every** error whose cause is AWS-shaped — one carrying the SDK's
-   * `$metadata`, or named for a service exception — whatever code that error
-   * was given. So `AWS_REJECTED` carries `"ValidationException"` and `THROTTLED`
-   * carries `"TooManyRequestsException"`, not only the two codes this field was
-   * once documented as being limited to. Absent when the failure did not come
-   * from AWS: a validation error, or an embeddings model that threw.
+   * `$metadata`, named for a service exception, or — for a failed AWS
+   * request only, never for a failure from caller-supplied code — a refused,
+   * reset or unreachable connection, classified by its Node.js system error
+   * `code` the same way the SDK's own retry strategy classifies it (it keeps
+   * whatever `name` Node gave it, typically `"Error"`) — whatever code that
+   * error was given. So `AWS_REJECTED` carries `"ValidationException"` and
+   * `THROTTLED` carries `"TooManyRequestsException"`, not only the two codes
+   * this field was once documented as being limited to. Absent when the
+   * failure did not come from an AWS request: a validation error, or an
+   * embeddings model or `relevanceScoreFn` that threw — even one that threw a
+   * bare `ECONNREFUSED` of its own, which has nothing to do with AWS and must
+   * not be reported as if it did.
    */
   readonly awsErrorName?: string;
   /** HTTP status of the failed AWS response (`cause.$metadata.httpStatusCode`), when known. */
@@ -116,14 +123,18 @@ export interface S3VectorsErrorContext {
    * throttling (`TooManyRequestsException`, HTTP 429), transient service errors
    * (`ServiceUnavailableException`, `InternalServerException`,
    * `RequestTimeoutException`, HTTP 5xx), a `TimeoutError` from the SDK's own
-   * HTTP handler, a refused, reset or unreachable connection (classified by
-   * `code` the same way the SDK's own retry strategy classifies it), and
-   * anything the SDK itself marked `$retryable`.
+   * HTTP handler, a refused, reset or unreachable connection **on an AWS
+   * request** (classified by `code` the same way the SDK's own retry
+   * strategy classifies it), and anything the SDK itself marked `$retryable`.
    *
    * Set alongside {@link awsErrorName}, on any AWS-shaped cause and whatever
    * code the error was given — `false` is a real answer and means "this will
    * fail again", which is the point. Absent when the failure did not come from
-   * AWS at all.
+   * an AWS request at all: a validation error, or caller-supplied code (an
+   * embeddings model, a `relevanceScoreFn`) that threw — including one that
+   * threw a bare Node.js system error code of its own, over a connection that
+   * has nothing to do with AWS. Reporting a verdict for that would send a
+   * caller retrying against the wrong service.
    *
    * Note the SDK's own retry strategy (3 attempts by default) has usually
    * already run before an error reaches this library, so `retryable: true`

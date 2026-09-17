@@ -1,5 +1,5 @@
 import { renderValue } from '../describe.js';
-import { SDK_TIMEOUT_ERROR_NAME, SDK_TRANSIENT_NETWORK_ERROR_CODES } from './classify.js';
+import { isTransientNetworkFailure, SDK_TIMEOUT_ERROR_NAME } from './classify.js';
 import { S3VectorsErrorCode } from './error-code.js';
 import {
   isS3VectorsError,
@@ -107,24 +107,30 @@ function metadataOf(candidate: { $metadata?: unknown }): AwsMetadata | undefined
 /**
  * Whether a failed AWS call is worth retrying after a backoff.
  *
+ * @param isTransientNetwork Whether {@link isTransientNetworkFailure} already
+ * said the cause is a refused, reset or unreachable connection — computed
+ * once by the caller (`awsDiagnostics`), which alone knows whether the
+ * network-code rule applies here at all (an AWS request site) or not (caller
+ * code). Taking the verdict rather than the raw cause is what keeps this
+ * function from being a second place that rule could be mis-applied.
+ *
  * @returns `true` when the SDK marked it retryable, when the exception name is
  * one of the documented transient ones, when the status is 429 or 5xx, or when
- * the error's `code` is one of {@link SDK_TRANSIENT_NETWORK_ERROR_CODES} — a
- * refused, reset or unreachable connection, classified the same way the SDK's
- * own retry strategy classifies it. The SDK's own strategy has usually already
+ * `isTransientNetwork` is `true`. The SDK's own strategy has usually already
  * retried these, so `true` here means those attempts were exhausted.
  */
 function isRetryable(
-  candidate: { $retryable?: unknown; code?: unknown },
+  candidate: { $retryable?: unknown },
   name: string | undefined,
   httpStatusCode: number | undefined,
+  isTransientNetwork: boolean,
 ): boolean {
   return (
     candidate.$retryable !== undefined ||
     (name !== undefined && RETRYABLE_AWS_ERROR_NAMES.has(name)) ||
     httpStatusCode === 429 ||
     (httpStatusCode !== undefined && httpStatusCode >= 500) ||
-    (typeof candidate.code === 'string' && SDK_TRANSIENT_NETWORK_ERROR_CODES.has(candidate.code))
+    isTransientNetwork
   );
 }
 
@@ -134,21 +140,33 @@ function isRetryable(
  * {@link S3VectorsErrorContext} instead of only being reachable by walking
  * `cause`. Every read is shape-checked.
  *
+ * @param includeNetworkCodes Whether a bare Node.js system error `code`
+ * ({@link isTransientNetworkFailure}) counts as an AWS-shaped failure here.
+ * `true` only for an AWS request site (`wrapAwsError`), where a refused,
+ * reset or unreachable connection really did come from the SDK's own HTTP
+ * layer. `false` for caller code (`wrapCallerError`) — an embeddings
+ * provider's own client can raise the exact same codes over a connection
+ * that has nothing to do with AWS, and reporting `awsErrorName`/`retryable`
+ * for that would send a caller retrying the wrong thing. `$metadata`, a
+ * declared `…Exception` name and the SDK's own `TimeoutError` are always
+ * AWS-shaped regardless — an AWS-SDK-based model (Bedrock embeddings, say)
+ * can legitimately throw one of those.
+ *
  * Only an AWS-shaped cause contributes anything: one carrying the SDK's
  * `$metadata`, one whose name follows the service-exception convention
- * (`…Exception`), or one whose `code` is a Node.js system error the SDK's own
- * retry strategy treats as transient (a refused, reset or unreachable
- * connection). A plain `TypeError` from caller code, or an `AbortError`, is
- * not an AWS error and must not be presented as one.
+ * (`…Exception`), the SDK's own `TimeoutError`, or — only when
+ * `includeNetworkCodes` is `true` — one whose `code` is a Node.js system
+ * error the SDK's own retry strategy treats as transient. A plain `TypeError`
+ * from caller code, or an `AbortError`, is not an AWS error and must not be
+ * presented as one.
  */
-function awsDiagnostics(cause: unknown): AwsDiagnostics {
+function awsDiagnostics(cause: unknown, includeNetworkCodes: boolean): AwsDiagnostics {
   if (typeof cause !== 'object' || cause === null) return {};
   const candidate = cause as {
     name?: unknown;
     $metadata?: unknown;
     $retryable?: unknown;
     fieldList?: unknown;
-    code?: unknown;
   };
   const name = typeof candidate.name === 'string' ? candidate.name : undefined;
   const metadata = metadataOf(candidate);
@@ -160,14 +178,15 @@ function awsDiagnostics(cause: unknown): AwsDiagnostics {
   // with a socket timeout now applied by default it is one callers will
   // actually see, so it has to arrive carrying a retryability verdict.
   // A refused, reset or unreachable connection carries neither `$metadata` nor
-  // a recognised name either — it keeps whatever name Node gave it — but its
-  // `code` is one the SDK's own retry strategy treats as transient, so it gets
-  // the same treatment.
-  const isTransientNetworkError =
-    typeof candidate.code === 'string' && SDK_TRANSIENT_NETWORK_ERROR_CODES.has(candidate.code);
+  // a recognised name either — it keeps whatever name Node gave it — but at an
+  // AWS request site its `code` is one the SDK's own retry strategy treats as
+  // transient, so it gets the same treatment there. `isTransientNetworkFailure`
+  // is the one place that decides which errors qualify, so it — not a second
+  // copy of its conditions — is what `includeNetworkCodes` gates.
+  const isTransientNetwork = includeNetworkCodes && isTransientNetworkFailure(cause);
   const isSdkFailure =
     (name !== undefined && (name.endsWith('Exception') || name === SDK_TIMEOUT_ERROR_NAME)) ||
-    isTransientNetworkError;
+    isTransientNetwork;
   if (metadata === undefined && !isSdkFailure) return {};
 
   const out: {
@@ -186,7 +205,7 @@ function awsDiagnostics(cause: unknown): AwsDiagnostics {
   if (Array.isArray(candidate.fieldList)) {
     out.fieldList = candidate.fieldList as { path?: string; message?: string }[];
   }
-  out.retryable = isRetryable(candidate, name, out.httpStatusCode);
+  out.retryable = isRetryable(candidate, name, out.httpStatusCode, isTransientNetwork);
   return out;
 }
 
@@ -200,10 +219,36 @@ function describeDiagnostics(diagnostics: AwsDiagnostics): string {
 }
 
 /**
+ * Shared implementation behind {@link wrapAwsError} and {@link wrapCallerError}
+ * — one builder, so the two differ only in `code` and in whether the
+ * network-code rule applies, never in how a diagnostic is assembled.
+ */
+function buildWrappedError(
+  cause: unknown,
+  code: S3VectorsErrorCode,
+  context: S3VectorsErrorContext,
+  includeNetworkCodes: boolean,
+): S3VectorsError {
+  if (isS3VectorsError(cause)) return cause;
+  const diagnostics = awsDiagnostics(cause, includeNetworkCodes);
+  const message = `${context.operation} failed${describeDiagnostics(diagnostics)}: ${toError(cause).message}`;
+  // `toError`, not the raw value: the class documents that `cause` is always
+  // an Error when present, so a caller may read `error.cause.message` without
+  // first checking what was actually thrown. A client rejecting with a string,
+  // a number or null is legal JavaScript and made that false.
+  return new S3VectorsError(message, code, { ...context, ...diagnostics }, toError(cause));
+}
+
+/**
  * Wrap an unknown AWS failure into a coded {@link S3VectorsError}.
  *
  * Accepts: any thrown value, the code to assign it (chosen by
- * `classifyAwsError`), and the context to record.
+ * `classifyAwsError`), and the context to record. For an AWS request site
+ * only — one where a bare Node.js system error `code`
+ * ({@link isTransientNetworkFailure}) genuinely means the SDK's own HTTP
+ * layer failed. Caller-supplied code (an embeddings model, a
+ * `relevanceScoreFn`) must use {@link wrapCallerError} instead, which never
+ * applies that rule.
  *
  * Returns: the value unchanged when it is already an {@link S3VectorsError},
  * so the layer nearest the failure keeps ownership of its message and class;
@@ -223,12 +268,38 @@ export function wrapAwsError(
   code: S3VectorsErrorCode,
   context: S3VectorsErrorContext,
 ): S3VectorsError {
-  if (isS3VectorsError(cause)) return cause;
-  const diagnostics = awsDiagnostics(cause);
-  const message = `${context.operation} failed${describeDiagnostics(diagnostics)}: ${toError(cause).message}`;
-  // `toError`, not the raw value: the class documents that `cause` is always
-  // an Error when present, so a caller may read `error.cause.message` without
-  // first checking what was actually thrown. A client rejecting with a string,
-  // a number or null is legal JavaScript and made that false.
-  return new S3VectorsError(message, code, { ...context, ...diagnostics }, toError(cause));
+  return buildWrappedError(cause, code, context, true);
+}
+
+/**
+ * Wrap a failure from caller-supplied code — an embeddings model, a
+ * `relevanceScoreFn` — into a coded {@link S3VectorsError}. Always
+ * `UNEXPECTED_ERROR`: every AWS request site in this package already wraps
+ * its own failures with {@link wrapAwsError} before they can reach a
+ * caller-code call site's own `catch`, so a value reaching this function came
+ * from outside AWS.
+ *
+ * Accepts: any thrown value, and the context to record.
+ *
+ * Returns: the value unchanged when it is already an {@link S3VectorsError} —
+ * an `EMBEDDINGS_MISSING` raised by a model lookup, say, passes through this
+ * way; otherwise a new `UNEXPECTED_ERROR` carrying the original as `cause`.
+ *
+ * Unlike {@link wrapAwsError}, a bare Node.js system error `code`
+ * ({@link isTransientNetworkFailure}) is never treated as an AWS diagnostic
+ * here: caller code can raise the exact same codes — `ECONNREFUSED`,
+ * `ENOTFOUND` — over a connection that has nothing to do with AWS, an
+ * embeddings provider's own HTTP client refusing its own endpoint, say, and
+ * reporting `awsErrorName`/`retryable` for that would send a caller retrying
+ * against the wrong service. `$metadata`, a declared `…Exception` name and
+ * the SDK's own `TimeoutError` are still recognised, because an
+ * AWS-SDK-based model (Bedrock embeddings, say) can legitimately throw one of
+ * those, and that diagnostic is genuinely about AWS either way.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: total.
+ */
+export function wrapCallerError(cause: unknown, context: S3VectorsErrorContext): S3VectorsError {
+  return buildWrappedError(cause, S3VectorsErrorCode.UNEXPECTED_ERROR, context, false);
 }

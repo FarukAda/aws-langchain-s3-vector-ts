@@ -1,6 +1,9 @@
 import { describe, it, expect } from '@jest/globals';
 
-import { classifyAwsError } from '../../../src/shared/errors/classify.js';
+import {
+  classifyAwsError,
+  isTransientNetworkFailure,
+} from '../../../src/shared/errors/classify.js';
 import { S3VectorsErrorCode } from '../../../src/shared/errors/error-code.js';
 
 /**
@@ -131,5 +134,44 @@ describe('classifyAwsError', () => {
       code: 'ECONNREFUSED',
     });
     expect(classifyAwsError(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+  });
+});
+
+/**
+ * `isTransientNetworkFailure` is the one place the precedence for the
+ * network-code rule is decided — `classifyAwsError`'s final branch, and
+ * `wrap-error.ts`'s `isRetryable`/`awsDiagnostics`, all call it rather than
+ * re-deriving any of it. Its own callers never pass it a non-object (both
+ * guard before calling), so that branch is only reachable by calling it
+ * directly, which is what makes it worth testing as its own unit rather than
+ * only through `classifyAwsError`.
+ */
+describe('isTransientNetworkFailure', () => {
+  it.each([[null], [undefined], ['ECONNREFUSED'], [42]])(
+    'is false for a non-object value (%p), so it stays total',
+    (value) => {
+      expect(isTransientNetworkFailure(value)).toBe(false);
+    },
+  );
+
+  it('is false for an abort, even one carrying a transient network code', () => {
+    const error = Object.assign(new Error('aborted'), { name: 'AbortError', code: 'ECONNRESET' });
+    expect(isTransientNetworkFailure(error)).toBe(false);
+  });
+
+  it("is false for the SDK's own TimeoutError name", () => {
+    const error = Object.assign(new Error('socket hang up'), {
+      name: 'TimeoutError',
+      code: 'ECONNRESET',
+    });
+    expect(isTransientNetworkFailure(error)).toBe(false);
+  });
+
+  it('is false for a declared service exception name, even one carrying a transient network code', () => {
+    const error = Object.assign(new Error('denied'), {
+      name: 'AccessDeniedException',
+      code: 'ECONNREFUSED',
+    });
+    expect(isTransientNetworkFailure(error)).toBe(false);
   });
 });

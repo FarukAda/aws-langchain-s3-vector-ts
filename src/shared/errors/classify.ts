@@ -32,7 +32,7 @@ export const SDK_TIMEOUT_ERROR_NAME = 'TimeoutError';
  * other five, including `ECONNREFUSED`, reach this library as a plain `Error`
  * carrying the code but keeping its own `name`, which is what this set is for.
  */
-export const SDK_TRANSIENT_NETWORK_ERROR_CODES: ReadonlySet<string> = new Set([
+const SDK_TRANSIENT_NETWORK_ERROR_CODES: ReadonlySet<string> = new Set([
   'ECONNRESET',
   'ECONNREFUSED',
   'EPIPE',
@@ -66,6 +66,39 @@ const BY_NAME: Readonly<Record<string, S3VectorsErrorCode>> = {
 };
 
 /**
+ * Whether `error` is a Node.js system error the SDK's own retry strategy
+ * treats as transient by `code` alone, regardless of `name`.
+ *
+ * Accepts: any thrown value.
+ *
+ * Returns: `true` only when `error` is object-shaped, is not an abort — the
+ * caller cancelled, so nothing failed — did not get the
+ * {@link SDK_TIMEOUT_ERROR_NAME} rename, does not carry a declared service
+ * exception name ({@link BY_NAME}: a service error that happens to wrap a
+ * network `code` stays whatever its own name says it is), and its `code` is
+ * one of {@link SDK_TRANSIENT_NETWORK_ERROR_CODES}. `false` for everything
+ * else, including a non-object.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: this is the one place that precedence is decided.
+ * {@link classifyAwsError}'s final branch, and `wrap-error.ts`'s
+ * `isRetryable` and `awsDiagnostics`, all call this rather than re-deriving
+ * any of it — so a declared exception name or an abort can never pick up
+ * retryability or AWS diagnostics through the network-code path by accident,
+ * even though `wrap-error.ts` sees the raw cause independently of whatever
+ * code `classifyAwsError` already assigned it.
+ */
+export function isTransientNetworkFailure(error: unknown): boolean {
+  if (isAbortError(error)) return false;
+  if (typeof error !== 'object' || error === null) return false;
+  const { name, code } = error as { name?: unknown; code?: unknown };
+  if (name === SDK_TIMEOUT_ERROR_NAME) return false;
+  if (Object.hasOwn(BY_NAME, name as string)) return false;
+  return typeof code === 'string' && SDK_TRANSIENT_NETWORK_ERROR_CODES.has(code);
+}
+
+/**
  * The error class an AWS failure belongs to.
  *
  * Accepts: any thrown value. A value that is not a recognised AWS exception,
@@ -91,10 +124,10 @@ export function classifyAwsError(error: unknown): S3VectorsErrorCode {
   // A non-string `name` needs no guard of its own: `Object.hasOwn` coerces the
   // key and finds nothing, so it falls through to the code check like any
   // other unrecognised value.
-  const { name, code } = error as { name?: unknown; code?: unknown };
+  const { name } = error as { name?: unknown };
   if (name === SDK_TIMEOUT_ERROR_NAME) return S3VectorsErrorCode.SERVICE_UNAVAILABLE;
   if (Object.hasOwn(BY_NAME, name as string)) return BY_NAME[name as string] as S3VectorsErrorCode;
-  return typeof code === 'string' && SDK_TRANSIENT_NETWORK_ERROR_CODES.has(code)
+  return isTransientNetworkFailure(error)
     ? S3VectorsErrorCode.SERVICE_UNAVAILABLE
     : S3VectorsErrorCode.AWS_REQUEST_FAILED;
 }

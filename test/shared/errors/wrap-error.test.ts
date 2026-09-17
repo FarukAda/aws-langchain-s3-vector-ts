@@ -2,7 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 
 import { S3VectorsErrorCode } from '../../../src/shared/errors/error-code.js';
 import { isS3VectorsError, S3VectorsError } from '../../../src/shared/errors/s3-vectors-error.js';
-import { toError, wrapAwsError } from '../../../src/shared/errors/wrap-error.js';
+import { toError, wrapAwsError, wrapCallerError } from '../../../src/shared/errors/wrap-error.js';
 
 describe('toError', () => {
   it('returns Error values unchanged', () => {
@@ -274,10 +274,80 @@ describe('wrapAwsError', () => {
     expect(err.context.awsErrorName).toBeUndefined();
   });
 
+  it('gives the classification precedence to a declared exception name over a network code it happens to carry', () => {
+    // A service error that happens to wrap a network `code` (a proxy in front
+    // of the AWS endpoint refusing the connection, say) stays whatever its own
+    // name says it is — not retryable, because `AccessDeniedException` is an
+    // IAM problem backoff cannot fix, regardless of `code`.
+    const cause = Object.assign(new Error('denied'), {
+      name: 'AccessDeniedException',
+      code: 'ECONNREFUSED',
+      $metadata: { httpStatusCode: 403 },
+    });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.ACCESS_DENIED, { operation: 'op' });
+    expect(err.context.awsErrorName).toBe('AccessDeniedException');
+    expect(err.context.httpStatusCode).toBe(403);
+    expect(err.context.retryable).toBe(false);
+  });
+
+  it('never lets an abort pick up AWS diagnostics through a network code it happens to carry', () => {
+    // The caller cancelled; nothing failed. An `AbortError` is not
+    // AWS-shaped by any other means either (no `$metadata`, no `…Exception`
+    // name), so this gets no diagnostics at all — not `retryable: false`,
+    // which would still claim an opinion about a request that never failed.
+    const cause = Object.assign(new Error('aborted'), { name: 'AbortError', code: 'ECONNRESET' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.ABORTED, { operation: 'op' });
+    expect(err.context.awsErrorName).toBeUndefined();
+    expect(err.context.retryable).toBeUndefined();
+  });
+
   it('returns an already-S3VectorsError unchanged', () => {
     const original = new S3VectorsError('v', S3VectorsErrorCode.VALIDATION, { operation: 'x' });
     expect(wrapAwsError(original, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'y' })).toBe(
       original,
     );
+  });
+});
+
+describe('wrapCallerError', () => {
+  it('always classifies as UNEXPECTED_ERROR, regardless of what the cause looks like', () => {
+    const err = wrapCallerError(new Error('model blew up'), { operation: 'op' });
+    expect(err.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(err.message).toBe('op failed: model blew up');
+  });
+
+  it('returns an already-S3VectorsError unchanged, e.g. an EMBEDDINGS_MISSING raised by a model lookup', () => {
+    const original = new S3VectorsError('no model', S3VectorsErrorCode.EMBEDDINGS_MISSING, {
+      operation: 'x',
+    });
+    expect(wrapCallerError(original, { operation: 'y' })).toBe(original);
+  });
+
+  it('never applies the network-code rule: a bare refused connection gets no AWS diagnostics', () => {
+    // Caller code — an embeddings provider's own HTTP client, say — can raise
+    // the exact same Node.js system error codes over a connection that has
+    // nothing to do with AWS. Reporting `awsErrorName`/`retryable` for that
+    // would send a caller retrying against the wrong service.
+    const cause = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    const err = wrapCallerError(cause, { operation: 'op' });
+    expect(err.context.awsErrorName).toBeUndefined();
+    expect(err.context.retryable).toBeUndefined();
+  });
+
+  it('still recognises $metadata and a declared …Exception name, for an AWS-SDK-based model', () => {
+    const cause = Object.assign(new Error('throttled'), {
+      name: 'ThrottlingException',
+      $metadata: { httpStatusCode: 429 },
+    });
+    const err = wrapCallerError(cause, { operation: 'op' });
+    expect(err.context.awsErrorName).toBe('ThrottlingException');
+    expect(err.context.retryable).toBe(true);
+  });
+
+  it("still recognises the SDK's own TimeoutError name", () => {
+    const cause = Object.assign(new Error('socket hang up'), { name: 'TimeoutError' });
+    const err = wrapCallerError(cause, { operation: 'op' });
+    expect(err.context.awsErrorName).toBe('TimeoutError');
+    expect(err.context.retryable).toBe(true);
   });
 });

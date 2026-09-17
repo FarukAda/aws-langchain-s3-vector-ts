@@ -37,7 +37,7 @@ import { renderValue, type RecordRef } from './shared/describe.js';
 import { attachInstance } from './shared/errors/decorate.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
-import { wrapAwsError } from './shared/errors/wrap-error.js';
+import { wrapCallerError } from './shared/errors/wrap-error.js';
 import { isObjectLike } from './shared/objects.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
 import {
@@ -1170,16 +1170,13 @@ export class AmazonS3Vectors extends VectorStore {
    * `isS3VectorsError` would miss.
    *
    * An `EMBEDDINGS_MISSING` raised by the lookup passes through unchanged:
-   * `wrapAwsError` returns an error that is already ours.
+   * `wrapCallerError` returns an error that is already ours.
    */
   async #embedQuery(operation: string, query: string): Promise<number[]> {
     try {
       return await this.#getQueryEmbeddings(operation).embedQuery(query);
     } catch (error: unknown) {
-      throw wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, {
-        operation,
-        ...this.#scope,
-      });
+      throw wrapCallerError(error, { operation, ...this.#scope });
     }
   }
 
@@ -1193,7 +1190,7 @@ export class AmazonS3Vectors extends VectorStore {
     try {
       return scoreFn(distance);
     } catch (error: unknown) {
-      throw wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, {
+      throw wrapCallerError(error, {
         operation: 'similaritySearchWithRelevanceScores',
         ...this.#scope,
       });
