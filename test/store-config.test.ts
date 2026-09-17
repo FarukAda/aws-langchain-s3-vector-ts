@@ -132,6 +132,92 @@ describe('nonFilterableMetadataKeys', () => {
   });
 });
 
+/**
+ * D5: merged with `pageContentMetadataKey`, `nonFilterableMetadataKeys` must
+ * fit an index — at most 10 keys, each 1–63 characters. Such a configuration
+ * can never be written to any index, so it is refused here, at construction,
+ * rather than only once a write first creates the index.
+ */
+describe('nonFilterableMetadataKeys, merged with pageContentMetadataKey, must fit an index', () => {
+  const NINE_KEYS = Array.from({ length: 9 }, (_, i) => `key_${i}`);
+  const TEN_KEYS = Array.from({ length: 10 }, (_, i) => `key_${i}`);
+  const ELEVEN_KEYS = Array.from({ length: 11 }, (_, i) => `key_${i}`);
+
+  function buildWithMock(overrides: Record<string, unknown>): {
+    result: unknown;
+    mock: ReturnType<typeof createMockClient>['mock'];
+  } {
+    const { client, mock } = createMockClient();
+    try {
+      const result = new AmazonS3Vectors(createMockEmbeddings(), {
+        ...BASE_CONFIG,
+        client,
+        ...overrides,
+      });
+      return { result, mock };
+    } catch (error: unknown) {
+      return { result: error, mock };
+    }
+  }
+
+  it('refuses 10 configured keys plus the default page-content key, naming both', () => {
+    const { result, mock } = buildWithMock({ nonFilterableMetadataKeys: TEN_KEYS });
+    expect(codeOf(result)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(result)).toBe(
+      'config.nonFilterableMetadataKeys, with the page-content key "_page_content", needs 11 ' +
+        'non-filterable keys; an index may have at most 10.',
+    );
+    expect(mock.calls()).toHaveLength(0);
+  });
+
+  it('refuses 11 configured keys with pageContentMetadataKey: null', () => {
+    const { result, mock } = buildWithMock({
+      nonFilterableMetadataKeys: ELEVEN_KEYS,
+      pageContentMetadataKey: null,
+    });
+    expect(codeOf(result)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(result)).toBe(
+      'config.nonFilterableMetadataKeys needs 11 non-filterable keys; an index may have at most 10.',
+    );
+    expect(mock.calls()).toHaveLength(0);
+  });
+
+  it('refuses a key of length 0', () => {
+    const { result, mock } = buildWithMock({ nonFilterableMetadataKeys: [''] });
+    expect(codeOf(result)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(result)).toBe(
+      'config.nonFilterableMetadataKeys: Non-filterable metadata key "" must be 1-63 characters.',
+    );
+    expect(mock.calls()).toHaveLength(0);
+  });
+
+  it('refuses a key of length 64', () => {
+    const key = 'x'.repeat(64);
+    const { result, mock } = buildWithMock({ nonFilterableMetadataKeys: [key] });
+    expect(codeOf(result)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(result)).toBe(
+      `config.nonFilterableMetadataKeys: Non-filterable metadata key "${key}" must be 1-63 characters.`,
+    );
+    expect(mock.calls()).toHaveLength(0);
+  });
+
+  it('accepts 10 keys with pageContentMetadataKey: null', () => {
+    expect(
+      build({ nonFilterableMetadataKeys: TEN_KEYS, pageContentMetadataKey: null }),
+    ).toBeInstanceOf(AmazonS3Vectors);
+  });
+
+  it('accepts 9 keys plus the default page-content key', () => {
+    expect(build({ nonFilterableMetadataKeys: NINE_KEYS })).toBeInstanceOf(AmazonS3Vectors);
+  });
+
+  it('accepts a configured list that already contains the page-content key, de-duplicated', () => {
+    expect(build({ nonFilterableMetadataKeys: ['_page_content', ...NINE_KEYS] })).toBeInstanceOf(
+      AmazonS3Vectors,
+    );
+  });
+});
+
 describe('relevanceScoreFn', () => {
   it('accepts a function', () => {
     expect(build({ relevanceScoreFn: (d: number) => 1 - d })).toBeInstanceOf(AmazonS3Vectors);

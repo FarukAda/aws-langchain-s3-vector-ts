@@ -43,6 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A caller branching on `AWS_REQUEST_FAILED` for timeouts must switch to
   `SERVICE_UNAVAILABLE`.
 
+- **A `nonFilterableMetadataKeys` list no index could ever be created with is
+  refused at construction, not on the first write.** Merged with
+  `pageContentMetadataKey` (added unless it is `null`), more than 10 keys or a
+  key outside 1–63 characters can never be written to any index. It was
+  refused only once a write first created the index — after its `GetIndex`
+  and, for `addDocuments`, after the first batch was embedded — so a store
+  configured this way could sit unused, or serve reads, before the mistake
+  surfaced. A store configured with such a list now fails to construct, even
+  one that never writes. `CreateIndex` still re-checks the same rule, as
+  defence.
+
 ### Fixed
 
 - **An empty metadata array, and one mixing strings with numbers, are refused
@@ -84,10 +95,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`similaritySearchVectorWithScore` documented one of the codes it raises, and
   the *Errors* tables said every `VALIDATION` is raised before any AWS call.**
   The search's `@throws` named only `AWS_INVALID_RESPONSE`, and the text searches
-  defer to it; it names every code now. Three `VALIDATION`s come later — a
-  model's output, a `nonFilterableMetadataKeys` list no index can be created
-  with, and response metadata that cannot be copied — and the tables say when
-  each is raised.
+  defer to it; it names every code now. Two `VALIDATION`s come later — a
+  model's output, and response metadata that cannot be copied — and the
+  tables say when each is raised.
 
 - **A write refuses an input it cannot store before spending anything.** Metadata
   and vector checks ran inside each batch's write — after `addDocuments` had

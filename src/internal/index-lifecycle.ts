@@ -8,6 +8,7 @@ import {
 
 import {
   MAX_DIMENSION,
+  MAX_NON_FILTERABLE_KEYS,
   METADATA_KEY_MAX_LENGTH,
   METADATA_KEY_MIN_LENGTH,
   MIN_DIMENSION,
@@ -25,14 +26,6 @@ import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { DistanceMetric, VectorDataType } from '../types.js';
 import { checkAborted, raceAbort, sendOptions } from './signals.js';
-
-/**
- * At most 10 non-filterable metadata keys on an index (limits page).
- *
- * Enforced here alone, so it stays here: the shared limits module is for the
- * ones this package checks from more than one place.
- */
-const MAX_NON_FILTERABLE_KEYS = 10;
 
 /** The client and the index a lifecycle call acts on. */
 export interface IndexContext {
@@ -324,8 +317,10 @@ export interface IndexLifecycle {
  * collapse, so a caller who already listed the key gets no second copy, and
  * the caller's array is not mutated.
  *
- * Throws: nothing. The 10-key ceiling is enforced at creation, where the
- * error can name the index being created.
+ * Throws: nothing. The 10-key ceiling and each key's own length are enforced
+ * on this exact result — by the {@link AmazonS3Vectors} constructor at
+ * construction, and again, as defence, by {@link assertKeysCreatable} at
+ * index creation, where the error can name the index being created.
  */
 export function nonFilterableKeys(config: IndexLifecycleConfig): string[] {
   const configured = config.nonFilterableMetadataKeys ?? [];
@@ -337,11 +332,21 @@ export function nonFilterableKeys(config: IndexLifecycleConfig): string[] {
 /**
  * The non-filterable keys a new index may be created with.
  *
+ * The {@link AmazonS3Vectors} constructor already refuses a keys list this
+ * rejects, for every store — including one that only ever reads. This is the
+ * re-check kept at `CreateIndex` as defence, the way {@link assertTagsCreatable}
+ * keeps its own, for anything that reaches here a second way.
+ *
+ * Returns: nothing, when every key is within bounds.
+ *
  * @throws {S3VectorsError} `VALIDATION` for more than 10 keys, or a key
  * outside 1–63 characters (limits page). Checked before `CreateIndex` so the
  * failure names the configuration rather than arriving as an opaque rejection.
  */
-function assertKeysCreatable(keys: readonly string[], fail: (message: string) => never): void {
+export function assertKeysCreatable(
+  keys: readonly string[],
+  fail: (message: string) => never,
+): void {
   if (keys.length > MAX_NON_FILTERABLE_KEYS) {
     fail(
       `An index may have at most ${MAX_NON_FILTERABLE_KEYS} non-filterable metadata keys; this configuration needs ${keys.length}.`,

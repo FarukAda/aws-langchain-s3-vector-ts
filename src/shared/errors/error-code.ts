@@ -11,11 +11,6 @@ export enum S3VectorsErrorCode {
    * - a model's output, refused after that embedding call and before the
    *   request it would feed — on a write carrying `writtenIds`, because earlier
    *   batches may already be written;
-   * - a `nonFilterableMetadataKeys` list no index can be created with (more than
-   *   10 keys with the page-content key, or a key outside 1–63 characters),
-   *   refused when a write first creates the index: after its `GetIndex` and,
-   *   for `addDocuments`, after the first batch is embedded, with nothing
-   *   written;
    * - uncopyable response metadata, refused after that response.
    */
   VALIDATION = 'VALIDATION',

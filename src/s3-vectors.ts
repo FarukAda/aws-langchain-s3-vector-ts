@@ -20,6 +20,7 @@ import {
   validationError,
 } from './internal/guards.js';
 import {
+  assertKeysCreatable,
   createIndexLifecycle,
   nonFilterableKeys,
   type IndexLifecycle,
@@ -39,7 +40,12 @@ import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from './shared/errors/wrap-error.js';
 import { isObjectLike } from './shared/objects.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
-import { assertValidConfig, assertValidIndexConfig, resolveClient } from './shared/validation.js';
+import {
+  assertValidConfig,
+  assertValidIndexConfig,
+  failNonFilterableKeys,
+  resolveClient,
+} from './shared/validation.js';
 import type {
   AmazonS3VectorsConfig,
   DistanceMetric,
@@ -270,6 +276,14 @@ export class AmazonS3Vectors extends VectorStore {
       nonFilterableMetadataKeys: this.nonFilterableMetadataKeys,
     });
 
+    // A key list no index could ever be created with can never be written to
+    // any index either, so it is refused here — for every store, including one
+    // that only ever reads — rather than only once a write first creates the
+    // index. `CreateIndex` re-checks the same rule as defence.
+    assertKeysCreatable(this.#nonFilterableKeys, (message) =>
+      failNonFilterableKeys(this.#nonFilterableKeys, this.pageContentMetadataKey, message),
+    );
+
     this.#lifecycle = createIndexLifecycle(
       {
         client: this.#client,
@@ -330,11 +344,7 @@ export class AmazonS3Vectors extends VectorStore {
    * dimension; `ABORTED` for a fired signal. Each refusal about one element
    * carries `context.recordIndex` — its position in your input — and, where
    * known, `context.recordId`. Nothing is written for an input that fails these.
-   * After the first batch's `GetIndex` and before any `PutVectors` — so still
-   * nothing written — when that batch's write creates the index: `VALIDATION`
-   * for a `nonFilterableMetadataKeys` list no index can be created with (more
-   * than 10 keys with the page-content key, or a key outside 1–63 characters).
-   * After the same `GetIndex`, when the index already exists:
+   * After the first batch's `GetIndex`, when the index already exists:
    * `INDEX_CONFIG_MISMATCH` when its non-filterable keys disagree with this
    * store's configuration.
    * Otherwise, on a failure partway through a multi-batch write, the error's
@@ -407,15 +417,13 @@ export class AmazonS3Vectors extends VectorStore {
    * count, a malformed or repeated id, a bad batch size, or a document or
    * metadata S3 Vectors cannot store, carrying `context.recordIndex` and, where
    * known, `context.recordId`. For the first batch alone, after it is embedded
-   * and before any `PutVectors` — so still nothing written — when that batch's
-   * write creates the index: `VALIDATION` for a `nonFilterableMetadataKeys` list
-   * no index can be created with (more than 10 keys with the page-content key,
-   * or a key outside 1–63 characters); when the index already exists:
-   * `INDEX_CONFIG_MISMATCH` when its non-filterable keys disagree with this
-   * store's configuration. For a batch the model has embedded, before it is
-   * written: `VALIDATION` when the model returns something other than one
-   * storable vector per document, or `INDEX_CONFIG_MISMATCH` when that batch's
-   * vectors disagree on dimension. A model that throws surfaces as
+   * and before any `PutVectors` — so still nothing written — when the index
+   * already exists: `INDEX_CONFIG_MISMATCH` when its non-filterable keys
+   * disagree with this store's configuration. For a batch the model has
+   * embedded, before it is written: `VALIDATION` when the model returns
+   * something other than one storable vector per document, or
+   * `INDEX_CONFIG_MISMATCH` when that batch's vectors disagree on dimension.
+   * A model that throws surfaces as
    * `UNEXPECTED_ERROR`. On any failure after the first batch started, the
    * error's `context.writtenIds` lists every id durably written before it and
    * `context.attemptedIds` every id the call resolved. A failure stops further

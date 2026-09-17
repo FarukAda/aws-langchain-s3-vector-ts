@@ -2,7 +2,12 @@ import { DataType, DistanceMetric, S3VectorsClient, SseType } from '@aws-sdk/cli
 
 import type { StoreScope } from '../internal/signals.js';
 import type { AmazonS3VectorsConfig } from '../types.js';
-import { METADATA_KEY_MAX_LENGTH, TAG_KEY_MAX_LENGTH, TAG_VALUE_MAX_LENGTH } from './aws-limits.js';
+import {
+  MAX_NON_FILTERABLE_KEYS,
+  METADATA_KEY_MAX_LENGTH,
+  TAG_KEY_MAX_LENGTH,
+  TAG_VALUE_MAX_LENGTH,
+} from './aws-limits.js';
 import { describeValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
@@ -299,6 +304,53 @@ function assertNonFilterableKeys(value: unknown): void {
     const reason = unpairedSurrogateReason(key);
     if (reason !== undefined) fail(`config.nonFilterableMetadataKeys[${index}] ${reason}.`);
   }
+}
+
+/**
+ * Refuse construction for a `nonFilterableMetadataKeys` list — merged with the
+ * resolved `pageContentMetadataKey` exactly as index creation merges them,
+ * `internal/index-lifecycle.js`'s own `nonFilterableKeys` — that no index
+ * could ever be created with.
+ *
+ * Accepts: `keys`, that merged result; `pageContentMetadataKey` as resolved
+ * (never `undefined`), named in the message only when it counts toward the
+ * total; and `message`, the text {@link assertKeysCreatable} raised, used
+ * verbatim for the one rule — a key's own length — that needs no further
+ * context.
+ *
+ * The count and length limits themselves belong to `assertKeysCreatable`
+ * alone: decided once there, on `keys`, and re-checked at index creation as
+ * defence. This function never re-decides them — comparing `keys.length`
+ * against {@link MAX_NON_FILTERABLE_KEYS} below only chooses which of the two
+ * messages applies, against the same limit `assertKeysCreatable` already
+ * checked it against — it exists because construction, unlike the re-check at
+ * `CreateIndex`, has an option name and a resolved page-content key worth
+ * naming.
+ *
+ * Returns: never — every call raises `VALIDATION`, since it is reached only
+ * as {@link assertKeysCreatable}'s `fail`, invoked only on a violation.
+ *
+ * @throws {S3VectorsError} `VALIDATION`, always naming
+ * `config.nonFilterableMetadataKeys` the way every other construction error
+ * names its option, and, for the count rule alone, the page-content key that
+ * pushed it over when one is configured.
+ */
+export function failNonFilterableKeys(
+  keys: readonly string[],
+  pageContentMetadataKey: string | null,
+  message: string,
+): never {
+  if (keys.length <= MAX_NON_FILTERABLE_KEYS) {
+    fail(`config.nonFilterableMetadataKeys: ${message}`);
+  }
+  const pageContentNote =
+    pageContentMetadataKey === null
+      ? ''
+      : `, with the page-content key ${JSON.stringify(pageContentMetadataKey)},`;
+  fail(
+    `config.nonFilterableMetadataKeys${pageContentNote} needs ${keys.length} non-filterable ` +
+      `keys; an index may have at most ${MAX_NON_FILTERABLE_KEYS}.`,
+  );
 }
 
 /**

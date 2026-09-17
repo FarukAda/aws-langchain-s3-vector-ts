@@ -38,12 +38,25 @@ export const MAX_DIMENSION = 4096;
 /**
  * A metadata key is 1–63 characters (userguide `s3-vectors-indexes.html`).
  *
- * Enforced on `pageContentMetadataKey` at construction, and on every
- * non-filterable key at index creation — the same limit, since a non-filterable
- * key is a metadata key.
+ * Enforced on `pageContentMetadataKey`, and on every non-filterable key
+ * (merged with it, the same set {@link MAX_NON_FILTERABLE_KEYS} counts), both
+ * at construction — the same limit, since a non-filterable key is a metadata
+ * key — and again at index creation, as defence.
  */
 export const METADATA_KEY_MIN_LENGTH = 1;
 export const METADATA_KEY_MAX_LENGTH = 63;
+
+/**
+ * At most 10 non-filterable metadata keys on an index (limits page).
+ *
+ * Enforced on `nonFilterableMetadataKeys` merged with `pageContentMetadataKey`
+ * — the set a created index would be given — at construction, and again at
+ * index creation, which is where the error can name the index being created.
+ * A list past this cap can never be written to any index, so construction
+ * refuses it before an existing store's first read or write, not only before
+ * one that would create the index.
+ */
+export const MAX_NON_FILTERABLE_KEYS = 10;
 
 /**
  * Tag bounds.

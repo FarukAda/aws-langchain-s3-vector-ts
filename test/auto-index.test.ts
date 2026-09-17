@@ -70,23 +70,23 @@ describe('AmazonS3Vectors auto-index nonFilterableMetadataKeys behavior', () => 
     }
   });
 
-  it('throws instead of creating an index that would silently make page content filterable', async () => {
+  it('throws at construction, before ever calling AWS, instead of creating an index that would silently make page content filterable', () => {
     const { client, mock } = createMockClient();
-    const store = new AmazonS3Vectors(createMockEmbeddings(), {
-      ...BASE_CONFIG,
-      nonFilterableMetadataKeys: TEN_KEYS,
-      client,
-    });
 
-    mockIndexNotFound(mock);
-
-    const error = await store
-      .addVectors([[1, 2]], [new Document({ pageContent: 'test' })], { ids: ['id-1'] })
-      .catch((e: unknown) => e);
+    let error: unknown;
+    try {
+      new AmazonS3Vectors(createMockEmbeddings(), {
+        ...BASE_CONFIG,
+        nonFilterableMetadataKeys: TEN_KEYS,
+        client,
+      });
+    } catch (e: unknown) {
+      error = e;
+    }
 
     expect(isS3VectorsError(error)).toBe(true);
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('at most 10 non-filterable metadata keys');
+    expect((error as Error).message).toContain('needs 11 non-filterable keys');
     // Must fail before ever calling AWS to create the (permanently
     // misconfigured) index — not create it and fail later at write time.
     expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);

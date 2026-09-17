@@ -212,32 +212,24 @@ if (!env) {
       ).rejects.toThrow('batchSize must be a positive integer');
     }, 10_000);
 
-    it('throws instead of creating an index that would silently make page content filterable, at the 10-key cap', async () => {
+    it('throws at construction, before any AWS call, instead of creating an index that would silently make page content filterable, at the 10-key cap', () => {
       const indexName = `bf-tenkeys-${randomUUID().slice(0, 8)}`;
       const tenKeys = Array.from({ length: 10 }, (_, i) => `key_${i}`);
-      const store = new AmazonS3Vectors(randomEmbeddings(), {
-        vectorBucketName: safeEnv.bucketName,
-        indexName,
-        region: safeEnv.region,
-        nonFilterableMetadataKeys: tenKeys,
-      });
 
-      try {
-        await expect(
-          store.addDocuments([new Document({ pageContent: 'x', metadata: {} })], {
-            ids: ['id-1'],
+      expect(
+        () =>
+          new AmazonS3Vectors(randomEmbeddings(), {
+            vectorBucketName: safeEnv.bucketName,
+            indexName,
+            region: safeEnv.region,
+            nonFilterableMetadataKeys: tenKeys,
           }),
-        ).rejects.toThrow('at most 10 non-filterable metadata keys');
+      ).toThrow('needs 11 non-filterable keys');
 
-        const exists = await rawClient
-          .send(new GetIndexCommand({ vectorBucketName: safeEnv.bucketName, indexName }))
-          .then(() => true)
-          .catch(() => false);
-        expect(exists).toBe(false);
-      } finally {
-        await store.deleteIndex().catch(() => undefined);
-      }
-    }, 60_000);
+      // No store was ever constructed, so there is nothing to clean up: this
+      // configuration can never be written to any index, and the constructor
+      // that refuses it makes no AWS call either.
+    });
 
     it('includes the page-content key at the boundary — 9 configured keys plus the auto-added one', async () => {
       const indexName = `bf-nineplusone-${randomUUID().slice(0, 8)}`;
