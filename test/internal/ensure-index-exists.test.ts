@@ -177,3 +177,69 @@ describe('createIndexLifecycle().ensureExists', () => {
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
   });
 });
+
+describe('createIndexLifecycle().ensureExists — losing the creation race', () => {
+  /** A lifecycle whose store expects one non-filterable key. */
+  function lifecycleExpecting(keys: string[]) {
+    const { client, mock } = createMockClient();
+    const lifecycle = createIndexLifecycle(
+      { client, vectorBucketName: 'test-bucket', indexName: 'test-index' },
+      {
+        dataType: 'float32',
+        distanceMetric: 'cosine',
+        pageContentMetadataKey: null,
+        nonFilterableMetadataKeys: keys,
+      },
+    );
+    return { mock, lifecycle };
+  }
+
+  it('reads the winner’s configuration and refuses one that disagrees', async () => {
+    // The winner's settings are the index's: creation fixes them, and this
+    // store would otherwise budget metadata against a set the index does not
+    // have, for its whole life. Live, the winner's configuration is readable
+    // immediately after the conflict (docs/evidence/index-create-race.md).
+    const { mock, lifecycle } = lifecycleExpecting(['mine']);
+    mock
+      .on(GetIndexCommand)
+      .rejectsOnce(awsError('NotFoundException'))
+      .resolves({
+        index: indexFixture({ metadataConfiguration: { nonFilterableMetadataKeys: ['theirs'] } }),
+      });
+    mock.on(CreateIndexCommand).rejects(awsError('ConflictException'));
+
+    const error = await lifecycle
+      .ensureExists(3, undefined, 'ensureIndexExists')
+      .catch((e: unknown) => e);
+
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
+    expect((error as Error).message).toContain('theirs');
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
+  });
+
+  it('accepts the winner’s configuration when it is the one this store wanted', async () => {
+    const { mock, lifecycle } = lifecycleExpecting(['mine']);
+    mock
+      .on(GetIndexCommand)
+      .rejectsOnce(awsError('NotFoundException'))
+      .resolves({
+        index: indexFixture({ metadataConfiguration: { nonFilterableMetadataKeys: ['mine'] } }),
+      });
+    mock.on(CreateIndexCommand).rejects(awsError('ConflictException'));
+
+    await expect(
+      lifecycle.ensureExists(3, undefined, 'ensureIndexExists'),
+    ).resolves.toBeUndefined();
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
+  });
+
+  it('asks nothing more when the index vanished again before it could be read', async () => {
+    const { mock, lifecycle } = lifecycleExpecting(['mine']);
+    mock.on(GetIndexCommand).rejects(awsError('NotFoundException'));
+    mock.on(CreateIndexCommand).rejects(awsError('ConflictException'));
+
+    await expect(
+      lifecycle.ensureExists(3, undefined, 'ensureIndexExists'),
+    ).resolves.toBeUndefined();
+  });
+});

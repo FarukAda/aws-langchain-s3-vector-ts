@@ -202,6 +202,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A store that loses an index-creation race now reads what the winner
+  created.** Two stores writing to the same new index race, and the loser got
+  `ConflictException`, treated it as success and recorded the index as
+  existing — so it never issued another `GetIndex`, and if the winner had a
+  different `nonFilterableMetadataKeys` this store spent the rest of its life
+  budgeting metadata against a set the index does not have, refusing writes AWS
+  would take and sending writes AWS refuses. The README said the next write's
+  `GetIndex` would surface that; no such request was ever made. The loser now
+  re-reads the index and applies the same check it applies to any index it did
+  not create, which costs one request on the race path only. Live, the winner's
+  configuration is readable immediately (`docs/evidence/index-create-race.md`).
+
 - **An empty metadata array, and one mixing strings with numbers, are refused
   locally.** S3 Vectors rejects both ("Empty arrays are not allowed in metadata";
   "Metadata array values must be strings or numbers" —

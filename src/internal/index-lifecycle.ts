@@ -441,10 +441,12 @@ function assertCreatable(
  * deliberately: the only caller is the shared memo, so no single caller may
  * cancel it out from under the others.
  *
- * Returns: nothing, both when this call created the index and when another
- * writer did first — a `ConflictException` means the requested state was
- * reached, not that anything failed
+ * Returns: `'created'` when this call created the index, and `'raced'` when
+ * another writer created it first — a `ConflictException` means the requested
+ * state was reached, not that anything failed
  * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_CreateIndex.html).
+ * The caller re-reads the index in that second case, because the index is then
+ * the winner's rather than this configuration's.
  *
  * Throws: `VALIDATION` for a dimension, key set or tag set AWS would reject,
  * before the request; otherwise the class the failure maps to.
@@ -457,7 +459,7 @@ async function createIndex(
   config: IndexLifecycleConfig,
   dimension: number,
   operation: string,
-): Promise<void> {
+): Promise<'created' | 'raced'> {
   const keys = nonFilterableKeys(config);
   assertCreatable(ctx, dimension, keys, config.tags, operation);
   try {
@@ -476,13 +478,14 @@ async function createIndex(
       }),
     );
   } catch (error: unknown) {
-    if (isAwsConflictException(error)) return;
+    if (isAwsConflictException(error)) return 'raced';
     throw wrapAwsError(error, classifyAwsError(error), 'CreateIndex', {
       operation,
       vectorBucketName: ctx.vectorBucketName,
       indexName: ctx.indexName,
     });
   }
+  return 'created';
 }
 
 /**
@@ -546,8 +549,16 @@ export function createIndexLifecycle(
               ctx,
               operation,
             );
-          } else {
-            await createIndex(ctx, config, dimension, operation);
+          } else if ((await createIndex(ctx, config, dimension, operation)) === 'raced') {
+            // Another writer created it first, so the index has *their*
+            // configuration, not this one's. Reading it back is what keeps this
+            // store from budgeting metadata against a key set the index does
+            // not have — for the rest of its life, since existence is then
+            // remembered and no later write asks again. Live, the winner's
+            // configuration is readable straight after the conflict
+            // (docs/evidence/index-create-race.md).
+            const winner = await describeIndex(ctx, undefined, operation);
+            assertKeysAgree(winner.nonFilterableKeys, nonFilterableKeys(config), ctx, operation);
           }
           knownToExist = true;
         } finally {
