@@ -401,7 +401,7 @@ new s3vectors.CfnIndex(this, "VectorIndex", {
 | `createIndexIfNotExist` | `boolean` | `true` | Auto-create the index on first write. `false` issues **no** `GetIndex` at all: nothing is validated locally that AWS does not already enforce, so a store that never creates an index needs no control-plane permission — see [IAM Permissions](#-iam-permissions) |
 | `encryptionConfiguration` | `EncryptionConfiguration` (SDK type) | bucket default | Server-side encryption for an index **this store creates**, e.g. `{ sseType: "aws:kms", kmsKeyArn: "arn:aws:kms:…" }`. Ignored for an existing index (encryption is fixed at creation; S3 Vectors has no `UpdateIndex`) |
 | `tags` | `Record<string, string>` | — | Tags applied to an index **this store creates** (cost allocation, ABAC). Ignored for an existing index |
-| `maxConcurrentBatchCalls` | `number` | `10` | Cap on concurrent `PutVectors`/`DeleteVectors`/`GetVectors` calls during batched writes, deletes and fetches. Lower it (down to `1`) to share a quota with other workloads; raise it against a generous rate limit. Peak in-flight write payload scales with `maxConcurrentBatchCalls × batchSize` — see [Rate Limits, Payload Limits and Cost](#rate-limits-payload-limits-and-cost) |
+| `maxConcurrentBatchCalls` | `number` | `10` | Cap on concurrent `PutVectors`/`DeleteVectors`/`GetVectors` calls **within one call** — two concurrent `addVectors` have two of these windows, not one. It bounds memory, not the store's request rate; `writeRateLimit` is what bounds the rate. Peak in-flight write payload scales with `maxConcurrentBatchCalls × batchSize` — see [Rate Limits, Payload Limits and Cost](#rate-limits-payload-limits-and-cost) |
 | `writeRateLimit` | `{ vectorsPerSecond?: number; requestsPerSecond?: number }` \| `false` | `{ vectorsPerSecond: 2500, requestsPerSecond: 1000 }` | How fast this store may write, in the two units AWS counts per index, shared by every call on the store. Defaults to AWS's own documented limits; `false` turns pacing off. This is the knob that keeps concurrent writers inside the limit — `maxConcurrentBatchCalls` bounds one call's requests in flight, not the store's rate — see [Rate Limits, Payload Limits and Cost](#rate-limits-payload-limits-and-cost) |
 | `pageContentMetadataKey` | `string \| null` | `"_page_content"` | Metadata key for storing `Document.pageContent`; `null` to disable round-tripping |
 | `nonFilterableMetadataKeys` | `string[]` | — | Metadata keys excluded from query filters (reduces index size for large values). `pageContentMetadataKey` is added to this list too (unless it is `null`); the merged result must fit an index — at most 10 keys, each 1–63 characters — and a list that could not is refused with `VALIDATION` at construction, before any AWS call, rather than the key being silently dropped. This list must also match the index being written to: it sets the local 2 KB filterable-metadata budget, and a disagreement with an existing index raises `INDEX_CONFIG_MISMATCH`. See [Non-Filterable Metadata Keys](#non-filterable-metadata-keys). |
@@ -432,7 +432,7 @@ One `SERVICE_UNAVAILABLE` will never recover: a mistyped `region` or `endpoint` 
 
 Tune it with `maxAttempts` / `retryMode`, or pass a fully pre-configured `client`:
 
-- **`retryMode: "adaptive"`** is the better default for bulk ingest against a shared account. It adds a client-side token bucket that slows the *request rate* on throttling instead of only retrying — so a large `addDocuments` against a busy quota degrades to a steady trickle rather than a burst of 429s that exhaust `maxAttempts`.
+- **`retryMode: "adaptive"`** adds a client-side token bucket that slows the *request rate* after throttling rather than only retrying. It is **not** a substitute for `writeRateLimit`, and this package no longer recommends it for bulk ingest: measured against the load that fails without pacing — eight concurrent `addVectors` on one store — adaptive mode still took 95 `TooManyRequestsException`s and still failed every call, at 774 vectors/s, because it reacts only once throttling has begun. In a lighter four-writer run it cost 9× throughput for the same number of 429s ([`docs/evidence/write-rate.md`](docs/evidence/write-rate.md)). Pace the writes instead; keep `adaptive` for sharing an account-level quota with workloads this store knows nothing about.
 - **`maxAttempts`** controls attempts per individual call (e.g. one `PutVectors` batch), not per `addDocuments`. Raising it lengthens the worst-case time a single batch can block.
 - Every error from an AWS call carries `context.retryable` (`true` for throttling, 5xx, a timed-out or reset connection, and a refused or unreachable one), `context.awsErrorName`, `context.httpStatusCode` and `context.requestId`, so an application-level retry or dead-letter decision can be made from the error alone — see [Errors](#errors).
 
@@ -618,11 +618,26 @@ The limits this library enforces locally (failing fast with a `VALIDATION` error
 | Filterable metadata per vector | 2,048 bytes | locally, then AWS |
 | Total metadata per vector | 40,960 bytes | locally, then AWS |
 | Non-filterable metadata keys per index | 10 | locally, at construction |
-| Request payload per call | AWS's per-request limit | AWS |
+| Request payload per call | 20 MiB exactly, inclusive | locally — a batch that would exceed it is split across several requests |
 
 The metadata byte caps **are** checked locally, because the counting rule is now known rather than guessed: AWS counts the UTF-8 byte length of the JSON serialisation — key names, quotes and punctuation included — plus a fixed 5-byte overhead. That was established by binary search against the live service and recorded in [`docs/evidence/metadata-limits.md`](docs/evidence/metadata-limits.md), with a live test that fails if AWS ever changes it. A local check turns a round trip into an immediate, specific error naming the key at fault; see [Non-Filterable Metadata Keys](#non-filterable-metadata-keys) for keeping large text out of the filterable budget. Request-rate quotas are account-level and published by AWS; see [Retries](#retries) for how to behave under them.
 
-**Cost model, briefly.** S3 Vectors bills per API request plus storage; the request count is what this library's knobs control. A write of *N* documents costs `ceil(N / batchSize)` `PutVectors` requests, plus — only with `createIndexIfNotExist` on — one `GetIndex` and possibly one `CreateIndex` per store instance lifetime, plus whatever your embeddings provider charges. A `similaritySearch` with `k > 100` costs one `QueryVectors` request per 100-result page. `getByIds`/`delete` cost `ceil(N / batchSize)` requests each. Larger `batchSize` values therefore mean fewer billable requests — the default 200 for writes is a balance between request count and the size of a failed batch to retry; raise it toward 500 for bulk backfills. `maxConcurrentBatchCalls` changes *how fast* those requests are issued, not how many. Check the [S3 Vectors pricing page](https://aws.amazon.com/s3/pricing/) for current rates.
+**Writes are paced to AWS's per-index rate.** S3 Vectors allows up to 1,000 `PutVectors`/`DeleteVectors` requests a second per index, or 2,500 vectors, whichever comes first, and answers an overrun with `429 TooManyRequestsException`. Every store holds one token bucket in those two units, shared by every call on it, defaulting to exactly those numbers — so concurrent writers pace against one budget instead of each other:
+
+```typescript
+const store = new AmazonS3Vectors(embeddings, {
+  ...config,
+  // Raise it if you have measured your own headroom, lower it to share the
+  // index with another workload, or `false` to pace nothing.
+  writeRateLimit: { vectorsPerSecond: 2500, requestsPerSecond: 1000 },
+});
+```
+
+This is the knob that keeps a store inside the limit; `maxConcurrentBatchCalls` is not, and never was. It bounds one call's requests in flight, so eight concurrent `addVectors` had eighty. Measured against live AWS, that load reached 18,078 vectors/s, took 120 throttling errors and **failed all eight calls** with two thirds of the vectors unwritten; through the limiter it wrote all 200,000 without a single throttle. A store-wide cap on *concurrency* was measured too and does not work — ten small batches in flight still ran at ~7,000 vectors/s and still failed every call ([`docs/evidence/write-rate.md`](docs/evidence/write-rate.md)).
+
+Two things it does not do: it is per store instance, so separate processes writing one index can still exceed the limit between them (the SDK's retries remain the backstop there), and it paces writes only — reads have their own, looser, documented limit and are left alone.
+
+**Cost model, briefly.** S3 Vectors bills per API request plus storage; the request count is what this library's knobs control. A write of *N* documents costs `ceil(N / batchSize)` `PutVectors` requests, plus — only with `createIndexIfNotExist` on — one `GetIndex` and possibly one `CreateIndex` per store instance lifetime, plus whatever your embeddings provider charges. A `similaritySearch` with `k > 100` costs one `QueryVectors` request per 100-result page. `getByIds`/`delete` cost `ceil(N / batchSize)` requests each. Larger `batchSize` values therefore mean fewer billable requests — the default 200 for writes is a balance between request count and the size of a failed batch to retry; raise it toward 500 for bulk backfills. A batch is one request only while it fits AWS's 20 MiB body: at 3,072 dimensions with 4 KB of page content, 500 records serialise to about 33 MiB, so that batch is sent as two requests and the saving is smaller than the count suggests. Nothing fails — the split happens before anything is sent — but the request count follows the bytes, not only the batch size. `maxConcurrentBatchCalls` changes *how fast* those requests are issued, not how many. Check the [S3 Vectors pricing page](https://aws.amazon.com/s3/pricing/) for current rates.
 
 ### Non-Filterable Metadata Keys
 
@@ -657,6 +672,22 @@ Because the service's own rules are known rather than assumed, this library enfo
 - `NaN` and `±Infinity` are rejected. The AWS SDK would send them as the strings `"NaN"` and `"Infinity"`, so a numeric filter would never match them again.
 - A key whose value is `undefined` is rejected rather than quietly omitted, so a typo'd or unset field is visible instead of silently missing from the index.
 - Every string — a value, an array element, a key, and the page content stored under `pageContentMetadataKey` — must be well-formed UTF-16. Text cut by UTF-16 code unit can split an emoji and leave half of it behind, and S3 Vectors fails the entire request carrying it ([`docs/evidence/string-encoding.md`](docs/evidence/string-encoding.md)). Split text with `Intl.Segmenter`, or check `text.isWellFormed()`, before writing it.
+
+**Documents from a loader or a splitter need flattening first.** Every chunk `@langchain/textsplitters` returns carries `loc: { lines: { from, to } }`, and the `@langchain/community` PDF loaders add `pdf: { version, info, metadata, totalPages }` and `loc: { pageNumber }` — nested objects, which S3 Vectors stores under no key, filterable or not. So the standard pipeline is refused on its first write, by this library rather than by AWS, naming the document and the key. `flattenMetadata` is the way through:
+
+```typescript
+import { flattenMetadata } from "@farukada/aws-langchain-s3-vector-ts";
+import { Document } from "@langchain/core/documents";
+
+const chunks = await splitter.splitDocuments(await loader.load());
+
+await store.addDocuments(
+  chunks.map((doc) => new Document({ ...doc, metadata: flattenMetadata(doc.metadata) })),
+);
+// { source: "a.pdf", "pdf.version": "1.10.100", "loc.pageNumber": 2, … }
+```
+
+It turns nested objects into dotted keys, drops the four empty shapes a loader emits for a field it has no value for (`null`, `undefined`, `[]`, `{}`), and passes everything else through untouched — so a `Date` or a mixed array is still refused at the write, naming the key, rather than being quietly converted into something you did not choose. Two fields that would land on the same key (`"loc.pageNumber"` alongside `loc: { pageNumber }`) are refused rather than silently resolved. It is a function you call, not a store option, so what a store writes stays what you passed it.
 
 ### Disabling Page-Content Round-Tripping
 
@@ -775,7 +806,15 @@ const diverse = store.asRetriever({
 });
 ```
 
-`"similarity_score_threshold"`, offered by some other LangChain vector stores, isn't a valid `searchType` for any store — check `scoreThreshold` support in your specific retriever's docs before relying on it.
+**Filtering by relevance: use `scoreThreshold`, not `ScoreThresholdRetriever`.**
+
+```typescript
+const confident = store.asRetriever({ k: 10, scoreThreshold: 0.75 });
+```
+
+`scoreThreshold` keeps only documents whose **relevance score** — higher is better, the conversion [`similaritySearchWithRelevanceScores`](#relevance-scores-for-langchain-retrievers) applies — reaches it. At most `k` documents are fetched and then filtered, so a threshold never widens the search. It is refused with `searchType: "mmr"`, which returns documents without scores, and on a euclidean index with no `relevanceScoreFn`, both when the retriever is built rather than at the first query.
+
+⚠️ `ScoreThresholdRetriever` from `@langchain/classic` **inverts against this store**. It filters on `similaritySearchWithScore`, which here returns AWS's raw distance, where *lower* is better, and keeps everything at or above its threshold — so it returns the least similar documents and drops the best ones. Reproduced with distances 0.05, 0.5 and 1.9 at `minSimilarityScore: 0.8`: it returned only the 1.9 document. `"similarity_score_threshold"` is likewise not a valid `searchType` for any store.
 
 `asRetriever()` checks the retriever's fields when it builds it, by the same checks the search they configure applies: an argument that is neither a number nor an object, a `searchType` other than `"similarity"` or `"mmr"`, an `"mmr"` `searchKwargs` that is not an object, a `k`, `fetchK` or `lambda` out of range, a malformed filter, or a `signal` that is not an `AbortSignal` raises `VALIDATION` (`context.operation: "asRetriever"`) there, rather than on the first `invoke`. As for every options bag, `asRetriever(null)` means no fields, and a `null` `searchKwargs` means none.
 
@@ -813,6 +852,7 @@ import {
   AmazonS3Vectors,
   AmazonS3VectorsRetriever,
   cosineRelevanceScoreFn,
+  flattenMetadata,
   // Error handling
   S3VectorsError,
   S3VectorsErrorCode,

@@ -6,7 +6,7 @@
 
 # Class: AmazonS3VectorsRetriever\<V\>
 
-Defined in: [retriever.ts:159](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L159)
+Defined in: [retriever.ts:175](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L175)
 
 The retriever [AmazonS3Vectors.asRetriever](AmazonS3Vectors.md#asretriever) returns.
 
@@ -52,7 +52,7 @@ retriever was built.
 
 > **new AmazonS3VectorsRetriever**\<`V`\>(`fields`): `AmazonS3VectorsRetriever`\<`V`\>
 
-Defined in: [retriever.ts:190](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L190)
+Defined in: [retriever.ts:212](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L212)
 
 #### Parameters
 
@@ -62,7 +62,7 @@ Defined in: [retriever.ts:190](https://github.com/FarukAda/aws-langchain-s3-vect
 
 Everything core's `VectorStoreRetriever` takes, plus
 `signal` — the field signal, threaded into every AWS request this
-retriever makes
+retriever makes, and `scoreThreshold`
 
 #### Returns
 
@@ -88,11 +88,22 @@ already fired is not refused here: it is `ABORTED` when the retriever runs.
 
 ## Properties
 
+### scoreThreshold?
+
+> `readonly` `optional` **scoreThreshold?**: `number`
+
+Defined in: [retriever.ts:195](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L195)
+
+The relevance score a document must reach to be returned, or `undefined`
+for every result the search found.
+
+***
+
 ### signal?
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [retriever.ts:173](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L173)
+Defined in: [retriever.ts:189](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L189)
 
 The field signal: threaded into every AWS request this retriever makes.
 
@@ -106,7 +117,7 @@ from the property being absent.
 
 > **\_getRelevantDocuments**(`query`, `runManager?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: [retriever.ts:348](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L348)
+Defined in: [retriever.ts:394](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L394)
 
 Core's extension point, overridden only to thread the field signal.
 
@@ -151,7 +162,7 @@ search it dispatches to (`similaritySearch` or
 
 > **addDocuments**(`documents`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [retriever.ts:322](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L322)
+Defined in: [retriever.ts:368](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L368)
 
 Add documents to the store this retriever reads from.
 
@@ -202,7 +213,7 @@ with its code, cause, context and stack unchanged.
 
 > **invoke**(`input`, `options?`): `Promise`\<`DocumentInterface`\<`Record`\<`string`, `unknown`\>\>[]\>
 
-Defined in: [retriever.ts:283](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L283)
+Defined in: [retriever.ts:329](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L329)
 
 Run the retriever, honouring a config signal and timeout as far as core
 allows.
@@ -265,7 +276,7 @@ signal and timeout itself, rejecting with the signal's reason rather than
 
 > `static` **lc\_name**(): `string`
 
-Defined in: [retriever.ts:162](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L162)
+Defined in: [retriever.ts:178](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L178)
 
 #### Returns
 

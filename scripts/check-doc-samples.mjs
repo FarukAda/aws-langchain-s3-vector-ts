@@ -70,6 +70,10 @@ declare global {
   const myCredentialProvider: NonNullable<
     import('@aws-sdk/client-s3vectors').S3VectorsClientConfig['credentials']
   >;
+  // A loader and a splitter the reader brings; this package depends on neither,
+  // and the ingestion sample is about what their documents need before a write.
+  const loader: { load(): Promise<CoreDocument[]> };
+  const splitter: { splitDocuments(documents: CoreDocument[]): Promise<CoreDocument[]> };
   // An embeddings package the reader brings; this one depends on none.
   const BedrockEmbeddings: new (...args: never[]) => EmbeddingsInterface;
   // Real exports a snippet uses without repeating the import: resolved from

@@ -23,7 +23,7 @@ Fields [AmazonS3Vectors.asRetriever](../classes/AmazonS3Vectors.md#asretriever) 
 
 > `readonly` `optional` **callbacks?**: `Callbacks`
 
-Defined in: [retriever.ts:124](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L124)
+Defined in: [retriever.ts:140](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L140)
 
 Core's callbacks, passed through unchanged. Unlike the search methods, a signal here is not rejected — this is a field, not the callbacks *slot*.
 
@@ -57,9 +57,31 @@ Documents to retrieve per query, 1–10,000.
 
 > `readonly` `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [retriever.ts:120](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L120)
+Defined in: [retriever.ts:136](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L136)
 
 Run metadata, passed through to core's callback machinery unchanged.
+
+***
+
+### scoreThreshold?
+
+> `readonly` `optional` **scoreThreshold?**: `number`
+
+Defined in: [retriever.ts:132](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L132)
+
+Keep only documents whose **relevance score** is at least this — the score
+[AmazonS3Vectors.similaritySearchWithRelevanceScores](../classes/AmazonS3Vectors.md#similaritysearchwithrelevancescores) computes, where
+higher is better, not the raw distance. At most `k` documents are fetched
+and then filtered, so a threshold never widens the search.
+
+Only for `searchType: 'similarity'`; MMR returns documents without scores,
+and asking for both is refused. On a euclidean index it needs
+`relevanceScoreFn`, and is refused without one when the retriever is built.
+
+`@langchain/classic`'s `ScoreThresholdRetriever` is **not** an alternative
+here: it thresholds `similaritySearchWithScore`, which this store answers
+with AWS's distance, where lower is better — so it keeps the worst matches
+and drops the best.
 
 ***
 
@@ -106,7 +128,7 @@ the request already in flight.
 
 > `readonly` `optional` **tags?**: `string`[]
 
-Defined in: [retriever.ts:118](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L118)
+Defined in: [retriever.ts:134](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L134)
 
 Run tags. This store's type is appended to whatever is given, as core does.
 
@@ -116,6 +138,6 @@ Run tags. This store's type is appended to whatever is given, as core does.
 
 > `readonly` `optional` **verbose?**: `boolean`
 
-Defined in: [retriever.ts:122](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L122)
+Defined in: [retriever.ts:138](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L138)
 
 Core's verbose flag, passed through unchanged.

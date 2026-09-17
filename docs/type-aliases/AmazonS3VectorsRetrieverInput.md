@@ -8,11 +8,15 @@
 
 > **AmazonS3VectorsRetrieverInput**\<`V`\> = `VectorStoreRetrieverInput`\<`V`\> & `object`
 
-Defined in: [retriever.ts:128](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L128)
+Defined in: [retriever.ts:144](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L144)
 
 What [AmazonS3VectorsRetriever](../classes/AmazonS3VectorsRetriever.md)'s constructor takes.
 
 ## Type Declaration
+
+### scoreThreshold?
+
+> `optional` **scoreThreshold?**: `number`
 
 ### signal?
 

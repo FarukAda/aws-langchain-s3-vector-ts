@@ -36,4 +36,5 @@ LangChain-compatible Amazon S3 Vectors store for TypeScript.
 ## Functions
 
 - [cosineRelevanceScoreFn](functions/cosineRelevanceScoreFn.md)
+- [flattenMetadata](functions/flattenMetadata.md)
 - [isS3VectorsError](functions/isS3VectorsError.md)
