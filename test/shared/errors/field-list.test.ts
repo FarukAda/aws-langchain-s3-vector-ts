@@ -27,6 +27,7 @@ describe('wrapAwsError — fieldList', () => {
     const wrapped = wrapAwsError(
       validationException(fieldList),
       S3VectorsErrorCode.AWS_REJECTED,
+      'PutVectors',
       SCOPE,
     );
     expect(contextOf(wrapped)['fieldList']).toEqual(fieldList);
@@ -40,6 +41,7 @@ describe('wrapAwsError — fieldList', () => {
     const wrapped = wrapAwsError(
       validationException(fieldList),
       S3VectorsErrorCode.AWS_REJECTED,
+      'PutVectors',
       SCOPE,
     );
     expect(contextOf(wrapped)['fieldList']).toHaveLength(2);
@@ -49,6 +51,7 @@ describe('wrapAwsError — fieldList', () => {
     const wrapped = wrapAwsError(
       validationException(undefined),
       S3VectorsErrorCode.AWS_REJECTED,
+      'PutVectors',
       SCOPE,
     );
     expect('fieldList' in contextOf(wrapped)).toBe(false);
@@ -58,6 +61,7 @@ describe('wrapAwsError — fieldList', () => {
     const wrapped = wrapAwsError(
       validationException('not-a-list'),
       S3VectorsErrorCode.AWS_REJECTED,
+      'PutVectors',
       SCOPE,
     );
     expect('fieldList' in contextOf(wrapped)).toBe(false);
@@ -67,6 +71,7 @@ describe('wrapAwsError — fieldList', () => {
     const wrapped = wrapAwsError(
       validationException([{ path: 'p', message: 'm' }]),
       S3VectorsErrorCode.AWS_REJECTED,
+      'PutVectors',
       SCOPE,
     );
     const context = contextOf(wrapped);

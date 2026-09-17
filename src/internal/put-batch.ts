@@ -5,7 +5,7 @@ import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
 import { attachContext } from '../shared/errors/decorate.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
-import type { AwsOperation } from './operation.js';
+import type { AwsOperation, OperationScope } from './operation.js';
 import type { WriteRecord } from './records.js';
 import type { StoreScope } from './signals.js';
 import { sendOptions } from './signals.js';
@@ -26,25 +26,27 @@ export interface PutBatchOptions extends AwsOperation {
 /**
  * Run an AWS call, surfacing any failure as a coded {@link S3VectorsError}.
  *
- * Accepts: the operation to name, the scope, and a thunk issuing the call.
+ * Accepts: the S3 Vectors API operation the thunk issues (`"PutVectors"`), the
+ * public method and scope to name, and a thunk issuing the call.
  *
  * Returns: whatever the call resolved with.
  *
- * Throws: the class {@link classifyAwsError} assigns. An `AbortSignal` firing
+ * Throws: the class {@link classifyAwsError} assigns, naming the public method
+ * as `operation` and the request as `awsCommand`. An `AbortSignal` firing
  * before or during the call surfaces as `ABORTED` rather than a failure class —
  * it was not AWS that failed, the caller cancelled. The signal itself is
  * threaded into the request by the caller; the SDK's HTTP handler rejects an
  * already-aborted request without a network call.
  */
 export async function sendAws<T>(
-  operation: string,
-  scope: StoreScope,
+  awsCommand: string,
+  context: OperationScope,
   send: () => Promise<T>,
 ): Promise<T> {
   try {
     return await send();
   } catch (error: unknown) {
-    throw wrapAwsError(error, classifyAwsError(error), { operation, ...scope });
+    throw wrapAwsError(error, classifyAwsError(error), awsCommand, context);
   }
 }
 
@@ -57,7 +59,8 @@ export async function sendAws<T>(
  * Returns: nothing.
  *
  * Throws: whatever index creation raises; otherwise the class the `PutVectors`
- * failure maps to, carrying `batchSize` — how many vectors the failed call held.
+ * failure maps to, carrying `awsCommand: "PutVectors"` and `batchSize` — how
+ * many vectors the failed call held.
  *
  * Guarantees:
  * - It validates nothing. Every rule on a write's input is applied to the whole
@@ -87,7 +90,7 @@ export async function putBatch(opts: PutBatchOptions): Promise<void> {
   }
 
   try {
-    await sendAws('PutVectors', scope, () =>
+    await sendAws('PutVectors', { operation, ...scope }, () =>
       opts.client.send(
         new PutVectorsCommand({
           vectorBucketName: opts.vectorBucketName,

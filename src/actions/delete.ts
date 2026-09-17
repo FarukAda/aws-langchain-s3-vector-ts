@@ -33,7 +33,8 @@ export interface DeleteOptions extends Omit<BatchedOperation, 'operation'> {
  * for a batch size outside 1–500 — all before any request. `ABORTED` for an
  * already-fired signal, checked only once every input check above has passed.
  * Otherwise the class the `DeleteVectors` failure maps to, carrying
- * `context.deletedIds` — every id confirmed deleted before it.
+ * `awsCommand: "DeleteVectors"` and `context.deletedIds` — every id confirmed
+ * deleted before it.
  *
  * Guarantees:
  * - **This never destroys the index.** `delete` means "remove stored documents
@@ -97,7 +98,7 @@ export async function deleteVectors(opts: DeleteOptions): Promise<void> {
     await settleGroup(
       group.map(
         (batchIds) => () =>
-          sendAws('DeleteVectors', scope, () =>
+          sendAws('DeleteVectors', { operation: 'delete', ...scope }, () =>
             opts.client.send(
               new DeleteVectorsCommand({
                 vectorBucketName: opts.vectorBucketName,

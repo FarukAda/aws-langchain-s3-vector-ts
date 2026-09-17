@@ -87,11 +87,11 @@ function assertPageSize(pageSize: number | undefined, operation: string, scope: 
 /**
  * Explain a failed page, and say how far the listing got.
  *
- * @returns The mapped error class carrying `pagesScanned` and `yielded`. A
- * `403` also gets the one hint AWS's own message omits: listing *with*
- * metadata or data needs `s3vectors:GetVectors` on top of
- * `s3vectors:ListVectors`, which is the usual cause and is impossible to guess
- * from "Access Denied".
+ * @returns The mapped error class carrying `awsCommand: "ListVectors"`,
+ * `pagesScanned` and `yielded`. A `403` also gets the one hint AWS's own
+ * message omits: listing *with* metadata or data needs `s3vectors:GetVectors`
+ * on top of `s3vectors:ListVectors`, which is the usual cause and is
+ * impossible to guess from "Access Denied".
  */
 function explainListing(
   error: unknown,
@@ -99,7 +99,7 @@ function explainListing(
   pagesScanned: number,
   yielded: number,
 ): S3VectorsError {
-  const base = wrapAwsError(error, classifyAwsError(error), context);
+  const base = wrapAwsError(error, classifyAwsError(error), 'ListVectors', context);
   const hint =
     base.code === S3VectorsErrorCode.ACCESS_DENIED
       ? ' Listing with metadata or data requires the s3vectors:GetVectors permission in ' +
@@ -130,7 +130,7 @@ function explainListing(
  * `signal`; `AWS_INVALID_RESPONSE` for a nullish response, for an entry that is
  * not a vector, and — when `returnData` is set — for a record carrying no
  * embedding or an empty one; otherwise the class {@link classifyAwsError}
- * assigns, carrying `pagesScanned` and `yielded` —
+ * assigns, carrying `awsCommand: "ListVectors"`, `pagesScanned` and `yielded` —
  * items already yielded have been consumed by the caller, so this is not
  * atomic and does not pretend to be.
  *

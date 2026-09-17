@@ -141,6 +141,23 @@ function cases(): readonly ContractCase<MmrInput>[] {
 }
 
 const SCOPE = ['vectorBucketName', 'indexName'];
+/** A failed `QueryVectors` or `GetVectors` request also names the request. */
+const REQUEST_FAILURE = [...SCOPE, 'awsCommand'];
+/**
+ * The codes only a failed AWS request can raise. `ABORTED` is not among them:
+ * an already-fired signal raises it before any request.
+ */
+const REQUEST_FAILURE_CODES: ReadonlySet<S3VectorsErrorCode> = new Set([
+  S3VectorsErrorCode.THROTTLED,
+  S3VectorsErrorCode.ACCESS_DENIED,
+  S3VectorsErrorCode.AWS_REJECTED,
+  S3VectorsErrorCode.NOT_FOUND,
+  S3VectorsErrorCode.SERVICE_UNAVAILABLE,
+  S3VectorsErrorCode.QUOTA_EXCEEDED,
+  S3VectorsErrorCode.CONFLICT,
+  S3VectorsErrorCode.KMS_ERROR,
+  S3VectorsErrorCode.AWS_REQUEST_FAILED,
+]);
 
 /** The executable contract for `AmazonS3Vectors.maxMarginalRelevanceSearch`. */
 export const mmrContract: EntryPointContract<MmrInput> = {
@@ -162,7 +179,10 @@ export const mmrContract: EntryPointContract<MmrInput> = {
     S3VectorsErrorCode.AWS_REQUEST_FAILED,
   ]),
   requiredContext: Object.fromEntries(
-    Object.values(S3VectorsErrorCode).map((code) => [code, SCOPE]),
+    Object.values(S3VectorsErrorCode).map((code) => [
+      code,
+      REQUEST_FAILURE_CODES.has(code) ? REQUEST_FAILURE : SCOPE,
+    ]),
   ),
   accepts,
   invoke: async (store: AmazonS3Vectors, [query, options, callbacks, signal]: MmrInput) =>

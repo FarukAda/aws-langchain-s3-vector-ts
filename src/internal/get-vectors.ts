@@ -95,7 +95,9 @@ function collectSettled(
  *
  * @returns The mapped error class, carrying `context.foundIds` — and saying so
  * in the message when anything was retrieved, so a log line alone shows the
- * fetch was partial.
+ * fetch was partial. A failed request also carries `awsCommand: "GetVectors"`;
+ * a sibling batch's `AWS_INVALID_RESPONSE` about a response that did arrive
+ * passes through without one.
  */
 function withFoundIds(
   reason: unknown,
@@ -103,7 +105,10 @@ function withFoundIds(
   scope: StoreScope,
   found: Map<string, S3OutputVector>,
 ): S3VectorsError {
-  const base = wrapAwsError(reason, classifyAwsError(reason), { operation, ...scope });
+  const base = wrapAwsError(reason, classifyAwsError(reason), 'GetVectors', {
+    operation,
+    ...scope,
+  });
   const foundIds = [...found.keys()];
   return new S3VectorsError(
     foundIds.length > 0
@@ -143,8 +148,9 @@ function withFoundIds(
  * `signal`, checked next — so an empty `keys` list with a fired signal is
  * `ABORTED`, before the empty list gets to return for free; `AWS_INVALID_RESPONSE`
  * for a nullish response; otherwise the class {@link classifyAwsError} assigns,
- * carrying `context.foundIds` — every id a sibling batch retrieved before the
- * failure, so a caller need not refetch from scratch.
+ * carrying `awsCommand: "GetVectors"` and `context.foundIds` — every id a
+ * sibling batch retrieved before the failure, so a caller need not refetch from
+ * scratch.
  */
 export async function fetchVectorsByKey(
   opts: FetchVectorsOptions,

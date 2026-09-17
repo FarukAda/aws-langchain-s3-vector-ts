@@ -1,4 +1,7 @@
 import {
+  CreateIndexCommand,
+  DeleteIndexCommand,
+  DeleteVectorsCommand,
   GetIndexCommand,
   GetVectorsCommand,
   ListVectorsCommand,
@@ -9,23 +12,42 @@ import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 import type { DocumentType } from '@smithy/types';
 
+import { createIndexLifecycle } from '../../src/internal/index-lifecycle.js';
 import { AmazonS3Vectors } from '../../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
-import { BASE_CONFIG, createMockClient, createTestStore, indexFixture } from '../helpers.js';
+import {
+  BASE_CONFIG,
+  createMockClient,
+  createMockEmbeddings,
+  createTestStore,
+  drainTasks,
+  gate,
+  indexFixture,
+} from '../helpers.js';
 
 /**
- * Every error names the call the caller actually made.
+ * Every error names the call the caller actually made, and the request that
+ * failed when one did.
  *
  * `S3VectorsErrorContext.operation` is the one field always present, and the
- * contract is that it holds the *public method's* name — not the AWS command's
- * — so a failure points at something the caller wrote. It is easy to get wrong
- * in a way nothing notices: the string is passed down through several layers,
- * and a wrong one still produces a perfectly plausible error.
+ * contract is that it holds the *public method's* name — never the AWS
+ * command's, not even when an AWS request is what failed — so a failure points
+ * at something the caller wrote. The request is a field of its own,
+ * `awsCommand`: set on every error that wraps a failed AWS request, and absent
+ * from every other. Both are easy to get wrong in a way nothing notices: the
+ * strings are passed down through several layers, and a wrong one still
+ * produces a perfectly plausible error.
  *
  * An already-fired signal is the cheapest way to make each method fail at its
- * own entry point, before any request.
+ * own entry point, before any request. A mocked rejection of each command a
+ * method issues is how it fails on each request.
  */
 type Store = ReturnType<typeof createTestStore>['store'];
+type Mock = ReturnType<typeof createTestStore>['mock'];
+
+/** The fields under test, read without asserting the error's type first. */
+const contextOf = (error: unknown): Record<string, unknown> =>
+  (error as { context: Record<string, unknown> }).context;
 
 const fired = (): AbortSignal => {
   const controller = new AbortController();
@@ -77,6 +99,8 @@ describe('every error names the public method that raised it', () => {
     const error = await run(store).catch((e: unknown) => e);
     expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
     expect((error as { context: { operation: string } }).context.operation).toBe(operation);
+    // Refused before any request, so no request is named.
+    expect(contextOf(error)).not.toHaveProperty('awsCommand');
   });
 
   it('an abort while waiting on a shared index creation names the write, not the wait', async () => {
@@ -141,13 +165,15 @@ describe('every error names the public method that raised it', () => {
   it('addVectors names itself even with no index step to raise the abort', async () => {
     // With createIndexIfNotExist off there is no ensureExists to catch the
     // signal, so without the store's own check the SDK would reject the
-    // PutVectors and the error would name that command instead.
+    // PutVectors, and the error would report a request that should never have
+    // been issued.
     const { store, mock } = createTestStore({ createIndexIfNotExist: false });
     const error = await store
       .addVectors([[1, 2, 3]], [new Document({ pageContent: 'x' })], { signal: fired() })
       .catch((e: unknown) => e);
     expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
     expect((error as { context: { operation: string } }).context.operation).toBe('addVectors');
+    expect(contextOf(error)).not.toHaveProperty('awsCommand');
     expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
   });
 
@@ -266,4 +292,315 @@ describe('every error names the public method that raised it', () => {
       ]);
     },
   );
+});
+
+/** What the SDK raises for a refused request: a declared exception name and its metadata. */
+const denied = (): Error =>
+  Object.assign(new Error('denied'), {
+    name: 'AccessDeniedException',
+    $metadata: { httpStatusCode: 403, requestId: 'req-d6' },
+  });
+
+const notFound = (): Error => Object.assign(new Error('not found'), { name: 'NotFoundException' });
+
+const doc = (): Document => new Document({ pageContent: 'x' });
+
+/**
+ * Make one command fail, and every command a method issues before it succeed.
+ *
+ * `GetVectors` is reached by `getByIds` directly and by MMR after a search, so
+ * its arrangement also gives that search a candidate to fetch.
+ */
+const FAIL: Record<string, (mock: Mock) => void> = {
+  GetIndex: (mock) => {
+    mock.on(GetIndexCommand).rejects(denied());
+  },
+  CreateIndex: (mock) => {
+    mock.on(GetIndexCommand).rejects(notFound());
+    mock.on(CreateIndexCommand).rejects(denied());
+  },
+  PutVectors: (mock) => {
+    mock.on(GetIndexCommand).resolves({ index: indexFixture() });
+    mock.on(PutVectorsCommand).rejects(denied());
+  },
+  DeleteVectors: (mock) => {
+    mock.on(DeleteVectorsCommand).rejects(denied());
+  },
+  DeleteIndex: (mock) => {
+    mock.on(DeleteIndexCommand).rejects(denied());
+  },
+  QueryVectors: (mock) => {
+    mock.on(QueryVectorsCommand).rejects(denied());
+  },
+  GetVectors: (mock) => {
+    mock.on(QueryVectorsCommand).resolves({ vectors: [{ key: 'id-1' }], distanceMetric: 'cosine' });
+    mock.on(GetVectorsCommand).rejects(denied());
+  },
+  ListVectors: (mock) => {
+    mock.on(ListVectorsCommand).rejects(denied());
+  },
+};
+
+/** Every public method, against every AWS command it issues. */
+const REQUEST_FAILURES: [string, string, (store: Store) => Promise<unknown>][] = [
+  ['addVectors', 'GetIndex', (store) => store.addVectors([[1, 2, 3]], [doc()])],
+  ['addVectors', 'CreateIndex', (store) => store.addVectors([[1, 2, 3]], [doc()])],
+  ['addVectors', 'PutVectors', (store) => store.addVectors([[1, 2, 3]], [doc()])],
+  ['addDocuments', 'GetIndex', (store) => store.addDocuments([doc()])],
+  ['addDocuments', 'CreateIndex', (store) => store.addDocuments([doc()])],
+  ['addDocuments', 'PutVectors', (store) => store.addDocuments([doc()])],
+  ['delete', 'DeleteVectors', (store) => store.delete({ ids: ['a'] })],
+  ['deleteIndex', 'DeleteIndex', (store) => store.deleteIndex()],
+  ['getByIds', 'GetVectors', (store) => store.getByIds(['a'])],
+  ['similaritySearch', 'QueryVectors', (store) => store.similaritySearch('q', 1)],
+  ['similaritySearchWithScore', 'QueryVectors', (store) => store.similaritySearchWithScore('q', 1)],
+  [
+    'similaritySearchWithRelevanceScores',
+    'QueryVectors',
+    (store) => store.similaritySearchWithRelevanceScores('q', 1),
+  ],
+  [
+    'similaritySearchVectorWithScore',
+    'QueryVectors',
+    (store) => store.similaritySearchVectorWithScore([1, 2, 3], 1),
+  ],
+  [
+    'maxMarginalRelevanceSearch',
+    'QueryVectors',
+    (store) => store.maxMarginalRelevanceSearch('q', { k: 1 }),
+  ],
+  [
+    'maxMarginalRelevanceSearch',
+    'GetVectors',
+    (store) => store.maxMarginalRelevanceSearch('q', { k: 1 }),
+  ],
+  // A listing issues ListVectors alone. Asking it for metadata needs the
+  // s3vectors:GetVectors *permission*, but no GetVectors request is made.
+  ['listDocuments', 'ListVectors', (store) => drain(store.listDocuments())],
+  ['listVectors', 'ListVectors', (store) => drain(store.listVectors())],
+];
+
+describe('a failed AWS request names the public method and, separately, the request', () => {
+  it('covers every AWS command this package issues', () => {
+    expect(new Set(REQUEST_FAILURES.map(([, command]) => command))).toEqual(
+      new Set(Object.keys(FAIL)),
+    );
+    expect(Object.keys(FAIL)).toHaveLength(8);
+  });
+
+  it.each(REQUEST_FAILURES)('%s, failing on %s', async (operation, command, run) => {
+    const { store, mock } = createTestStore();
+    FAIL[command]!(mock);
+    const error = await run(store).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+    expect(contextOf(error)['operation']).toBe(operation);
+    expect(contextOf(error)['awsCommand']).toBe(command);
+    // Messages are not the contract, but a log line alone should say both.
+    expect((error as Error).message).toContain(
+      `${operation} failed on ${command} (AccessDeniedException`,
+    );
+  });
+
+  it('an abort that cancels a request in flight names that request, since it is what stopped', async () => {
+    const { store, mock } = createTestStore();
+    mock
+      .on(DeleteVectorsCommand)
+      .rejects(Object.assign(new Error('Request aborted'), { name: 'AbortError' }));
+    const error = await store
+      .delete({ ids: ['a'], signal: new AbortController().signal })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
+    expect(contextOf(error)).toMatchObject({ operation: 'delete', awsCommand: 'DeleteVectors' });
+  });
+
+  it('a validation error names no request, because none was made', async () => {
+    const { store, mock } = createTestStore();
+    const error = await store.delete({ ids: [''] }).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(contextOf(error)).not.toHaveProperty('awsCommand');
+    expect(mock.calls()).toHaveLength(0);
+  });
+
+  it('caller code that throws names no request, even when what it throws looks like an AWS error', async () => {
+    // An AWS-SDK-based embeddings model can throw a declared exception name,
+    // and that diagnostic is still reported — but no request of this store's
+    // failed, so no command is named.
+    const { client } = createMockClient();
+    const embeddings = {
+      ...createMockEmbeddings(),
+      embedQuery: async (): Promise<number[]> => {
+        throw denied();
+      },
+    };
+    const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+    const error = await store.similaritySearch('q', 1).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(contextOf(error)).toMatchObject({
+      operation: 'similaritySearch',
+      awsErrorName: 'AccessDeniedException',
+    });
+    expect(contextOf(error)).not.toHaveProperty('awsCommand');
+  });
+
+  it('a malformed response names no request: the request succeeded, the answer was wrong', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(GetVectorsCommand).resolves(null as never);
+    const error = await store.getByIds(['a']).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+    expect(contextOf(error)['operation']).toBe('getByIds');
+    expect(contextOf(error)).not.toHaveProperty('awsCommand');
+  });
+
+  it('a creation rule refused at the index step names the write that needed the index', async () => {
+    // The store refuses such a dimension before its index step is reached, so
+    // the lifecycle is driven directly. It used to name `createIndex`, which is
+    // neither a public method nor an AWS command.
+    const { client, mock } = createMockClient();
+    mock.on(GetIndexCommand).rejects(notFound());
+    const lifecycle = createIndexLifecycle(
+      { client, ...BASE_CONFIG },
+      { dataType: 'float32', distanceMetric: 'cosine', pageContentMetadataKey: '_page_content' },
+    );
+    const error = await lifecycle.ensureExists(0, undefined, 'addVectors').catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(contextOf(error)['operation']).toBe('addVectors');
+    expect(contextOf(error)).not.toHaveProperty('awsCommand');
+    expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
+  });
+});
+
+/** The stack frames under an error's header line, which a rebuilt error must keep. */
+const framesOf = (error: unknown): string => {
+  const stack = (error as Error).stack ?? '';
+  return stack.slice(stack.indexOf('\n    at '));
+};
+
+describe('writes sharing one index check each name their own method', () => {
+  // Concurrent writes share one GetIndex/CreateIndex sequence. Its failure is
+  // raised once, under whichever write started it; every other write waiting
+  // on it must still see its own method — with the same request, cause, class
+  // and stack.
+  it.each([
+    [
+      'GetIndex',
+      (mock: Mock, held: Promise<void>): void => {
+        mock.on(GetIndexCommand).callsFake(async () => {
+          await held;
+          throw denied();
+        });
+      },
+    ],
+    [
+      'CreateIndex',
+      (mock: Mock, held: Promise<void>): void => {
+        mock.on(GetIndexCommand).rejects(notFound());
+        mock.on(CreateIndexCommand).callsFake(async () => {
+          await held;
+          throw denied();
+        });
+      },
+    ],
+  ])('when the shared %s fails', async (command, arrange) => {
+    const { store, mock } = createTestStore();
+    const release = gate();
+    arrange(mock, release.promise);
+
+    const vectors = store.addVectors([[1, 2, 3]], [doc()]).catch((e: unknown) => e);
+    const documents = store.addDocuments([doc()]).catch((e: unknown) => e);
+    await drainTasks();
+    release.open();
+    const [fromVectors, fromDocuments] = await Promise.all([vectors, documents]);
+
+    // One shared check, or this is not the case under test.
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
+    for (const [error, operation] of [
+      [fromVectors, 'addVectors'],
+      [fromDocuments, 'addDocuments'],
+    ] as const) {
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+      expect(contextOf(error)).toMatchObject({ operation, awsCommand: command, ...BASE_CONFIG });
+      expect((error as Error).message.startsWith(`${operation} failed on ${command} (`)).toBe(true);
+    }
+    expect((fromDocuments as Error).cause).toBe((fromVectors as Error).cause);
+    expect(framesOf(fromDocuments)).toBe(framesOf(fromVectors));
+  });
+
+  it('when the index disagrees with the store, which no request failed to say', async () => {
+    const { store, mock } = createTestStore();
+    const release = gate();
+    mock.on(GetIndexCommand).callsFake(async () => {
+      await release.promise;
+      return { index: indexFixture({ metadataConfiguration: undefined }) };
+    });
+
+    const vectors = store.addVectors([[1, 2, 3]], [doc()]).catch((e: unknown) => e);
+    const documents = store.addDocuments([doc()]).catch((e: unknown) => e);
+    await drainTasks();
+    release.open();
+    const [fromVectors, fromDocuments] = await Promise.all([vectors, documents]);
+
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
+    for (const [error, operation] of [
+      [fromVectors, 'addVectors'],
+      [fromDocuments, 'addDocuments'],
+    ] as const) {
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
+      expect(contextOf(error)['operation']).toBe(operation);
+      expect(contextOf(error)).not.toHaveProperty('awsCommand');
+    }
+    expect((fromDocuments as Error).message).toBe((fromVectors as Error).message);
+    expect(framesOf(fromDocuments)).toBe(framesOf(fromVectors));
+  });
+
+  it("gives a second method a copy, leaving the first caller's error as it was", async () => {
+    const { client, mock } = createMockClient();
+    mock.on(GetIndexCommand).rejects(denied());
+    const lifecycle = createIndexLifecycle(
+      { client, ...BASE_CONFIG },
+      { dataType: 'float32', distanceMetric: 'cosine', pageContentMetadataKey: '_page_content' },
+    );
+
+    // Started back to back, so all three wait on the one check.
+    const first = lifecycle.ensureExists(3, undefined, 'addVectors').catch((e: unknown) => e);
+    const same = lifecycle.ensureExists(3, undefined, 'addVectors').catch((e: unknown) => e);
+    const other = lifecycle
+      .ensureExists(3, new AbortController().signal, 'addDocuments')
+      .catch((e: unknown) => e);
+    const [a, sameMethod, b] = await Promise.all([first, same, other]);
+
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
+    // The same method needs nothing rebuilt.
+    expect(sameMethod).toBe(a);
+    expect(b).not.toBe(a);
+    expect(contextOf(a)['operation']).toBe('addVectors');
+    expect(contextOf(b)).toEqual({ ...contextOf(a), operation: 'addDocuments' });
+    expect((b as { code?: string }).code).toBe((a as { code?: string }).code);
+    expect((b as Error).cause).toBe((a as Error).cause);
+    expect((b as Error).message).toBe(
+      (a as Error).message.replace(/^addVectors failed/, 'addDocuments failed'),
+    );
+    expect(framesOf(b)).toBe(framesOf(a));
+  });
+
+  it("deleteIndex waiting on a write's failing check reports only its own request", async () => {
+    const { store, mock } = createTestStore();
+    const release = gate();
+    mock.on(GetIndexCommand).callsFake(async () => {
+      await release.promise;
+      throw denied();
+    });
+    mock.on(DeleteIndexCommand).rejects(denied());
+
+    const writing = store.addVectors([[1, 2, 3]], [doc()]).catch((e: unknown) => e);
+    await drainTasks();
+    const deleting = store.deleteIndex().catch((e: unknown) => e);
+    release.open();
+    const [fromWrite, fromDelete] = await Promise.all([writing, deleting]);
+
+    expect(contextOf(fromWrite)).toMatchObject({ operation: 'addVectors', awsCommand: 'GetIndex' });
+    expect(contextOf(fromDelete)).toMatchObject({
+      operation: 'deleteIndex',
+      awsCommand: 'DeleteIndex',
+    });
+  });
 });

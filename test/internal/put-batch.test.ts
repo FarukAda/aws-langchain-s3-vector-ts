@@ -139,7 +139,10 @@ describe('putBatch', () => {
     expect((error as { context: { batchSize?: number } }).context.batchSize).toBe(1);
     // Adding context must not make this decorator the apparent origin.
     expect((error as Error).stack).toContain('\n    at ');
-    expect((error as { context: { operation: string } }).context.operation).toBe('PutVectors');
+    expect((error as { context: Record<string, unknown> }).context).toMatchObject({
+      operation: 'addVectors',
+      awsCommand: 'PutVectors',
+    });
   });
 
   it('leaves the index believed to exist after an unrelated failure', async () => {
@@ -154,8 +157,10 @@ describe('putBatch', () => {
 });
 
 describe('sendAws', () => {
+  const OPERATION = { operation: 'addVectors', ...SCOPE } as const;
+
   it('returns the call result untouched', async () => {
-    await expect(sendAws('PutVectors', SCOPE, async () => 'value')).resolves.toBe('value');
+    await expect(sendAws('PutVectors', OPERATION, async () => 'value')).resolves.toBe('value');
   });
 
   it.each([
@@ -164,14 +169,27 @@ describe('sendAws', () => {
     ['AccessDeniedException', S3VectorsErrorCode.ACCESS_DENIED],
     ['SomethingUnknownException', S3VectorsErrorCode.AWS_REQUEST_FAILED],
   ])('maps %s to %s', async (name, expected) => {
-    const error = await sendAws('PutVectors', SCOPE, () =>
+    const error = await sendAws('PutVectors', OPERATION, () =>
       Promise.reject(Object.assign(new Error('x'), { name })),
     ).catch((e: unknown) => e);
     expect(codeOf(error)).toBe(expected);
   });
 
+  it('names the public method as the operation and the command as the request', async () => {
+    const error = await sendAws('DeleteVectors', { ...OPERATION, operation: 'delete' }, () =>
+      Promise.reject(Object.assign(new Error('x'), { name: 'AccessDeniedException' })),
+    ).catch((e: unknown) => e);
+    expect((error as { context: Record<string, unknown> }).context).toEqual({
+      operation: 'delete',
+      awsCommand: 'DeleteVectors',
+      ...SCOPE,
+      awsErrorName: 'AccessDeniedException',
+      retryable: false,
+    });
+  });
+
   it('classifies an abort as ABORTED, because nothing failed', async () => {
-    const error = await sendAws('PutVectors', SCOPE, () =>
+    const error = await sendAws('PutVectors', OPERATION, () =>
       Promise.reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
     ).catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.ABORTED);

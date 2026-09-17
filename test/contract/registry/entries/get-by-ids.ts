@@ -92,6 +92,8 @@ function cases(): readonly ContractCase<GetByIdsInput>[] {
 const SCOPE = ['vectorBucketName', 'indexName'];
 /** What a failed fetch carries, so a caller need not refetch what already arrived. */
 const FETCH_FAILURE = [...SCOPE, 'foundIds'];
+/** A failed `GetVectors` request also names the request. */
+const REQUEST_FAILURE = [...FETCH_FAILURE, 'awsCommand'];
 
 /** The executable contract for `AmazonS3Vectors.getByIds`. */
 export const getByIdsContract: EntryPointContract<GetByIdsInput> = {
@@ -111,13 +113,13 @@ export const getByIdsContract: EntryPointContract<GetByIdsInput> = {
   requiredContext: {
     [S3VectorsErrorCode.VALIDATION]: SCOPE,
     [S3VectorsErrorCode.ABORTED]: SCOPE,
-    [S3VectorsErrorCode.THROTTLED]: FETCH_FAILURE,
-    [S3VectorsErrorCode.ACCESS_DENIED]: FETCH_FAILURE,
-    [S3VectorsErrorCode.AWS_REJECTED]: FETCH_FAILURE,
-    [S3VectorsErrorCode.NOT_FOUND]: FETCH_FAILURE,
-    [S3VectorsErrorCode.SERVICE_UNAVAILABLE]: FETCH_FAILURE,
-    [S3VectorsErrorCode.KMS_ERROR]: FETCH_FAILURE,
-    [S3VectorsErrorCode.AWS_REQUEST_FAILED]: FETCH_FAILURE,
+    [S3VectorsErrorCode.THROTTLED]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.ACCESS_DENIED]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.AWS_REJECTED]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.NOT_FOUND]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.SERVICE_UNAVAILABLE]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.KMS_ERROR]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.AWS_REQUEST_FAILED]: REQUEST_FAILURE,
     [S3VectorsErrorCode.AWS_INVALID_RESPONSE]: FETCH_FAILURE,
   },
   accepts,

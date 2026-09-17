@@ -64,15 +64,36 @@ describe('toError safety', () => {
 describe('wrapAwsError', () => {
   it('wraps an unknown cause into a coded S3VectorsError', () => {
     const cause = Object.assign(new Error('denied'), { name: 'AccessDeniedException' });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, {
-      operation: 'PutVectors',
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, 'PutVectors', {
+      operation: 'addVectors',
     });
     expect(isS3VectorsError(err)).toBe(true);
     expect(err.code).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
-    expect(err.message).toBe('PutVectors failed (AccessDeniedException): denied');
+    expect(err.message).toBe('addVectors failed on PutVectors (AccessDeniedException): denied');
     expect(err.cause).toBe(cause);
     expect(err.context.awsErrorName).toBe('AccessDeniedException');
     expect(err.context.retryable).toBe(false);
+  });
+
+  it('records the public method as the operation and the request as awsCommand', () => {
+    const cause = Object.assign(new Error('denied'), { name: 'AccessDeniedException' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.ACCESS_DENIED, 'DeleteVectors', {
+      operation: 'delete',
+      vectorBucketName: 'b',
+      indexName: 'i',
+    });
+    expect(err.context.operation).toBe('delete');
+    expect(err.context.awsCommand).toBe('DeleteVectors');
+  });
+
+  it('names the request even when the cause carries nothing AWS-shaped', () => {
+    // A request failed either way: the command is known from the call site,
+    // not read off the cause.
+    const err = wrapAwsError('a thrown string', S3VectorsErrorCode.AWS_REQUEST_FAILED, 'GetIndex', {
+      operation: 'addDocuments',
+    });
+    expect(err.context.awsCommand).toBe('GetIndex');
+    expect(err.message).toBe('addDocuments failed on GetIndex: a thrown string');
   });
 
   it('lifts httpStatusCode and requestId off $metadata into context and the message', () => {
@@ -80,14 +101,15 @@ describe('wrapAwsError', () => {
       name: 'TooManyRequestsException',
       $metadata: { httpStatusCode: 429, requestId: 'REQ-123', attempts: 3 },
     });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, {
-      operation: 'QueryVectors',
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, 'QueryVectors', {
+      operation: 'similaritySearch',
     });
     expect(err.message).toBe(
-      'QueryVectors failed (TooManyRequestsException, HTTP 429, requestId REQ-123): slow down',
+      'similaritySearch failed on QueryVectors (TooManyRequestsException, HTTP 429, requestId REQ-123): slow down',
     );
     expect(err.context).toMatchObject({
-      operation: 'QueryVectors',
+      operation: 'similaritySearch',
+      awsCommand: 'QueryVectors',
       awsErrorName: 'TooManyRequestsException',
       httpStatusCode: 429,
       requestId: 'REQ-123',
@@ -103,7 +125,9 @@ describe('wrapAwsError', () => {
     ['SomeOtherException', 502],
   ])('marks %s (HTTP %i) as retryable', (name, httpStatusCode) => {
     const cause = Object.assign(new Error('x'), { name, $metadata: { httpStatusCode } });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.retryable).toBe(true);
   });
 
@@ -113,7 +137,9 @@ describe('wrapAwsError', () => {
       $metadata: { httpStatusCode: 400 },
       $retryable: { throttling: true },
     });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.retryable).toBe(true);
   });
 
@@ -122,14 +148,18 @@ describe('wrapAwsError', () => {
       name: 'ValidationException',
       $metadata: { httpStatusCode: 400 },
     });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.retryable).toBe(false);
     expect(err.context.httpStatusCode).toBe(400);
   });
 
   it('accepts a $metadata-only cause with no usable name (name "Error" is still reported)', () => {
     const cause = Object.assign(new Error('x'), { $metadata: {} });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.awsErrorName).toBe('Error');
     expect(err.context.httpStatusCode).toBeUndefined();
     expect(err.context.requestId).toBeUndefined();
@@ -138,12 +168,14 @@ describe('wrapAwsError', () => {
 
   it('tolerates a $metadata-bearing cause whose name is not a string', () => {
     const cause = { name: 5, message: 'odd', $metadata: { httpStatusCode: 500 } };
-    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.awsErrorName).toBeUndefined();
     expect(err.context.httpStatusCode).toBe(500);
     expect(err.context.retryable).toBe(true);
     expect(err.message).toBe(
-      'op failed (HTTP 500): {"name":5,"message":"odd","$metadata":{"httpStatusCode":500}}',
+      'op failed on PutVectors (HTTP 500): {"name":5,"message":"odd","$metadata":{"httpStatusCode":500}}',
     );
   });
 
@@ -152,16 +184,20 @@ describe('wrapAwsError', () => {
       name: 'AccessDeniedException',
       $metadata: { httpStatusCode: '403', requestId: 42 },
     });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.httpStatusCode).toBeUndefined();
     expect(err.context.requestId).toBeUndefined();
-    expect(err.message).toBe('op failed (AccessDeniedException): x');
+    expect(err.message).toBe('op failed on PutVectors (AccessDeniedException): x');
   });
 
   it('presents a non-AWS cause (a TypeError, a string, null) without any AWS diagnostics', () => {
     for (const cause of [new TypeError('nope'), 'boom', null, { name: 'Error', message: 'm' }]) {
-      const err = wrapAwsError(cause, S3VectorsErrorCode.UNEXPECTED_ERROR, { operation: 'op' });
-      expect(err.message.startsWith('op failed: ')).toBe(true);
+      const err = wrapAwsError(cause, S3VectorsErrorCode.UNEXPECTED_ERROR, 'PutVectors', {
+        operation: 'op',
+      });
+      expect(err.message.startsWith('op failed on PutVectors: ')).toBe(true);
       expect(err.context.awsErrorName).toBeUndefined();
       expect(err.context.retryable).toBeUndefined();
     }
@@ -179,7 +215,9 @@ describe('wrapAwsError', () => {
       name: 'ValidationException',
       $metadata: metadata,
     });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REJECTED, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REJECTED, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.code).toBe(S3VectorsErrorCode.AWS_REJECTED);
     expect(err.context.awsErrorName).toBe('ValidationException');
     expect(err.context.httpStatusCode).toBeUndefined();
@@ -192,7 +230,9 @@ describe('wrapAwsError', () => {
     // `awsErrorName: 'TypeError'` and a retryability verdict would invite a
     // caller to retry a bug in their own code.
     const cause = Object.assign(new Error('x'), { name: 'TypeError', $metadata: 'nope' });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.UNEXPECTED_ERROR, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.UNEXPECTED_ERROR, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.awsErrorName).toBeUndefined();
     expect(err.context.retryable).toBeUndefined();
   });
@@ -202,7 +242,9 @@ describe('wrapAwsError', () => {
       name: 'TooManyRequestsException',
       $metadata: { httpStatusCode: 429, requestId: 'r-9' },
     });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.THROTTLED, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.THROTTLED, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context).toMatchObject({
       awsErrorName: 'TooManyRequestsException',
       httpStatusCode: 429,
@@ -222,7 +264,9 @@ describe('wrapAwsError', () => {
     'TimeoutError',
   ])('marks %s retryable, so a caller-side backoff can act on it', (name) => {
     const cause = Object.assign(new Error('x'), { name, $metadata: {} });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.retryable).toBe(true);
   });
 
@@ -234,7 +278,9 @@ describe('wrapAwsError', () => {
       // on the prose would have written a branch that never runs. Kept as a
       // test so the names cannot drift back in.
       const cause = Object.assign(new Error('x'), { name, $metadata: {} });
-      const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, { operation: 'op' });
+      const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, 'PutVectors', {
+        operation: 'op',
+      });
       expect(err.context.retryable).toBe(false);
     },
   );
@@ -243,7 +289,9 @@ describe('wrapAwsError', () => {
     'leaves %s not retryable, because backoff cannot fix it',
     (name) => {
       const cause = Object.assign(new Error('x'), { name, $metadata: { httpStatusCode: 400 } });
-      const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REJECTED, { operation: 'op' });
+      const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REJECTED, 'PutVectors', {
+        operation: 'op',
+      });
       expect(err.context.retryable).toBe(false);
     },
   );
@@ -253,7 +301,9 @@ describe('wrapAwsError', () => {
     // error keeps its own name, so `metadata === undefined` alone would
     // otherwise drop it out with no diagnostics at all.
     const cause = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.retryable).toBe(true);
     expect(err.context.awsErrorName).toBe('Error');
   });
@@ -263,13 +313,17 @@ describe('wrapAwsError', () => {
       code: 'ECONNREFUSED',
       $metadata: {},
     });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.retryable).toBe(true);
   });
 
   it('gives a code outside the SDK retry strategy set (EACCES) no AWS diagnostics, with no $metadata either', () => {
     const cause = Object.assign(new Error('permission denied'), { code: 'EACCES' });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.AWS_REQUEST_FAILED, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.retryable).toBeUndefined();
     expect(err.context.awsErrorName).toBeUndefined();
   });
@@ -284,7 +338,9 @@ describe('wrapAwsError', () => {
       code: 'ECONNREFUSED',
       $metadata: { httpStatusCode: 403 },
     });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.ACCESS_DENIED, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.ACCESS_DENIED, 'PutVectors', {
+      operation: 'op',
+    });
     expect(err.context.awsErrorName).toBe('AccessDeniedException');
     expect(err.context.httpStatusCode).toBe(403);
     expect(err.context.retryable).toBe(false);
@@ -296,16 +352,20 @@ describe('wrapAwsError', () => {
     // name), so this gets no diagnostics at all — not `retryable: false`,
     // which would still claim an opinion about a request that never failed.
     const cause = Object.assign(new Error('aborted'), { name: 'AbortError', code: 'ECONNRESET' });
-    const err = wrapAwsError(cause, S3VectorsErrorCode.ABORTED, { operation: 'op' });
+    const err = wrapAwsError(cause, S3VectorsErrorCode.ABORTED, 'PutVectors', { operation: 'op' });
     expect(err.context.awsErrorName).toBeUndefined();
     expect(err.context.retryable).toBeUndefined();
+    // Still the request that was cancelled in flight.
+    expect(err.context.awsCommand).toBe('PutVectors');
   });
 
   it('returns an already-S3VectorsError unchanged', () => {
     const original = new S3VectorsError('v', S3VectorsErrorCode.VALIDATION, { operation: 'x' });
-    expect(wrapAwsError(original, S3VectorsErrorCode.AWS_REQUEST_FAILED, { operation: 'y' })).toBe(
-      original,
-    );
+    expect(
+      wrapAwsError(original, S3VectorsErrorCode.AWS_REQUEST_FAILED, 'PutVectors', {
+        operation: 'y',
+      }),
+    ).toBe(original);
   });
 });
 
@@ -314,6 +374,8 @@ describe('wrapCallerError', () => {
     const err = wrapCallerError(new Error('model blew up'), { operation: 'op' });
     expect(err.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
     expect(err.message).toBe('op failed: model blew up');
+    // Caller code is not an AWS request, so no request is named.
+    expect(err.context).not.toHaveProperty('awsCommand');
   });
 
   it('returns an already-S3VectorsError unchanged, e.g. an EMBEDDINGS_MISSING raised by a model lookup', () => {

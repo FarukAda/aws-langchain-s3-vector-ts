@@ -168,6 +168,8 @@ function cases(): readonly ContractCase<AddVectorsInput>[] {
 const SCOPE = ['vectorBucketName', 'indexName'];
 /** What a failure after the write started carries, so a caller can reconcile it. */
 const WRITE_FAILURE = [...SCOPE, 'writtenIds', 'attemptedIds'];
+/** A failed AWS request also names the request, whichever of the write's commands it was. */
+const REQUEST_FAILURE = [...WRITE_FAILURE, 'awsCommand'];
 
 /** The executable contract for `AmazonS3Vectors.addVectors`. */
 export const addVectorsContract: EntryPointContract<AddVectorsInput> = {
@@ -189,14 +191,14 @@ export const addVectorsContract: EntryPointContract<AddVectorsInput> = {
     [S3VectorsErrorCode.VALIDATION]: SCOPE,
     [S3VectorsErrorCode.ABORTED]: SCOPE,
     [S3VectorsErrorCode.INDEX_CONFIG_MISMATCH]: SCOPE,
-    [S3VectorsErrorCode.THROTTLED]: WRITE_FAILURE,
-    [S3VectorsErrorCode.ACCESS_DENIED]: WRITE_FAILURE,
-    [S3VectorsErrorCode.AWS_REJECTED]: WRITE_FAILURE,
-    [S3VectorsErrorCode.NOT_FOUND]: WRITE_FAILURE,
-    [S3VectorsErrorCode.SERVICE_UNAVAILABLE]: WRITE_FAILURE,
-    [S3VectorsErrorCode.QUOTA_EXCEEDED]: WRITE_FAILURE,
-    [S3VectorsErrorCode.KMS_ERROR]: WRITE_FAILURE,
-    [S3VectorsErrorCode.AWS_REQUEST_FAILED]: WRITE_FAILURE,
+    [S3VectorsErrorCode.THROTTLED]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.ACCESS_DENIED]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.AWS_REJECTED]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.NOT_FOUND]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.SERVICE_UNAVAILABLE]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.QUOTA_EXCEEDED]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.KMS_ERROR]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.AWS_REQUEST_FAILED]: REQUEST_FAILURE,
   },
   // Vectors that disagree on dimension, anywhere in the call, are refused as
   // INDEX_CONFIG_MISMATCH rather than VALIDATION, deliberately: what the caller

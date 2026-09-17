@@ -86,6 +86,8 @@ function cases(): readonly ContractCase<unknown>[] {
 
 const SCOPE = ['vectorBucketName', 'indexName'];
 const DELETE_FAILURE = [...SCOPE, 'deletedIds'];
+/** A failed `DeleteVectors` request also names the request. */
+const REQUEST_FAILURE = [...DELETE_FAILURE, 'awsCommand'];
 
 /** The executable contract for `AmazonS3Vectors.delete`. */
 export const deleteContract: EntryPointContract<unknown> = {
@@ -104,13 +106,13 @@ export const deleteContract: EntryPointContract<unknown> = {
   requiredContext: {
     [S3VectorsErrorCode.VALIDATION]: SCOPE,
     [S3VectorsErrorCode.ABORTED]: SCOPE,
-    [S3VectorsErrorCode.THROTTLED]: DELETE_FAILURE,
-    [S3VectorsErrorCode.ACCESS_DENIED]: DELETE_FAILURE,
-    [S3VectorsErrorCode.AWS_REJECTED]: DELETE_FAILURE,
-    [S3VectorsErrorCode.NOT_FOUND]: DELETE_FAILURE,
-    [S3VectorsErrorCode.SERVICE_UNAVAILABLE]: DELETE_FAILURE,
-    [S3VectorsErrorCode.KMS_ERROR]: DELETE_FAILURE,
-    [S3VectorsErrorCode.AWS_REQUEST_FAILED]: DELETE_FAILURE,
+    [S3VectorsErrorCode.THROTTLED]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.ACCESS_DENIED]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.AWS_REJECTED]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.NOT_FOUND]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.SERVICE_UNAVAILABLE]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.KMS_ERROR]: REQUEST_FAILURE,
+    [S3VectorsErrorCode.AWS_REQUEST_FAILED]: REQUEST_FAILURE,
   },
   accepts,
   invoke: async (store: AmazonS3Vectors, input: unknown) =>

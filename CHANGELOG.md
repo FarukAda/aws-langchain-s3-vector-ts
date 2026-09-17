@@ -17,7 +17,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Document at index 400 (id "ticket-400"): …`. Both fields are optional and
   appear only on errors about a single element of a list.
 
+- **`error.context.awsCommand`: the AWS request that failed.** The S3 Vectors
+  API operation — `GetIndex`, `CreateIndex`, `DeleteIndex`, `PutVectors`,
+  `DeleteVectors`, `QueryVectors`, `GetVectors` or `ListVectors` — set on every
+  error that wraps a failed AWS request, an `ABORTED` that cancelled one in
+  flight included, and absent from every other: a validation error, an abort
+  that cancelled no request, a failure of caller-supplied code, and an
+  `AWS_INVALID_RESPONSE` about a response that did arrive. Reads never reported
+  the request at all, and writes, deletes and `deleteIndex` reported it in
+  place of the method (see *Changed*). The message names both, as
+  `addDocuments failed on PutVectors (AccessDeniedException, HTTP 403, requestId …): …`.
+
 ### Changed
+
+- **`context.operation` is the public method on every error, a failed AWS
+  request included.** Five paths named the AWS command instead: a refused
+  `GetIndex`, `CreateIndex` or `PutVectors` reported `operation: "GetIndex"`,
+  `"CreateIndex"` or `"PutVectors"` from `addVectors` and `addDocuments`, a
+  refused `DeleteVectors` reported `"DeleteVectors"` from `delete`, and a
+  refused `DeleteIndex` reported `"DeleteIndex"` from `deleteIndex` — while
+  every read (`getByIds`, the searches, MMR, the listings) named the method, so
+  one call's failures were split across two names depending on which request
+  failed. They report the method now, with the command in `awsCommand`; a
+  creation rule refused at the index step, which named `createIndex` — neither
+  a method nor a command — names the write too. **Migration:** a branch on
+  `context.operation === 'PutVectors'` becomes
+  `context.awsCommand === 'PutVectors'`, and likewise for `GetIndex`,
+  `CreateIndex`, `DeleteVectors` and `DeleteIndex`; a branch on the method
+  (`operation === 'addDocuments'`) now also sees that method's request
+  failures.
 
 - **`addVectors` requires every vector in the call to share one dimension, and
   checks it before writing anything.** It was checked per batch, so a call whose
@@ -212,6 +240,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `listDocuments` and `listVectors` — also carried no
   `vectorBucketName`/`indexName`. `createDocument` now takes the operation,
   bucket and index as a required parameter; every caller supplies its own.
+
+- **Concurrent writes waiting on one index check each name themselves.** The
+  first write to an index shares its `GetIndex`/`CreateIndex` with every write
+  started meanwhile, and a failure of that check was raised once and handed to
+  all of them — so an `INDEX_CONFIG_MISMATCH` reached an `addDocuments` call
+  as `operation: "addVectors"` when an `addVectors` call had started the check.
+  Each write now receives the failure under its own method, with the same
+  code, cause, `awsCommand` and stack.
 
 ## [1.0.0-rc.2] - 2026-09-16
 

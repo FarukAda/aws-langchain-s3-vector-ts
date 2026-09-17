@@ -21,9 +21,10 @@ import { renderValue } from '../shared/describe.js';
 import { isAwsConflictException } from '../shared/errors/aws-conflict.js';
 import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
+import { rebuildWithContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
-import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
-import { wrapAwsError } from '../shared/errors/wrap-error.js';
+import { isS3VectorsError, S3VectorsError } from '../shared/errors/s3-vectors-error.js';
+import { failureMessage, wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { DistanceMetric, VectorDataType } from '../types.js';
 import { checkAborted, raceAbort, sendOptions } from './signals.js';
 
@@ -109,16 +110,18 @@ function nonFilterableKeysOf(response: unknown): readonly string[] | undefined {
  *
  * Accepts:
  * - `ctx` — the client, bucket and index name.
- * - `signal` — absent, or an `AbortSignal`. Already fired: rejects before any
- *   request is issued. Fires in flight: the request is cancelled.
+ * - `signal` — `undefined`, or an `AbortSignal`. Already fired: rejects before
+ *   any request is issued. Fires in flight: the request is cancelled.
+ * - `operation` — the public method the check is for, named in any error.
  *
  * Returns: `exists: true` when `GetIndex` resolves, `exists: false` when it
  * fails `NotFoundException`
  * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_GetIndex.html),
  * plus the index's non-filterable keys when the response stated them.
  *
- * Throws: `ABORTED` for `signal`; otherwise the class {@link classifyAwsError}
- * assigns.
+ * Throws: `ABORTED` for `signal`, naming `operation` and no request;
+ * otherwise the class {@link classifyAwsError} assigns, carrying
+ * `awsCommand: "GetIndex"`.
  *
  * Guarantees: **existence is still proven by the 200, never by the body.** The
  * body is read only to add what it happens to say, through shape checks that
@@ -128,9 +131,10 @@ function nonFilterableKeysOf(response: unknown): readonly string[] | undefined {
  */
 export async function describeIndex(
   ctx: IndexContext,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  operation: string,
 ): Promise<IndexDescription> {
-  checkAborted('GetIndex', signal, ctx);
+  checkAborted(operation, signal, ctx);
   try {
     const response = await ctx.client.send(
       new GetIndexCommand({
@@ -143,8 +147,8 @@ export async function describeIndex(
     return keys === undefined ? { exists: true } : { exists: true, nonFilterableKeys: keys };
   } catch (error: unknown) {
     if (isAwsNotFoundException(error)) return { exists: false };
-    throw wrapAwsError(error, classifyAwsError(error), {
-      operation: 'GetIndex',
+    throw wrapAwsError(error, classifyAwsError(error), 'GetIndex', {
+      operation,
       vectorBucketName: ctx.vectorBucketName,
       indexName: ctx.indexName,
     });
@@ -253,18 +257,25 @@ export interface IndexLifecycle {
    * - `signal` — makes this caller's own wait reject early. It never cancels
    *   the shared `GetIndex`/`CreateIndex` work, because other callers depend
    *   on it.
+   * - `operation` — the public method this caller invoked, named in any error
+   *   it receives.
    *
    * Returns: nothing. Existence is the entire result.
    *
-   * Throws: `ABORTED` for `signal`; otherwise the class `classifyAwsError`
-   * assigns. A `ConflictException` from `CreateIndex` is not an error — it
-   * means another process created the index first, which is the requested
-   * state
+   * Throws: `ABORTED` for `signal`; `INDEX_CONFIG_MISMATCH` when an existing
+   * index's non-filterable keys disagree with this store's; `VALIDATION` for a
+   * dimension, key set or tag set an index cannot be created with, before
+   * `CreateIndex`; otherwise the class `classifyAwsError` assigns the failed
+   * `GetIndex` or `CreateIndex`, carrying that command as `awsCommand`. A
+   * `ConflictException` from `CreateIndex` is not an error — it means another
+   * process created the index first, which is the requested state
    * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_CreateIndex.html).
    *
    * Guarantees: on resolution the index existed at some point during this
-   * call. Concurrent callers share one request sequence. Existence is
-   * remembered only on resolution, never on failure.
+   * call. Concurrent callers share one request sequence, and so one failure —
+   * but each receives it naming its own `operation`, with the same class,
+   * cause, stack and `awsCommand`. Existence is remembered only on resolution,
+   * never on failure.
    */
   ensureExists(
     dimension: number,
@@ -278,11 +289,14 @@ export interface IndexLifecycle {
    * Accepts:
    * - `signal` — absent, or an `AbortSignal`. Already fired: rejects before the
    *   in-flight creation is awaited and before any request.
+   * - `operation` — the public method the caller invoked, named in any error.
    *
    * Returns: nothing.
    *
    * Throws: `ABORTED` for `signal`; otherwise the class `classifyAwsError`
-   * assigns, except a response reporting the index absent, which resolves —
+   * assigns the failed `DeleteIndex`, carrying it as `awsCommand` — never the
+   * failure of a creation it waited on, which is that write's to report —
+   * except a response reporting the index absent, which resolves —
    * the requested state already holds. AWS returns a 404 `NotFoundException`
    * for an index that is already gone (docs/evidence/delete-absent.md), so
    * resolving is this package's decision, not the service's.
@@ -400,10 +414,11 @@ function assertCreatable(
   dimension: number,
   keys: readonly string[],
   tags: Record<string, string> | undefined,
+  operation: string,
 ): void {
   const fail = (message: string): never => {
     throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, {
-      operation: 'createIndex',
+      operation,
       vectorBucketName: ctx.vectorBucketName,
       indexName: ctx.indexName,
     });
@@ -421,9 +436,10 @@ function assertCreatable(
 /**
  * Create the index at `dimension`, from this store's configuration.
  *
- * Accepts: the index to create and the configuration to create it from. No
- * signal, deliberately: the only caller is the shared memo, so no single
- * caller may cancel it out from under the others.
+ * Accepts: the index to create, the configuration to create it from, and the
+ * public method it is created for, named in any error. No signal,
+ * deliberately: the only caller is the shared memo, so no single caller may
+ * cancel it out from under the others.
  *
  * Returns: nothing, both when this call created the index and when another
  * writer did first — a `ConflictException` means the requested state was
@@ -440,9 +456,10 @@ async function createIndex(
   ctx: IndexContext,
   config: IndexLifecycleConfig,
   dimension: number,
+  operation: string,
 ): Promise<void> {
   const keys = nonFilterableKeys(config);
-  assertCreatable(ctx, dimension, keys, config.tags);
+  assertCreatable(ctx, dimension, keys, config.tags, operation);
   try {
     await ctx.client.send(
       new CreateIndexCommand({
@@ -460,12 +477,36 @@ async function createIndex(
     );
   } catch (error: unknown) {
     if (isAwsConflictException(error)) return;
-    throw wrapAwsError(error, classifyAwsError(error), {
-      operation: 'CreateIndex',
+    throw wrapAwsError(error, classifyAwsError(error), 'CreateIndex', {
+      operation,
       vectorBucketName: ctx.vectorBucketName,
       indexName: ctx.indexName,
     });
   }
+}
+
+/**
+ * The shared index check's failure, reported as another caller's own.
+ *
+ * Concurrent callers share one `GetIndex`/`CreateIndex` sequence, so its
+ * failure is raised once, naming the method that started it. Every other
+ * method waiting on it receives this: a new error naming its own `operation`,
+ * with the same class, code, cause, `awsCommand` and every other context
+ * field — and, through {@link rebuildWithContext}, the stack of the code that
+ * actually failed. Rebuilt rather than edited, because the caller that started
+ * the check holds the original, and an error is readonly once raised.
+ *
+ * Only a failed request's message names the operation — `wrapAwsError` builds
+ * it from the context — so that message is built again the same way, from the
+ * new context. The check's other failures, the `INDEX_CONFIG_MISMATCH` from
+ * {@link assertKeysAgree} and the `VALIDATION` from {@link assertCreatable},
+ * never name it, and keep theirs.
+ */
+function reportedAs(failure: S3VectorsError, operation: string): S3VectorsError {
+  const context = { ...failure.context, operation };
+  const message =
+    context.awsCommand === undefined ? failure.message : failureMessage(context, failure.cause);
+  return rebuildWithContext(failure, message, context);
 }
 
 /**
@@ -490,7 +531,9 @@ async function createIndex(
  * - Existence is remembered only on resolution, never on failure, so a failed
  *   creation is retried rather than assumed.
  * - Concurrent callers share one creation attempt (the memo), so twenty
- *   parallel writes issue one `GetIndex` and at most one `CreateIndex`.
+ *   parallel writes issue one `GetIndex` and at most one `CreateIndex`. They
+ *   share its failure too, and each still receives it under its own
+ *   `operation`.
  * - `deleteIndex` awaits an in-flight creation before deleting, so a creation
  *   that started first can never land afterwards and resurrect the index.
  * - Nothing about an existing index is cached beyond its existence: AWS
@@ -515,7 +558,7 @@ export function createIndexLifecycle(
 
       memo ??= (async () => {
         try {
-          const description = await describeIndex(ctx);
+          const description = await describeIndex(ctx, undefined, operation);
           if (description.exists) {
             // Only for an index this store did not create. One it creates is
             // configured from this very list, so it agrees by construction.
@@ -526,7 +569,7 @@ export function createIndexLifecycle(
               operation,
             );
           } else {
-            await createIndex(ctx, config, dimension);
+            await createIndex(ctx, config, dimension, operation);
           }
           knownToExist = true;
         } finally {
@@ -538,7 +581,15 @@ export function createIndexLifecycle(
       // cancelled: one caller's abort must not cancel a creation the others
       // are waiting on.
       const shared = memo;
-      await raceAbort(() => shared, signal, operation, ctx);
+      try {
+        await raceAbort(() => shared, signal, operation, ctx);
+      } catch (error: unknown) {
+        // The memo's failure names whichever method started it. Every other
+        // method waiting on it reports the same failure as its own.
+        throw isS3VectorsError(error) && error.context.operation !== operation
+          ? reportedAs(error, operation)
+          : error;
+      }
     },
 
     markAbsent(): void {
@@ -573,8 +624,8 @@ export function createIndexLifecycle(
         );
       } catch (error: unknown) {
         if (!isAwsNotFoundException(error)) {
-          throw wrapAwsError(error, classifyAwsError(error), {
-            operation: 'DeleteIndex',
+          throw wrapAwsError(error, classifyAwsError(error), 'DeleteIndex', {
+            operation,
             vectorBucketName: ctx.vectorBucketName,
             indexName: ctx.indexName,
           });

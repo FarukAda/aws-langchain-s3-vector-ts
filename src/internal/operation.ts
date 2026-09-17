@@ -13,9 +13,10 @@ export interface OperationScope extends StoreScope {
   /**
    * The public method this call belongs to — `'addDocuments'`,
    * `'similaritySearch'`, `'listVectors'`. It is the caller's name for the
-   * operation, not the AWS command's, so an error names something the caller
-   * actually wrote. An AWS command name (`'PutVectors'`) appears only on
-   * errors raised by that request itself.
+   * operation, never an AWS command's, so an error names something the caller
+   * actually wrote — on every error, one raised by a failed request included.
+   * That request is named separately, as `awsCommand` (`'PutVectors'`), by the
+   * site that issued it.
    */
   readonly operation: string;
 }

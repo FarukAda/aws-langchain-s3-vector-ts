@@ -3,8 +3,35 @@ import { S3VectorsErrorCode } from './error-code.js';
 
 /** Structured context attached to every {@link S3VectorsError}. */
 export interface S3VectorsErrorContext {
-  /** The logical operation that failed (e.g. `"PutVectors"`, `"getByIds"`). */
+  /**
+   * The public method the caller invoked — `"addDocuments"`, `"getByIds"`,
+   * `"deleteIndex"`, `"retriever.invoke"` — on every error, one raised by a
+   * failed AWS request included. Never the name of an AWS command: the request
+   * that failed is {@link awsCommand}.
+   *
+   * A method that does its work by calling another public method reports that
+   * method's failures under that method's name: a retriever's search under
+   * `"similaritySearch"` or `"maxMarginalRelevanceSearch"` (only the signal
+   * given to `invoke` itself firing is `"retriever.invoke"`), and
+   * `fromDocuments`/`fromTexts` under `"constructor"` and `"addDocuments"`
+   * (`fromTexts`'s own argument checks are `"fromTexts"`).
+   */
   readonly operation: string;
+  /**
+   * The S3 Vectors API operation whose request failed: `"GetIndex"`,
+   * `"CreateIndex"`, `"DeleteIndex"`, `"PutVectors"`, `"DeleteVectors"`,
+   * `"QueryVectors"`, `"GetVectors"` or `"ListVectors"`.
+   *
+   * Set on every error that wraps a failed AWS request, whatever code it was
+   * given — `ABORTED` included, when the signal cancelled that request in
+   * flight. Absent on every other error: a validation error; an abort that
+   * cancelled no request, raised before any was issued or while waiting on an
+   * index check another call started; a failure of caller-supplied code (an
+   * embeddings model, a `relevanceScoreFn`), even one that throws an AWS-shaped
+   * error of its own; and an `AWS_INVALID_RESPONSE` about a response that did
+   * arrive.
+   */
+  readonly awsCommand?: string;
   /** The bucket the failed operation named. Absent only on a failure raised before one was known. */
   readonly vectorBucketName?: string;
   /** The index the failed operation named. Absent only on a failure raised before one was known. */

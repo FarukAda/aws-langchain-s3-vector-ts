@@ -23,10 +23,15 @@ describe('AmazonS3Vectors error surface', () => {
       throw new Error('should have thrown');
     } catch (error: unknown) {
       expect(isS3VectorsError(error)).toBe(true);
-      const typed = error as { code: S3VectorsErrorCode; context: { operation: string } };
+      const typed = error as {
+        code: S3VectorsErrorCode;
+        context: { operation: string; awsCommand?: string };
+      };
       // Classified by exception name now, not collapsed into one code.
       expect(typed.code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
-      expect(typed.context.operation).toBe('PutVectors');
+      // The method the caller invoked, and — separately — the request that failed.
+      expect(typed.context.operation).toBe('addVectors');
+      expect(typed.context.awsCommand).toBe('PutVectors');
     }
   });
 });

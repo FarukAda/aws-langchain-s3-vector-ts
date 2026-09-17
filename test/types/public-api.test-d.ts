@@ -93,9 +93,11 @@ void fullConfig;
 void badEncryption;
 void badTags;
 
-// AWS diagnostics are typed on the error context.
+// AWS diagnostics are typed on the error context: the public method, and the
+// request that failed as a field of its own.
 const ctx: S3VectorsErrorContext = {
-  operation: 'PutVectors',
+  operation: 'addVectors',
+  awsCommand: 'PutVectors',
   awsErrorName: 'ThrottlingException',
   httpStatusCode: 429,
   requestId: 'r',
@@ -108,8 +110,14 @@ const ctx: S3VectorsErrorContext = {
 };
 // @ts-expect-error -- `operation` is the one field always present
 const badCtx: S3VectorsErrorContext = { awsErrorName: 'ThrottlingException' };
+// @ts-expect-error -- `awsCommand` is the request's name, never anything but a string
+const badCommand: S3VectorsErrorContext = { operation: 'addVectors', awsCommand: 1 };
+// Read back as optional: absent on every error that is not a failed request.
+const command: string | undefined = ctx.awsCommand;
 void ctx;
 void badCtx;
+void badCommand;
+void command;
 
 // The enumeration generators, the retriever's signal field, and the
 // (Document | undefined)[] shape of getByIds are all part of the surface.

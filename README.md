@@ -437,7 +437,7 @@ The embeddings side is different: `embedDocuments`/`embedQuery` come from *your*
 
 ### Errors
 
-Every failure — validation, not-found, or an underlying AWS error — is surfaced as a single typed `S3VectorsError` carrying a `code` (`S3VectorsErrorCode`), a `context` (`{ operation, vectorBucketName, indexName, … }`), and the original `cause`. Detect it with the exported `isS3VectorsError()` guard — it's a proper TypeScript type guard, so a caught `unknown` narrows to `S3VectorsError` without a cast:
+Every failure — validation, not-found, or an underlying AWS error — is surfaced as a single typed `S3VectorsError` carrying a `code` (`S3VectorsErrorCode`), a `context` (`{ operation, awsCommand, vectorBucketName, indexName, … }`), and the original `cause`. Detect it with the exported `isS3VectorsError()` guard — it's a proper TypeScript type guard, so a caught `unknown` narrows to `S3VectorsError` without a cast:
 
 ```typescript
 try {
@@ -448,6 +448,8 @@ try {
   }
 }
 ```
+
+**`context.operation` names the method you called; `context.awsCommand` names the request that failed.** `operation` is always the public method — `addDocuments`, `getByIds`, `deleteIndex` — never an AWS command, even when an AWS request is what failed. That request is `awsCommand`: `GetIndex`, `CreateIndex`, `DeleteIndex`, `PutVectors`, `DeleteVectors`, `QueryVectors`, `GetVectors` or `ListVectors`, set on every error that wraps a failed AWS request (an `ABORTED` that cancelled one in flight included) and absent from every other — a validation error, an abort that cancelled no request, a failure of your embeddings model or `relevanceScoreFn`, and an `AWS_INVALID_RESPONSE` about a response that did arrive. So an `addDocuments` whose `PutVectors` is refused reports `operation: "addDocuments"` with `awsCommand: "PutVectors"`, and concurrent writes that share one failed index check each report their own method. A method that works through another public method reports that method's failures under its name: a retriever's search as `similaritySearch` or `maxMarginalRelevanceSearch` (only a signal given to `invoke` itself firing is `retriever.invoke`), and `fromDocuments`/`fromTexts` as `constructor` or `addDocuments`.
 
 **When several things are wrong at once, one order decides which error you get**, on every public method: (1) `VALIDATION` for anything the arguments alone decide — the options bag, argument types and counts, ids, documents and metadata, `batchSize`/`pageSize`/`k`/other options, signal type, filter; (2) `ABORTED` for an already-fired signal; (3) an empty input (`[]` ids, `[]` documents) returns its empty result, without a request or an embedding call; (4) only then is anything spent — resolving the embeddings model (`EMBEDDINGS_MISSING`), embedding, and the AWS request itself. So a malformed id beats a fired signal, a fired signal beats an empty input's free return, and `addDocuments([])` on a store with no embeddings model resolves `[]` rather than raising `EMBEDDINGS_MISSING`.
 
@@ -481,7 +483,7 @@ exception the service declares — never a substring match on a message:
 | `KMS_ERROR` | One of the four KMS exceptions (400). Key state — an operator's problem, not a caller's. |
 | `NOT_FOUND` | `NotFoundException` (404): the bucket or index is not there. **Not** a missing vector id — `getByIds` reports that as `undefined` in the id's slot (see [`getByIds` and missing ids](#getbyids-and-missing-ids)). |
 | `EMBEDDINGS_MISSING` | An operation needed an embedding model but none was configured. The message names which option to set. |
-| `AWS_REQUEST_FAILED` | An AWS request failed and no narrower class applies. `context.awsErrorName`/`httpStatusCode`/`requestId`/`retryable` say which and whether to retry. |
+| `AWS_REQUEST_FAILED` | An AWS request failed and no narrower class applies. `context.awsCommand` says which request, and `context.awsErrorName`/`httpStatusCode`/`requestId`/`retryable` say what AWS answered and whether to retry. |
 | `INDEX_CONFIG_MISMATCH` | An existing index disagrees with this store's configuration: its distance metric, checked against the `QueryVectors` response on every read so it cannot go stale, or its non-filterable metadata keys, checked against the `GetIndex` that precedes a first write. Also raised when the vectors a write is given disagree on dimension — anywhere in an `addVectors` call, before any request; within one embedded batch for `addDocuments`, before that batch is written. |
 | `ABORTED` | The supplied `AbortSignal` fired before or during the operation. `error.cause` is the signal's `reason`, always normalised to an `Error`. |
 | `AWS_INVALID_RESPONSE` | An AWS response was missing, or carried an unusable value for, something this library requires — a non-numeric `distance`, an unrecognised `distanceMetric`, a vector returned without data despite `returnData: true`, or a response that was not an object at all. Reachable only from a mocked, stubbed or otherwise non-conforming client. |

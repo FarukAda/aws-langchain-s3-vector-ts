@@ -135,7 +135,8 @@ async function requestPage(
  * metric disagrees with the store's; `AWS_INVALID_RESPONSE` for a nullish or
  * unrecognisable response; `QUERY_PAGE_LIMIT_EXCEEDED` when the page ceiling is
  * reached with pages still outstanding; otherwise the class
- * {@link classifyAwsError} assigns.
+ * {@link classifyAwsError} assigns, carrying `awsCommand: "QueryVectors"` — an
+ * `ABORTED` that cancelled a page in flight included.
  *
  * Guarantees: a short result set is returned without error when the token runs
  * out — a filtered query "may return fewer than top K results" (userguide
@@ -166,7 +167,7 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
       response = await requestPage(opts, nextToken);
     } catch (error: unknown) {
       throw explainPagination(
-        wrapAwsError(error, classifyAwsError(error), { operation, ...scope }),
+        wrapAwsError(error, classifyAwsError(error), 'QueryVectors', { operation, ...scope }),
         pageCount,
         results.length,
         k,

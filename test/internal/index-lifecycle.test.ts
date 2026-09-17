@@ -37,31 +37,39 @@ describe('describeIndex', () => {
   it('returns true when GetIndex resolves', async () => {
     const { mock, ctx } = ctxWith();
     mock.on(GetIndexCommand).resolves({ index: indexFixture() });
-    await expect(describeIndex(ctx)).resolves.toMatchObject({ exists: true });
+    await expect(describeIndex(ctx, undefined, 'addDocuments')).resolves.toMatchObject({
+      exists: true,
+    });
   });
 
   it('returns false when GetIndex reports the index missing', async () => {
     const { mock, ctx } = ctxWith();
     mock.on(GetIndexCommand).rejects(awsError('NotFoundException'));
-    await expect(describeIndex(ctx)).resolves.toMatchObject({ exists: false });
+    await expect(describeIndex(ctx, undefined, 'addDocuments')).resolves.toMatchObject({
+      exists: false,
+    });
   });
 
   it('returns true for a response body missing dimension and metric, because existence is proven by the 200 and no field is read', async () => {
     const { mock, ctx } = ctxWith();
     mock.on(GetIndexCommand).resolves({ index: malformedIndexFixture() });
-    await expect(describeIndex(ctx)).resolves.toMatchObject({ exists: true });
+    await expect(describeIndex(ctx, undefined, 'addDocuments')).resolves.toMatchObject({
+      exists: true,
+    });
   });
 
   it('returns true for a response with no index member at all', async () => {
     const { mock, ctx } = ctxWith();
     mock.on(GetIndexCommand).resolves({});
-    await expect(describeIndex(ctx)).resolves.toMatchObject({ exists: true });
+    await expect(describeIndex(ctx, undefined, 'addDocuments')).resolves.toMatchObject({
+      exists: true,
+    });
   });
 
   it('classifies an access failure as ACCESS_DENIED', async () => {
     const { mock, ctx } = ctxWith();
     mock.on(GetIndexCommand).rejects(awsError('AccessDeniedException'));
-    const error = await describeIndex(ctx).catch((e: unknown) => e);
+    const error = await describeIndex(ctx, undefined, 'addDocuments').catch((e: unknown) => e);
     expect(isS3VectorsError(error)).toBe(true);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
   });
@@ -69,7 +77,7 @@ describe('describeIndex', () => {
   it('classifies a throttle as THROTTLED, not as a generic request failure', async () => {
     const { mock, ctx } = ctxWith();
     mock.on(GetIndexCommand).rejects(awsError('TooManyRequestsException'));
-    const error = await describeIndex(ctx).catch((e: unknown) => e);
+    const error = await describeIndex(ctx, undefined, 'addDocuments').catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.THROTTLED);
   });
 
@@ -78,16 +86,20 @@ describe('describeIndex', () => {
     mock.on(GetIndexCommand).resolves({ index: indexFixture() });
     const ac = new AbortController();
     ac.abort();
-    const error = await describeIndex(ctx, ac.signal).catch((e: unknown) => e);
+    const error = await describeIndex(ctx, ac.signal, 'addDocuments').catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.ABORTED);
     expect(mock.commandCalls(GetIndexCommand)).toHaveLength(0);
+    // No request was made, so only the method is named.
+    const context = (error as { context: Record<string, unknown> }).context;
+    expect(context['operation']).toBe('addDocuments');
+    expect(context).not.toHaveProperty('awsCommand');
   });
 
   it('threads the signal into the AWS request so an abort in flight cancels it', async () => {
     const { mock, ctx } = ctxWith();
     mock.on(GetIndexCommand).resolves({ index: indexFixture() });
     const ac = new AbortController();
-    await describeIndex(ctx, ac.signal);
+    await describeIndex(ctx, ac.signal, 'addDocuments');
     const call = mock.commandCalls(GetIndexCommand)[0]!;
     expect(sendOptionsOf(call)?.abortSignal).toBe(ac.signal);
   });
@@ -95,10 +107,13 @@ describe('describeIndex', () => {
   it('names the bucket and index in a failure, so the error identifies what was queried', async () => {
     const { mock, ctx } = ctxWith();
     mock.on(GetIndexCommand).rejects(awsError('AccessDeniedException'));
-    const error = await describeIndex(ctx).catch((e: unknown) => e);
+    const error = await describeIndex(ctx, undefined, 'addDocuments').catch((e: unknown) => e);
     const context = (error as { context?: Record<string, unknown> }).context;
     expect(context?.['vectorBucketName']).toBe('test-bucket');
     expect(context?.['indexName']).toBe('test-index');
+    // The method it was checked for, and the request that failed.
+    expect(context?.['operation']).toBe('addDocuments');
+    expect(context?.['awsCommand']).toBe('GetIndex');
   });
 });
 
@@ -117,7 +132,7 @@ describe('describeIndex reports the index configuration it can actually read', (
   const keysFor = async (index: unknown): Promise<readonly string[] | undefined> => {
     const { mock, ctx } = ctxWith();
     mock.on(GetIndexCommand).resolves({ index } as { index?: never });
-    return (await describeIndex(ctx)).nonFilterableKeys;
+    return (await describeIndex(ctx, undefined, 'addDocuments')).nonFilterableKeys;
   };
 
   it('reports the keys an index declares', async () => {
@@ -156,7 +171,7 @@ describe('describeIndex reports the index configuration it can actually read', (
   it('states nothing when the client resolves without a response object', async () => {
     const { mock, ctx } = ctxWith();
     mock.on(GetIndexCommand).resolves(undefined as unknown as { index?: never });
-    const description = await describeIndex(ctx);
+    const description = await describeIndex(ctx, undefined, 'addDocuments');
     expect(description.exists).toBe(true);
     expect(description.nonFilterableKeys).toBeUndefined();
   });

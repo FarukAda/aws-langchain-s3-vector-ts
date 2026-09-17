@@ -219,43 +219,76 @@ function describeDiagnostics(diagnostics: AwsDiagnostics): string {
 }
 
 /**
+ * The message a wrapped failure carries, built from its context alone.
+ *
+ * Accepts: the error's full context — `operation`, and `awsCommand` plus the
+ * AWS diagnostics when it has them — and the cause.
+ *
+ * Returns: `"<operation> failed on <awsCommand> (<diagnostics>): <cause>"` —
+ * without ` on <awsCommand>` when no request failed, and without the
+ * parenthetical when there are no diagnostics — so a log line alone names the
+ * method, the request and what AWS said.
+ *
+ * Throws: nothing. It runs inside error handling.
+ *
+ * Guarantees: this is the one place that format is stated. {@link wrapAwsError}
+ * and {@link wrapCallerError} build their messages here, and so does anything
+ * that has to re-state a wrapped failure under another context, which is what
+ * keeps the message from disagreeing with the context it describes.
+ */
+export function failureMessage(context: S3VectorsErrorContext, cause: unknown): string {
+  const failed = context.awsCommand === undefined ? 'failed' : `failed on ${context.awsCommand}`;
+  return `${context.operation} ${failed}${describeDiagnostics(context)}: ${toError(cause).message}`;
+}
+
+/**
  * Shared implementation behind {@link wrapAwsError} and {@link wrapCallerError}
- * — one builder, so the two differ only in `code` and in whether the
- * network-code rule applies, never in how a diagnostic is assembled.
+ * — one builder, so the two differ only in `code` and in the request they
+ * name, never in how a diagnostic is assembled.
+ *
+ * `awsCommand` is also what decides the network-code rule: a bare Node.js
+ * system error `code` means the SDK's own HTTP layer failed only where a
+ * request was issued, which is exactly where there is a command to name.
  */
 function buildWrappedError(
   cause: unknown,
   code: S3VectorsErrorCode,
-  context: S3VectorsErrorContext,
-  includeNetworkCodes: boolean,
+  context: Omit<S3VectorsErrorContext, 'awsCommand'>,
+  awsCommand: string | undefined,
 ): S3VectorsError {
   if (isS3VectorsError(cause)) return cause;
-  const diagnostics = awsDiagnostics(cause, includeNetworkCodes);
-  const message = `${context.operation} failed${describeDiagnostics(diagnostics)}: ${toError(cause).message}`;
+  const full: S3VectorsErrorContext = {
+    ...context,
+    ...(awsCommand === undefined ? {} : { awsCommand }),
+    ...awsDiagnostics(cause, awsCommand !== undefined),
+  };
   // `toError`, not the raw value: the class documents that `cause` is always
   // an Error when present, so a caller may read `error.cause.message` without
   // first checking what was actually thrown. A client rejecting with a string,
   // a number or null is legal JavaScript and made that false.
-  return new S3VectorsError(message, code, { ...context, ...diagnostics }, toError(cause));
+  return new S3VectorsError(failureMessage(full, cause), code, full, toError(cause));
 }
 
 /**
  * Wrap an unknown AWS failure into a coded {@link S3VectorsError}.
  *
- * Accepts: any thrown value, the code to assign it (chosen by
- * `classifyAwsError`), and the context to record. For an AWS request site
+ * Accepts: any thrown value; the code to assign it (chosen by
+ * `classifyAwsError`); the S3 Vectors API operation whose request failed
+ * (`"PutVectors"`); and the context to record, whose `operation` is the public
+ * method the caller invoked. A required parameter rather than a context field,
+ * so no request site can leave the command out. For an AWS request site
  * only — one where a bare Node.js system error `code`
  * ({@link isTransientNetworkFailure}) genuinely means the SDK's own HTTP
  * layer failed. Caller-supplied code (an embeddings model, a
- * `relevanceScoreFn`) must use {@link wrapCallerError} instead, which never
- * applies that rule.
+ * `relevanceScoreFn`) must use {@link wrapCallerError} instead, which names no
+ * request and never applies that rule.
  *
  * Returns: the value unchanged when it is already an {@link S3VectorsError},
  * so the layer nearest the failure keeps ownership of its message and class;
- * otherwise a new error carrying the original as `cause`, with the AWS
- * exception name, HTTP status, request id and retryability lifted onto both
- * the message and the context — so a log line alone is enough to open an AWS
- * Support case.
+ * otherwise a new error carrying the original as `cause`, with `awsCommand`
+ * set, and the AWS exception name, HTTP status, request id and retryability
+ * lifted onto both the message and the context — so a log line alone is
+ * enough to open an AWS Support case.
  *
  * Throws: nothing.
  *
@@ -266,9 +299,10 @@ function buildWrappedError(
 export function wrapAwsError(
   cause: unknown,
   code: S3VectorsErrorCode,
-  context: S3VectorsErrorContext,
+  awsCommand: string,
+  context: Omit<S3VectorsErrorContext, 'awsCommand'>,
 ): S3VectorsError {
-  return buildWrappedError(cause, code, context, true);
+  return buildWrappedError(cause, code, context, awsCommand);
 }
 
 /**
@@ -283,7 +317,8 @@ export function wrapAwsError(
  *
  * Returns: the value unchanged when it is already an {@link S3VectorsError} —
  * an `EMBEDDINGS_MISSING` raised by a model lookup, say, passes through this
- * way; otherwise a new `UNEXPECTED_ERROR` carrying the original as `cause`.
+ * way; otherwise a new `UNEXPECTED_ERROR` carrying the original as `cause`,
+ * with no `awsCommand`: no request of this package's failed.
  *
  * Unlike {@link wrapAwsError}, a bare Node.js system error `code`
  * ({@link isTransientNetworkFailure}) is never treated as an AWS diagnostic
@@ -300,6 +335,9 @@ export function wrapAwsError(
  *
  * Guarantees: total.
  */
-export function wrapCallerError(cause: unknown, context: S3VectorsErrorContext): S3VectorsError {
-  return buildWrappedError(cause, S3VectorsErrorCode.UNEXPECTED_ERROR, context, false);
+export function wrapCallerError(
+  cause: unknown,
+  context: Omit<S3VectorsErrorContext, 'awsCommand'>,
+): S3VectorsError {
+  return buildWrappedError(cause, S3VectorsErrorCode.UNEXPECTED_ERROR, context, undefined);
 }

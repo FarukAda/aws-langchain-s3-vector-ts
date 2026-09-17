@@ -13,13 +13,14 @@ describe('S3VectorsError', () => {
     const err = new S3VectorsError(
       'failed',
       S3VectorsErrorCode.AWS_REQUEST_FAILED,
-      { operation: 'PutVectors', indexName: 'idx' },
+      { operation: 'addVectors', awsCommand: 'PutVectors', indexName: 'idx' },
       cause,
     );
 
     expect(err.message).toBe('failed');
     expect(err.code).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
-    expect(err.context.operation).toBe('PutVectors');
+    expect(err.context.operation).toBe('addVectors');
+    expect(err.context.awsCommand).toBe('PutVectors');
     expect(err.context.indexName).toBe('idx');
     expect(err.cause).toBe(cause);
     expect(err.name).toBe('S3VectorsError');
