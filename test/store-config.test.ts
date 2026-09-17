@@ -164,8 +164,8 @@ describe('nonFilterableMetadataKeys, merged with pageContentMetadataKey, must fi
     const { result, mock } = buildWithMock({ nonFilterableMetadataKeys: TEN_KEYS });
     expect(codeOf(result)).toBe(S3VectorsErrorCode.VALIDATION);
     expect(messageOf(result)).toBe(
-      'config.nonFilterableMetadataKeys, with the page-content key "_page_content", needs 11 ' +
-        'non-filterable keys; an index may have at most 10.',
+      'config.nonFilterableMetadataKeys (merged with the page-content key "_page_content"): ' +
+        'An index may have at most 10 non-filterable metadata keys; this configuration needs 11.',
     );
     expect(mock.calls()).toHaveLength(0);
   });
@@ -177,7 +177,8 @@ describe('nonFilterableMetadataKeys, merged with pageContentMetadataKey, must fi
     });
     expect(codeOf(result)).toBe(S3VectorsErrorCode.VALIDATION);
     expect(messageOf(result)).toBe(
-      'config.nonFilterableMetadataKeys needs 11 non-filterable keys; an index may have at most 10.',
+      'config.nonFilterableMetadataKeys: An index may have at most 10 non-filterable metadata keys; ' +
+        'this configuration needs 11.',
     );
     expect(mock.calls()).toHaveLength(0);
   });
@@ -186,7 +187,8 @@ describe('nonFilterableMetadataKeys, merged with pageContentMetadataKey, must fi
     const { result, mock } = buildWithMock({ nonFilterableMetadataKeys: [''] });
     expect(codeOf(result)).toBe(S3VectorsErrorCode.VALIDATION);
     expect(messageOf(result)).toBe(
-      'config.nonFilterableMetadataKeys: Non-filterable metadata key "" must be 1-63 characters.',
+      'config.nonFilterableMetadataKeys (merged with the page-content key "_page_content"): ' +
+        'Non-filterable metadata key "" must be 1-63 characters.',
     );
     expect(mock.calls()).toHaveLength(0);
   });
@@ -196,7 +198,8 @@ describe('nonFilterableMetadataKeys, merged with pageContentMetadataKey, must fi
     const { result, mock } = buildWithMock({ nonFilterableMetadataKeys: [key] });
     expect(codeOf(result)).toBe(S3VectorsErrorCode.VALIDATION);
     expect(messageOf(result)).toBe(
-      `config.nonFilterableMetadataKeys: Non-filterable metadata key "${key}" must be 1-63 characters.`,
+      'config.nonFilterableMetadataKeys (merged with the page-content key "_page_content"): ' +
+        `Non-filterable metadata key "${key}" must be 1-63 characters.`,
     );
     expect(mock.calls()).toHaveLength(0);
   });

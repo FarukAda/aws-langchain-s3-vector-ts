@@ -281,7 +281,7 @@ export class AmazonS3Vectors extends VectorStore {
     // that only ever reads — rather than only once a write first creates the
     // index. `CreateIndex` re-checks the same rule as defence.
     assertKeysCreatable(this.#nonFilterableKeys, (message) =>
-      failNonFilterableKeys(this.#nonFilterableKeys, this.pageContentMetadataKey, message),
+      failNonFilterableKeys(this.pageContentMetadataKey, message),
     );
 
     this.#lifecycle = createIndexLifecycle(

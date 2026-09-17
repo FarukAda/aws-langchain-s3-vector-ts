@@ -224,7 +224,7 @@ if (!env) {
             region: safeEnv.region,
             nonFilterableMetadataKeys: tenKeys,
           }),
-      ).toThrow('needs 11 non-filterable keys');
+      ).toThrow('this configuration needs 11');
 
       // No store was ever constructed, so there is nothing to clean up: this
       // configuration can never be written to any index, and the constructor

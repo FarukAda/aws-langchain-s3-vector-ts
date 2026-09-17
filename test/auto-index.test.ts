@@ -86,7 +86,7 @@ describe('AmazonS3Vectors auto-index nonFilterableMetadataKeys behavior', () => 
 
     expect(isS3VectorsError(error)).toBe(true);
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('needs 11 non-filterable keys');
+    expect((error as Error).message).toContain('this configuration needs 11');
     // Must fail before ever calling AWS to create the (permanently
     // misconfigured) index — not create it and fail later at write time.
     expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
