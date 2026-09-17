@@ -24,7 +24,11 @@ The same answer came back for a lone surrogate in every position probed:
 | `GetVectors` | a key |
 | `DeleteVectors` | a key |
 | `QueryVectors` | a filter's shorthand string, and an element of `$in` |
-| `CreateIndex` | a tag key, a tag value, and a non-filterable metadata key |
+| `CreateIndex` | a tag key, a tag value, a non-filterable metadata key, and a KMS key ARN |
+
+The KMS key ARN row was not among the probes; it was established by its guard in
+`test/integration/evidence-guards.test.ts`, which sends the request through the
+raw SDK and received the same answer on the suite's first live run.
 
 Controls in the same run: the surrogate *pair* `'😀'` was accepted as a
 metadata value, as a vector key and as a filter string.
