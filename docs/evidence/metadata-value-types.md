@@ -71,3 +71,60 @@ long, starts with `$` (`'$eq'`), or contains a dot (`'a.b'`).
 
 `buildPutMetadata` refuses both shapes locally, before the embedding call and the
 round trip that would otherwise precede the rejection.
+
+## T3-21 — the value rules hold under a **non-filterable** key too
+
+Run conditions: run 3 in [`README.md`](./README.md).
+
+The user guide describes non-filterable metadata as the place for "larger
+amounts of contextual data", which invites the reading that it is also the place
+for richer *types*. It is not. On an index created with
+`nonFilterableMetadataKeys: ['_page_content', 'blob']`, every shape refused
+under a filterable key is refused under `blob` as well:
+
+```
+PutVectors  metadata: { obj: { a: 1 } }                     (filterable control)
+→ ValidationException, HTTP 400  "Metadata values must be strings, numbers, booleans, or arrays"
+                                 requestId 14f23943-8568-8a5f-a49e-c07f59da03b2
+
+PutVectors  metadata: { blob: { a: 1 } }
+→ ValidationException, HTTP 400  same message   requestId 19d3b461-35a8-895f-9693-e7c8a4abc99f
+
+PutVectors  metadata: { blob: { lines: { from: 1, to: 10 } } }        (text-splitter shape)
+→ ValidationException, HTTP 400  same message   requestId 1606028c-759d-878f-8d9c-f60050b96656
+
+PutVectors  metadata: { blob: { version: '1.10.100', info: { Title: 't' },
+                                metadata: null, totalPages: 3 } }     (PDF-loader shape)
+→ ValidationException, HTTP 400  same message   requestId 1ec5f0f4-ba86-8906-80bc-8249bff04127
+
+PutVectors  metadata: { blob: null }
+→ ValidationException, HTTP 400  same message   requestId 18d5a5bd-8fb8-84d7-a49c-e3b1cae375c2
+
+PutVectors  metadata: { blob: [true, false] }
+→ ValidationException, HTTP 400  "Metadata array values must be strings or numbers"
+PutVectors  metadata: { blob: [{ a: 1 }] }            → the same
+PutVectors  metadata: { blob: [1, 'a'] }              → the same
+PutVectors  metadata: { blob: [] }
+→ ValidationException, HTTP 400  "Empty arrays are not allowed in metadata"
+
+PutVectors  metadata: { blob: 'ok' }                  (control)
+→ HTTP 200; GetVectors returns { blob: 'ok' } unchanged
+```
+
+### What this establishes
+
+Non-filterable buys **size, not types**. So the local refusal applies to every
+key, filterable or not, and nothing can be loosened for the documents
+`@langchain/textsplitters` and the `@langchain/community` PDF loaders produce —
+their `loc` and `pdf` objects are exactly the refused shapes. `flattenMetadata`
+exists for that reason, and its dotted output is what the same index accepts:
+
+```
+PutVectors  metadata: { source: 'a.txt', 'loc.lines.from': 1, 'loc.lines.to': 10 }
+→ HTTP 200; read back unchanged                 requestId 1d321215-53da-8750-a96d-3d7cc187e4d1
+```
+
+### Guarded by
+
+`test/integration/evidence-guards.test.ts` — "refuses a nested object under a
+non-filterable key, and stores its flattened form".

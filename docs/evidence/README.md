@@ -18,12 +18,15 @@ these claims in a decision that matters.
 
 Every probe was issued against the raw SDK, never through this package, so
 nothing in `src/` could colour the answers, with `maxAttempts: 1` so no retry
-could mask a response. Each run used a bucket created for it and deleted after it.
+could mask a response — with one stated exception, `write-rate.md`, whose
+subject is how this package's own dispatch behaves against the service's limits
+and which therefore had to run through it. Each run used a bucket created for it and deleted after it.
 
 | Run | Date | Region | Account | SDK | Bucket |
 |---|---|---|---|---|---|
 | 1 | 2026-09-14 | `us-east-1` | 712098997573 | `@aws-sdk/client-s3vectors@3.1118.0` | `langchain-vectors-ci` |
 | 2 | 2026-09-16 | `us-east-1` | 712098997573 | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
+| 3 | 2026-09-17 | `us-east-1` | 712098997573 | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
 
 ## Claims settled
 
@@ -46,3 +49,8 @@ could mask a response. Each run used a bucket created for it and deleted after i
 | T3-17 | 2 | A filter condition object holds exactly one key | `filter-validation.md` |
 | T3-18 | 2 | A field's operator object holds only comparison operators | `filter-validation.md` |
 | T3-19 | 2 | A non-finite filter number is sent as a string | `filter-validation.md` |
+| T3-20 | 3 | The 20 MiB request body limit is exact and inclusive | `request-payload-limit.md` |
+| T3-21 | 3 | Metadata value rules hold under a non-filterable key too | `metadata-value-types.md` |
+| T3-22 | 3 | `CreateIndex` enforces the KMS pairing in both directions | `index-encryption.md` |
+| T3-23 | 3 | A lost creation race can read the winner's configuration at once | `index-create-race.md` |
+| T3-24 | 3 | What the write rate does under concurrency, and what bounds it | `write-rate.md` |
