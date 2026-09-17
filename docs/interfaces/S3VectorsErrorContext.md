@@ -49,26 +49,35 @@ arrive.
 
 > `readonly` `optional` **awsErrorName?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:135](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L135)
+Defined in: [shared/errors/s3-vectors-error.ts:144](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L144)
 
-The AWS exception name (`"AccessDeniedException"`,
-`"TooManyRequestsException"`, `"ValidationException"`, …) when the failure
-came from an AWS SDK call. Lifted off `cause.name` so a log line or alert
-can branch on it without walking `cause`.
+The name of an AWS-shaped cause (`"AccessDeniedException"`,
+`"TooManyRequestsException"`, `"ValidationException"`, `"TimeoutError"`,
+…). Lifted off `cause.name` so a log line or alert can branch on it
+without walking `cause`.
 
-Set on **every** error whose cause is AWS-shaped — one carrying the SDK's
-`$metadata`, named for a service exception, or — for a failed AWS
-request only, never for a failure from caller-supplied code — a refused,
-reset or unreachable connection, classified by its Node.js system error
-`code` the same way the SDK's own retry strategy classifies it (it keeps
-whatever `name` Node gave it, typically `"Error"`) — whatever code that
-error was given. So `AWS_REJECTED` carries `"ValidationException"` and
-`THROTTLED` carries `"TooManyRequestsException"`, not only the two codes
-this field was once documented as being limited to. Absent when the
-failure did not come from an AWS request: a validation error, or an
-embeddings model or `relevanceScoreFn` that threw — even one that threw a
-bare `ECONNREFUSED` of its own, which has nothing to do with AWS and must
-not be reported as if it did.
+A cause is **AWS-shaped** when it carries the SDK's `$metadata`, when its
+name follows the service-exception convention (`…Exception`), or when it is
+the SDK's own `TimeoutError` — wherever it was thrown. So an AWS-SDK-based
+embeddings model (Bedrock embeddings, say) that throws its own service
+exception is AWS-shaped too, and its error carries this field, though never
+an [awsCommand](#awscommand): it is about that model's service, not a request of
+this package's. On a failed AWS request only, a refused, reset or
+unreachable connection is AWS-shaped as well: matched on the error's own
+Node.js system error `code` against the codes the SDK's retry strategy
+lists as transient — the SDK also finds such a code in the error's
+`cause`; this package does not — and keeping whatever `name` Node gave it,
+typically `"Error"`.
+
+Set on **every** error whose cause is AWS-shaped and has a name, whatever
+code that error was given. So `AWS_REJECTED` carries
+`"ValidationException"` and `THROTTLED` carries
+`"TooManyRequestsException"`, not only the two codes this field was once
+documented as being limited to. Absent on every other error: a validation
+error, and caller-supplied code (an embeddings model, a `relevanceScoreFn`)
+that threw something not AWS-shaped — a bare `ECONNREFUSED` of its own
+included, which has nothing to do with AWS and must not be reported as if
+it did.
 
 ***
 
@@ -126,7 +135,7 @@ and they are the actionable half of an otherwise opaque rejection.
 
 > `readonly` `optional` **foundIds?**: `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:175](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L175)
+Defined in: [shared/errors/s3-vectors-error.ts:187](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L187)
 
 Ids confirmed found (and already fetched) before a partial fetch failure —
 either a `GetVectors` batch rejecting while sibling batches in the same
@@ -142,7 +151,7 @@ Set by `getByIds` **and** by MMR, which fetches its candidates the same way.
 
 > `readonly` `optional` **httpStatusCode?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:137](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L137)
+Defined in: [shared/errors/s3-vectors-error.ts:146](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L146)
 
 HTTP status of the failed AWS response (`cause.$metadata.httpStatusCode`), when known.
 
@@ -162,7 +171,7 @@ The index the failed operation named. Absent only on a failure raised before one
 
 > `readonly` `optional` **instance?**: [`AmazonS3Vectors`](../classes/AmazonS3Vectors.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:200](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L200)
+Defined in: [shared/errors/s3-vectors-error.ts:212](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L212)
 
 The store constructed by a `fromDocuments`/`fromTexts` factory call that
 failed partway through writing. Only ever set on an error thrown by
@@ -258,7 +267,7 @@ first. Raised by `addVectors`, `addDocuments`, `fromDocuments`, `fromTexts`,
 
 > `readonly` `optional` **requestId?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:142](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L142)
+Defined in: [shared/errors/s3-vectors-error.ts:151](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L151)
 
 The AWS request id (`cause.$metadata.requestId`), when known. This is the
 identifier AWS Support asks for — it also appears in the error message.
@@ -281,24 +290,27 @@ against the requested `k` to see how far short it fell. Set alongside
 
 > `readonly` `optional` **retryable?**: `boolean`
 
-Defined in: [shared/errors/s3-vectors-error.ts:165](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L165)
+Defined in: [shared/errors/s3-vectors-error.ts:177](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L177)
 
-Whether the failed AWS call is worth retrying after a backoff. `true` for
+Whether the failure is worth retrying after a backoff. `true` for
 throttling (`TooManyRequestsException`, HTTP 429), transient service errors
 (`ServiceUnavailableException`, `InternalServerException`,
-`RequestTimeoutException`, HTTP 5xx), a `TimeoutError` from the SDK's own
-HTTP handler, a refused, reset or unreachable connection **on an AWS
-request** (classified by `code` the same way the SDK's own retry
-strategy classifies it), and anything the SDK itself marked `$retryable`.
+`RequestTimeoutException`, HTTP 5xx), the SDK's own `TimeoutError`, a
+refused, reset or unreachable connection **on an AWS request** (matched on
+the error's own `code` against the codes the SDK's retry strategy lists,
+as [awsErrorName](#awserrorname) describes), and anything the SDK itself marked
+`$retryable`.
 
-Set alongside [awsErrorName](#awserrorname), on any AWS-shaped cause and whatever
-code the error was given — `false` is a real answer and means "this will
-fail again", which is the point. Absent when the failure did not come from
-an AWS request at all: a validation error, or caller-supplied code (an
-embeddings model, a `relevanceScoreFn`) that threw — including one that
-threw a bare Node.js system error code of its own, over a connection that
-has nothing to do with AWS. Reporting a verdict for that would send a
-caller retrying against the wrong service.
+Set on every error whose cause is AWS-shaped, as [awsErrorName](#awserrorname)
+defines it, whatever code the error was given — `false` is a real answer
+and means "this will fail again", which is the point. That includes
+caller-supplied code: an AWS-SDK-based embeddings model whose own request
+was throttled carries `retryable: true`, about that model's service, with
+no [awsCommand](#awscommand). Absent on every other error: a validation error, and
+caller-supplied code (an embeddings model, a `relevanceScoreFn`) that threw
+something not AWS-shaped — including a bare Node.js system error code of
+its own, over a connection that has nothing to do with AWS. Reporting a
+verdict for that would send a caller retrying against the wrong service.
 
 Note the SDK's own retry strategy (3 attempts by default) has usually
 already run before an error reaches this library, so `retryable: true`

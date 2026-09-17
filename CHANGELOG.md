@@ -88,7 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `code`, without renaming the error, so the error keeps its own `name`:
   `ECONNREFUSED` (refused), `EHOSTUNREACH`/`ENETUNREACH` (unreachable) and
   `ENOTFOUND`/`EAI_AGAIN` (DNS failure). Those five are now
-  `SERVICE_UNAVAILABLE` too, instead of `AWS_REQUEST_FAILED`. A caller
+  `SERVICE_UNAVAILABLE` too, instead of `AWS_REQUEST_FAILED`, when they fail
+  an AWS request — matched on the error's own `code`; the SDK also finds such
+  a code in the error's `cause`, which this package does not. A caller
   branching on `AWS_REQUEST_FAILED` for a timeout, a reset, a refused or an
   unreachable connection must switch to `SERVICE_UNAVAILABLE`.
 
@@ -105,10 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CreateIndex` still re-checks the same rule, as defence.
 
 - **One order of checks on every public entry point, when several faults
-  coincide: `VALIDATION` for anything the arguments alone decide, then
-  `ABORTED` for an already-fired signal, then an empty input's free `[]`, then
-  anything spent (resolving the embeddings model, embedding, the AWS
-  request).** Previously the order depended on the method. Observable
+  coincide: every refusal the arguments alone decide (`VALIDATION`, and
+  `addVectors`' `INDEX_CONFIG_MISMATCH` for vectors that disagree on
+  dimension), then `ABORTED` for an already-fired signal, then an empty
+  input's free `[]`, then anything spent (resolving the embeddings model,
+  embedding, the AWS request).** Previously the order depended on the method. Observable
   differences: `addVectors` and `delete` now report `VALIDATION`, not
   `ABORTED`, for a malformed id alongside a fired signal, matching
   `addDocuments` and `getByIds`; `addVectors`, `addDocuments` and `getByIds`

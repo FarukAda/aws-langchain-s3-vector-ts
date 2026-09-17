@@ -9,9 +9,10 @@ import { BASE_CONFIG, createMockClient, createTestStore } from '../helpers.js';
  * The one order every public entry point follows when several faults coincide
  * (owner ruling, 2026-09-16 report remediation, D2):
  *
- *   1. VALIDATION — everything knowable from the arguments alone: the options
- *      bag, argument types and counts, ids, documents and metadata,
- *      batchSize/pageSize/k/other options, signal type, filter.
+ *   1. Every refusal knowable from the arguments alone — VALIDATION, and
+ *      addVectors' INDEX_CONFIG_MISMATCH for vectors that disagree on
+ *      dimension: the options bag, argument types and counts, ids, documents
+ *      and metadata, batchSize/pageSize/k/other options, signal type, filter.
  *   2. ABORTED — an already-fired signal.
  *   3. Empty input returns its empty result, without any request or embedding.
  *   4. Spend — resolving the embeddings model (EMBEDDINGS_MISSING), embedding,

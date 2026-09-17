@@ -6,7 +6,7 @@
 
 # Interface: S3VectorsDeleteParams
 
-Defined in: [types.ts:289](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L289)
+Defined in: [types.ts:290](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L290)
 
 Options accepted by [AmazonS3Vectors.delete](../classes/AmazonS3Vectors.md#delete).
 
@@ -16,7 +16,7 @@ Options accepted by [AmazonS3Vectors.delete](../classes/AmazonS3Vectors.md#delet
 
 > `readonly` `optional` **batchSize?**: `number`
 
-Defined in: [types.ts:300](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L300)
+Defined in: [types.ts:301](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L301)
 
 Batch size for `DeleteVectors` calls.
 
@@ -30,7 +30,7 @@ Batch size for `DeleteVectors` calls.
 
 > `readonly` **ids**: `string`[]
 
-Defined in: [types.ts:295](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L295)
+Defined in: [types.ts:296](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L296)
 
 The vector ids to delete. Required: `delete` removes vectors, and nothing
 else. Destroying the index is [AmazonS3Vectors.deleteIndex](../classes/AmazonS3Vectors.md#deleteindex), which
@@ -42,7 +42,7 @@ has to be named to be called.
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [types.ts:305](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L305)
+Defined in: [types.ts:306](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L306)
 
 Abort an in-progress delete. Cancels the `DeleteVectors` call currently in
 flight and stops any further batches from starting.

@@ -55,8 +55,9 @@ export interface AmazonS3VectorsConfig {
    *
    * Merged with `pageContentMetadataKey` (added unless it is `null`), the
    * result must fit an index: at most 10 keys total, each 1–63 characters.
-   * The page-content key counts toward that 10 whenever it is not `null` —
-   * even a list of exactly 10 of your own then needs an 11th. A configuration
+   * The page-content key counts toward that 10 whenever it is not `null`, so
+   * 10 keys of your own plus the page-content key make 11, which is refused —
+   * unless your list already contains that key. A configuration
    * that could never be written to any index is refused with `VALIDATION` at
    * construction, before any AWS call, whether or not this store ever creates
    * one.

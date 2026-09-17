@@ -11,8 +11,8 @@ import { S3VectorsErrorCode } from './error-code.js';
  *
  * A refused connection is not renamed. That strategy retries `ECONNREFUSED` by
  * matching the error's `code`, but the error keeps its own name, so it is not
- * this — {@link SDK_TRANSIENT_NETWORK_ERROR_CODES} classifies it the same way
- * the SDK's retry strategy does, by `code` rather than by name.
+ * this — {@link SDK_TRANSIENT_NETWORK_ERROR_CODES} matches it by `code` rather
+ * than by name, as that strategy does.
  *
  * It is not a service exception, so it is not in the table below, which lists
  * exactly the exceptions the service declares.
@@ -26,6 +26,11 @@ export const SDK_TIMEOUT_ERROR_NAME = 'TimeoutError';
  * `NODEJS_TIMEOUT_ERROR_CODES` (`ECONNRESET`, `ECONNREFUSED`, `EPIPE`,
  * `ETIMEDOUT`) and `NODEJS_NETWORK_ERROR_CODES` (`EHOSTUNREACH`, `ENETUNREACH`,
  * `ENOTFOUND`, `EAI_AGAIN`) against `error.code`.
+ *
+ * The same lists, not the same rule: `isTransientError` also recurses into
+ * `error.cause`, to a depth of 10, so it retries a `fetch`-style
+ * `TypeError` whose `cause` carries the code. This package matches only the
+ * error's own `code`, so such an error stays `AWS_REQUEST_FAILED`.
  *
  * `@smithy/node-http-handler` renames only three of these eight —
  * `ECONNRESET`, `EPIPE`, `ETIMEDOUT` — to {@link SDK_TIMEOUT_ERROR_NAME}. The
@@ -66,8 +71,8 @@ const BY_NAME: Readonly<Record<string, S3VectorsErrorCode>> = {
 };
 
 /**
- * Whether `error` is a Node.js system error the SDK's own retry strategy
- * treats as transient by `code` alone, regardless of `name`.
+ * Whether `error`'s own `code` is one of the Node.js system error codes the
+ * SDK's retry strategy treats as transient, regardless of `name`.
  *
  * Accepts: any thrown value.
  *
@@ -110,8 +115,9 @@ export function isTransientNetworkFailure(error: unknown): boolean {
  * of the service's own timeout. A declared service exception name always keeps
  * its own class. Only once neither of those matched is the error's `code`
  * checked against {@link SDK_TRANSIENT_NETWORK_ERROR_CODES}, so a refused,
- * reset or unreachable connection is `SERVICE_UNAVAILABLE` too, the same class
- * the SDK's own retry strategy puts it in.
+ * reset or unreachable connection is `SERVICE_UNAVAILABLE` too — the transient
+ * class, which the SDK's retry strategy puts that code in. Only the error's own
+ * `code` is read, not a `cause`'s, which that strategy also reads.
  *
  * Throws: nothing.
  *
