@@ -1,7 +1,7 @@
 import type { Document } from '@langchain/core/documents';
 
 import { listPages } from '../internal/list-pages.js';
-import type { AwsOperation } from '../internal/operation.js';
+import type { AwsOperation, OperationScope } from '../internal/operation.js';
 import { createDocument } from '../shared/metadata.js';
 import type { S3VectorsRecord } from '../types.js';
 
@@ -10,6 +10,18 @@ export interface EnumerateOptions extends AwsOperation {
   readonly pageContentMetadataKey: string | null;
   /** 1–1000, advisory: the 1 MB page cap may return fewer. */
   readonly pageSize?: number | undefined;
+}
+
+/**
+ * The fields an error names, picked out of the options: `opts` also carries the
+ * client and the signal, which must never reach an error's context.
+ */
+function errorScope(opts: EnumerateOptions): OperationScope {
+  return {
+    operation: opts.operation,
+    vectorBucketName: opts.vectorBucketName,
+    indexName: opts.indexName,
+  };
 }
 
 /**
@@ -33,8 +45,9 @@ export interface EnumerateOptions extends AwsOperation {
  * page of vectors an order of magnitude sooner than a page of metadata.
  */
 export async function* listDocuments(opts: EnumerateOptions): AsyncGenerator<Document> {
+  const scope = errorScope(opts);
   for await (const vector of listPages({ ...opts, returnData: false, returnMetadata: true })) {
-    yield createDocument(vector, opts.pageContentMetadataKey, opts);
+    yield createDocument(vector, opts.pageContentMetadataKey, scope);
   }
 }
 
@@ -58,6 +71,7 @@ export async function* listDocuments(opts: EnumerateOptions): AsyncGenerator<Doc
  * only listing failure unable to say how far it had got.
  */
 export async function* listVectors(opts: EnumerateOptions): AsyncGenerator<S3VectorsRecord> {
+  const scope = errorScope(opts);
   for await (const vector of listPages({ ...opts, returnData: true, returnMetadata: true })) {
     // Non-null by `listPages`' contract: with `returnData` set it yields only
     // records carrying a non-empty embedding.
@@ -65,7 +79,7 @@ export async function* listVectors(opts: EnumerateOptions): AsyncGenerator<S3Vec
     yield {
       id: vector.key,
       vector: data,
-      document: createDocument(vector, opts.pageContentMetadataKey, opts),
+      document: createDocument(vector, opts.pageContentMetadataKey, scope),
     };
   }
 }

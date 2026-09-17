@@ -590,7 +590,7 @@ await store.addDocuments(largeDocs, { batchSize: 50 });
 const gentle = new AmazonS3Vectors(embeddings, { ...config, maxConcurrentBatchCalls: 1 });
 ```
 
-On a failure, no further batch is embedded or written; the error is thrown only after every `PutVectors` already in flight has settled, so `context.writtenIds` is complete and in document order. Because each document was checked first, such a failure comes from AWS, from an abort, from the embeddings model, or — on the first batch only, while it checks or creates the index — from a `nonFilterableMetadataKeys`/tag configuration no index could be created with, or an existing index's non-filterable keys disagreeing with this store's; never from a document that could have been refused before anything was spent.
+On a failure, no further batch is embedded or written; the error is thrown only after every `PutVectors` already in flight has settled, so `context.writtenIds` is complete and in document order. Because each document was checked first, such a failure comes from AWS, from an abort, from the embeddings model, or — on the first batch only, while it checks or creates the index — from a `nonFilterableMetadataKeys` list no index could be created with, or an existing index's non-filterable keys disagreeing with this store's; never from a document that could have been refused before anything was spent.
 
 ### Rate Limits, Payload Limits and Cost
 

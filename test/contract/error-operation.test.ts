@@ -1,6 +1,7 @@
 import {
   GetIndexCommand,
   GetVectorsCommand,
+  ListVectorsCommand,
   PutVectorsCommand,
   QueryVectorsCommand,
 } from '@aws-sdk/client-s3vectors';
@@ -228,6 +229,8 @@ describe('every error names the public method that raised it', () => {
       (store: Store) => store.maxMarginalRelevanceSearch('q', { k: 1 }),
     ],
     ['getByIds', (store: Store) => store.getByIds(['id-1'])],
+    ['listDocuments', (store: Store) => drain(store.listDocuments())],
+    ['listVectors', (store: Store) => drain(store.listVectors())],
   ])(
     '%s names itself, and the bucket and index, when a result cannot be copied',
     async (operation, run) => {
@@ -241,6 +244,11 @@ describe('every error names the public method that raised it', () => {
           { key: 'id-1', data: { float32: [0.1, 0.2, 0.3] }, metadata: UNCLONEABLE_METADATA },
         ],
       });
+      mock.on(ListVectorsCommand).resolves({
+        vectors: [
+          { key: 'id-1', data: { float32: [0.1, 0.2, 0.3] }, metadata: UNCLONEABLE_METADATA },
+        ],
+      });
 
       const error = await run(store).catch((e: unknown) => e);
       expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
@@ -249,6 +257,13 @@ describe('every error names the public method that raised it', () => {
         vectorBucketName: 'test-bucket',
         indexName: 'test-index',
       });
+      // Exactly these: a caller's options object also carries the client and the
+      // signal, and neither may reach an error's context.
+      expect(Object.keys((error as { context: object }).context).sort()).toEqual([
+        'indexName',
+        'operation',
+        'vectorBucketName',
+      ]);
     },
   );
 });
