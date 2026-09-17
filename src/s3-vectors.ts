@@ -359,7 +359,9 @@ export class AmazonS3Vectors extends VectorStore {
     options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
   ): Promise<string[]> {
     assertOptionsBag('addVectors', this.#scope, options);
-    this.#checkAborted('addVectors', options?.signal);
+    // No signal check here: it belongs after `addVectors()`'s own input
+    // validation, not before it, so an invalid call with a fired signal is
+    // VALIDATION rather than ABORTED. The action checks it in the right place.
     return await addVectors({
       vectors,
       documents,
@@ -412,13 +414,16 @@ export class AmazonS3Vectors extends VectorStore {
    * afterward, and any `PutVectors` call already in flight is cancelled
    * mid-request.
    * @returns The IDs assigned to each stored vector
-   * @throws {S3VectorsError} `EMBEDDINGS_MISSING` when no model is configured.
-   * Before any embedding call or request: `VALIDATION` for a mismatched id
-   * count, a malformed or repeated id, a bad batch size, or a document or
-   * metadata S3 Vectors cannot store, carrying `context.recordIndex` and, where
-   * known, `context.recordId`. For the first batch alone, after it is embedded
-   * and before any `PutVectors` — so still nothing written — when the index
-   * already exists: `INDEX_CONFIG_MISMATCH` when its non-filterable keys
+   * @throws {S3VectorsError} Before any embedding call or request: `VALIDATION`
+   * for a mismatched id count, a malformed or repeated id, a bad batch size, or
+   * a document or metadata S3 Vectors cannot store, carrying `context.recordIndex`
+   * and, where known, `context.recordId`; `ABORTED` for an already-fired signal,
+   * checked only once every input check above has passed. `EMBEDDINGS_MISSING`
+   * when no model is configured is checked only once the input is valid,
+   * un-aborted, and non-empty — `addDocuments([])` on a model-less store
+   * resolves `[]` rather than raising it. For the first batch alone, after it is
+   * embedded and before any `PutVectors` — so still nothing written — when the
+   * index already exists: `INDEX_CONFIG_MISMATCH` when its non-filterable keys
    * disagree with this store's configuration. For a batch the model has
    * embedded, before it is written: `VALIDATION` when the model returns
    * something other than one storable vector per document, or
@@ -441,7 +446,10 @@ export class AmazonS3Vectors extends VectorStore {
       batchSize: options?.batchSize,
       maxConcurrent: this.maxConcurrentBatchCalls,
       signal: options?.signal,
-      embeddings: this.#getIndexEmbeddings(),
+      // Resolved lazily, inside the action, so an invalid or empty call never
+      // asks for a model — a store built with none can still tell VALIDATION
+      // and "nothing to do" apart from EMBEDDINGS_MISSING.
+      getEmbeddings: () => this.#getIndexEmbeddings(),
       writeConfig: this.#writeConfig,
       putBatch: this.#putBatch.bind(this),
       ...this.#scope,

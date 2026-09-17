@@ -54,6 +54,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one that never writes. `CreateIndex` still re-checks the same rule, as
   defence.
 
+- **One order of checks on every public entry point, when several faults
+  coincide: `VALIDATION` for anything the arguments alone decide, then
+  `ABORTED` for an already-fired signal, then an empty input's free `[]`, then
+  anything spent (resolving the embeddings model, embedding, the AWS
+  request).** Previously the order depended on the method. Observable
+  differences: `addVectors` and `delete` now report `VALIDATION`, not
+  `ABORTED`, for a malformed id alongside a fired signal, matching
+  `addDocuments` and `getByIds`; `addVectors`, `addDocuments`, `getByIds` and
+  `delete` now refuse `batchSize: 0` even when the list they are given is
+  empty, instead of resolving `[]`; `addDocuments` and `getByIds` now report
+  `ABORTED` for a fired signal alongside a valid empty list, matching
+  `addVectors` and `delete`; and `addDocuments` on a store with no
+  embeddings model now resolves `[]` for `addDocuments([])` and reports
+  `VALIDATION` for invalid input, rather than always failing
+  `EMBEDDINGS_MISSING` first.
+
 ### Fixed
 
 - **An empty metadata array, and one mixing strings with numbers, are refused

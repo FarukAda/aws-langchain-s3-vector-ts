@@ -26,14 +26,14 @@ export interface DeleteOptions extends Omit<BatchedOperation, 'operation'> {
  *
  * Returns: nothing.
  *
- * Throws: `ABORTED` for an already-fired signal, before any request;
- * `VALIDATION` when `ids` is missing, is not an array, holds anything that is
- * not a 1–1024 character string or not well-formed UTF-16, repeats a key, or
- * when `deleteAll` is passed — the flag this package used to accept for
- * destroying the index, now refused with a message naming `deleteIndex()`;
- * `VALIDATION` for a batch size outside 1–500; otherwise the class the
- * `DeleteVectors` failure maps to, carrying `context.deletedIds` — every id
- * confirmed deleted before it.
+ * Throws: `VALIDATION` when `ids` is missing, is not an array, holds anything
+ * that is not a 1–1024 character string or not well-formed UTF-16, repeats a
+ * key, or when `deleteAll` is passed — the flag this package used to accept for
+ * destroying the index, now refused with a message naming `deleteIndex()`; or
+ * for a batch size outside 1–500 — all before any request. `ABORTED` for an
+ * already-fired signal, checked only once every input check above has passed.
+ * Otherwise the class the `DeleteVectors` failure maps to, carrying
+ * `context.deletedIds` — every id confirmed deleted before it.
  *
  * Guarantees:
  * - **This never destroys the index.** `delete` means "remove stored documents
@@ -45,6 +45,11 @@ export interface DeleteOptions extends Omit<BatchedOperation, 'operation'> {
  *   (`docs/evidence/delete-absent.md`) — so a blind retry of the full list
  *   after an ambiguous failure is safe. Absent is not the same as malformed: a
  *   key `DeleteVectors` would refuse is refused here first.
+ * - One order, on every call: every check the arguments alone decide (the
+ *   `deleteAll` flag, `ids`, and batch size) runs before an already-fired
+ *   signal gets to raise `ABORTED` — so an invalid call with a fired signal is
+ *   `VALIDATION`, and a valid empty `ids` list with a fired signal is
+ *   `ABORTED`, both before any request.
  */
 export async function deleteVectors(opts: DeleteOptions): Promise<void> {
   const { ids, signal } = opts;
@@ -52,8 +57,6 @@ export async function deleteVectors(opts: DeleteOptions): Promise<void> {
     vectorBucketName: opts.vectorBucketName,
     indexName: opts.indexName,
   };
-
-  checkAborted('delete', signal, scope);
 
   if ((opts as { deleteAll?: unknown }).deleteAll !== undefined) {
     throw validationError(
@@ -81,6 +84,13 @@ export async function deleteVectors(opts: DeleteOptions): Promise<void> {
 
   const batchSize = opts.batchSize ?? DEFAULT_DELETE_BATCH_SIZE;
   assertBatchSize('delete', scope, batchSize, MAX_DELETE_BATCH_SIZE);
+
+  // Every check above is decided by the arguments alone; only once all of it
+  // passes does an already-fired signal get to matter. `ids: []` reaches no
+  // AWS call either way — chunk() over an empty list yields no groups — but it
+  // must still be rejected as VALIDATION, or ABORTED for a fired signal, ahead
+  // of that silent no-op.
+  checkAborted('delete', signal, scope);
 
   const deletedIds: string[] = [];
   for (const group of chunk(chunk(ids, batchSize), opts.maxConcurrent)) {

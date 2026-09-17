@@ -258,7 +258,7 @@ Nothing.
 
 > **addDocuments**(`documents`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [s3-vectors.ts:433](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L433)
+Defined in: [s3-vectors.ts:438](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L438)
 
 Embed documents and store them in the vector index.
 
@@ -331,13 +331,16 @@ having happened.
 
 #### Throws
 
-`EMBEDDINGS_MISSING` when no model is configured.
-Before any embedding call or request: `VALIDATION` for a mismatched id
-count, a malformed or repeated id, a bad batch size, or a document or
-metadata S3 Vectors cannot store, carrying `context.recordIndex` and, where
-known, `context.recordId`. For the first batch alone, after it is embedded
-and before any `PutVectors` — so still nothing written — when the index
-already exists: `INDEX_CONFIG_MISMATCH` when its non-filterable keys
+Before any embedding call or request: `VALIDATION`
+for a mismatched id count, a malformed or repeated id, a bad batch size, or
+a document or metadata S3 Vectors cannot store, carrying `context.recordIndex`
+and, where known, `context.recordId`; `ABORTED` for an already-fired signal,
+checked only once every input check above has passed. `EMBEDDINGS_MISSING`
+when no model is configured is checked only once the input is valid,
+un-aborted, and non-empty — `addDocuments([])` on a model-less store
+resolves `[]` rather than raising it. For the first batch alone, after it is
+embedded and before any `PutVectors` — so still nothing written — when the
+index already exists: `INDEX_CONFIG_MISMATCH` when its non-filterable keys
 disagree with this store's configuration. For a batch the model has
 embedded, before it is written: `VALIDATION` when the model returns
 something other than one storable vector per document, or
@@ -446,7 +449,7 @@ impossible to find or reconcile again.
 
 > **asRetriever**(`kOrFields?`, `filter?`, `callbacks?`, `tags?`, `metadata?`, `verbose?`): [`AmazonS3VectorsRetriever`](AmazonS3VectorsRetriever.md)\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:991](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L991)
+Defined in: [s3-vectors.ts:999](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L999)
 
 Build a retriever over this store.
 
@@ -527,7 +530,7 @@ same guards a direct call goes through.
 
 > **delete**(`params`): `Promise`\<`void`\>
 
-Defined in: [s3-vectors.ts:786](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L786)
+Defined in: [s3-vectors.ts:794](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L794)
 
 Delete vectors by id.
 
@@ -579,7 +582,7 @@ maps to, carrying `context.deletedIds`.
 
 > **deleteIndex**(`options?`): `Promise`\<`void`\>
 
-Defined in: [s3-vectors.ts:824](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L824)
+Defined in: [s3-vectors.ts:832](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L832)
 
 Delete the index itself.
 
@@ -626,7 +629,7 @@ the `DeleteIndex` failure maps to. A missing index is not a failure.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1090](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1090)
+Defined in: [s3-vectors.ts:1098](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1098)
 
 Create a store and add the given documents to it.
 
@@ -675,7 +678,7 @@ instance from the same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1017](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1017)
+Defined in: [s3-vectors.ts:1025](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1025)
 
 Create a store, embed the given texts and add them to it.
 
@@ -730,7 +733,7 @@ metadata array's length disagrees with it; otherwise whatever
 
 > **getByIds**(`ids`, `options?`): `Promise`\<(`Document`\<`Record`\<`string`, `any`\>\> \| `undefined`)[]\>
 
-Defined in: [s3-vectors.ts:863](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L863)
+Defined in: [s3-vectors.ts:871](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L871)
 
 Retrieve documents by their vector IDs.
 
@@ -799,7 +802,7 @@ scratch.
 
 > **listDocuments**(`options?`): `AsyncGenerator`\<`Document`\<`Record`\<`string`, `any`\>\>\>
 
-Defined in: [s3-vectors.ts:908](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L908)
+Defined in: [s3-vectors.ts:916](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L916)
 
 Every document in the index, one at a time.
 
@@ -844,7 +847,7 @@ atomic and does not pretend to be.
 
 > **listVectors**(`options?`): `AsyncGenerator`\<[`S3VectorsRecord`](../interfaces/S3VectorsRecord.md)\>
 
-Defined in: [s3-vectors.ts:948](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L948)
+Defined in: [s3-vectors.ts:956](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L956)
 
 Every vector in the index with its embedding, one at a time.
 
@@ -890,7 +893,7 @@ index that looks complete and is not.
 
 > **maxMarginalRelevanceSearch**(`query`, `options`, `callbacks?`, `signal?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:707](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L707)
+Defined in: [s3-vectors.ts:715](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L715)
 
 Maximal Marginal Relevance search: relevance traded against diversity.
 
@@ -955,7 +958,7 @@ throws; otherwise whatever the search and fetch raise.
 
 > **similaritySearch**(`query`, `k?`, `filter?`, `_callbacks?`, `signal?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:616](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L616)
+Defined in: [s3-vectors.ts:624](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L624)
 
 Run a text-based similarity search and return documents (no scores).
 
@@ -1017,7 +1020,7 @@ callbacks slot.
 
 > **similaritySearchVectorWithScore**(`query`, `k`, `filter?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:482](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L482)
+Defined in: [s3-vectors.ts:490](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L490)
 
 Core similarity search returning `[Document, distance]` tuples.
 
@@ -1089,7 +1092,7 @@ after the first failed.
 
 > **similaritySearchWithRelevanceScores**(`query`, `k?`, `filter?`, `callbacks?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:659](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L659)
+Defined in: [s3-vectors.ts:667](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L667)
 
 Run a text-based similarity search and return documents with
 *relevance scores* (higher is better), converted from S3 Vectors'
@@ -1154,7 +1157,7 @@ throws; otherwise whatever [similaritySearchWithScore](#similaritysearchwithscor
 
 > **similaritySearchWithScore**(`query`, `k?`, `filter?`, `_callbacks?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:528](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L528)
+Defined in: [s3-vectors.ts:536](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L536)
 
 Run a text-based similarity search and return documents with scores.
 

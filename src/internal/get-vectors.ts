@@ -123,7 +123,11 @@ function withFoundIds(
  * - `keys` — any number. Empty issues no request. Duplicates collapse.
  * - `returnData` — `true` when the caller needs the vectors themselves, as MMR
  *   does; `false` when metadata alone will do.
- * - `signal` — already fired rejects before any request.
+ * - `batchSize` — 1–100, checked before anything else: a caller sharing this
+ *   helper (`getByIds`) may rely on the check running even when `keys` turns
+ *   out empty, rather than validating it separately.
+ * - `signal` — already fired rejects before any request, checked only once
+ *   `batchSize` has passed.
  *
  * Returns: a `Map` from id to vector, holding only the keys the service
  * returned. A key that does not exist is simply absent — the service omits it
@@ -135,10 +139,12 @@ function withFoundIds(
  * rather than merely compacted. Any caller aligning by position would mis-pair
  * every result.
  *
- * Throws: `ABORTED` for `signal`; `AWS_INVALID_RESPONSE` for a nullish
- * response; otherwise the class {@link classifyAwsError} assigns, carrying
- * `context.foundIds` — every id a sibling batch retrieved before the failure,
- * so a caller need not refetch from scratch.
+ * Throws: `VALIDATION` for `batchSize`, before anything else; `ABORTED` for
+ * `signal`, checked next — so an empty `keys` list with a fired signal is
+ * `ABORTED`, before the empty list gets to return for free; `AWS_INVALID_RESPONSE`
+ * for a nullish response; otherwise the class {@link classifyAwsError} assigns,
+ * carrying `context.foundIds` — every id a sibling batch retrieved before the
+ * failure, so a caller need not refetch from scratch.
  */
 export async function fetchVectorsByKey(
   opts: FetchVectorsOptions,
@@ -148,14 +154,14 @@ export async function fetchVectorsByKey(
     vectorBucketName: opts.vectorBucketName,
     indexName: opts.indexName,
   };
+
+  const batchSize = opts.batchSize ?? MAX_KEYS_PER_CALL;
+  assertBatchSize(operation, scope, batchSize, MAX_KEYS_PER_CALL);
   checkAborted(operation, signal, scope);
 
   const found = new Map<string, S3OutputVector>();
   const unique = [...new Set(opts.keys)];
   if (unique.length === 0) return found;
-
-  const batchSize = opts.batchSize ?? MAX_KEYS_PER_CALL;
-  assertBatchSize(operation, scope, batchSize, MAX_KEYS_PER_CALL);
 
   for (const group of chunk(
     chunk(unique, batchSize),

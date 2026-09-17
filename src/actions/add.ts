@@ -13,7 +13,7 @@ import {
 import { assertIdsWellFormed, resolveWriteIds } from '../internal/ids.js';
 import { assertWriteVectors } from '../internal/limits.js';
 import { prepareRecords, type WriteRecord } from '../internal/records.js';
-import type { StoreScope } from '../internal/signals.js';
+import { checkAborted, type StoreScope } from '../internal/signals.js';
 import { chunk } from '../shared/batching.js';
 import { describeValue } from '../shared/describe.js';
 import type { MetadataConfig } from '../shared/metadata.js';
@@ -66,10 +66,16 @@ export interface AddVectorsOptions extends StoreScope {
 
 export interface AddDocumentsOptions extends Omit<AddVectorsOptions, 'vectors'> {
   /**
-   * The indexing model. Called once per batch, never concurrently with
-   * itself, and checked to return exactly one usable vector per document.
+   * Resolves the indexing model, called once — after every input check (the
+   * document/id/batch-size shape) and the already-fired-signal check, and
+   * only when `documents` is non-empty. A caller relies on this: an invalid
+   * call on a model-less store is `VALIDATION`, not `EMBEDDINGS_MISSING`, and
+   * `addDocuments([])` on a model-less store resolves `[]` without ever
+   * calling this. Once called, the returned model is used per batch, never
+   * concurrently with itself, and its output is checked to be exactly one
+   * usable vector per document.
    */
-  readonly embeddings: EmbeddingsInterface;
+  readonly getEmbeddings: () => EmbeddingsInterface;
 }
 
 /**
@@ -147,8 +153,10 @@ function resolveIds(
  *   what is written. A vector's own component array is not copied — that would
  *   double peak vector memory — so mutating one mid-write is outside this
  *   contract.
- * - An empty input writes nothing and returns `[]`, but only after its ids have
- *   been validated.
+ * - One order, on every call: every check the arguments alone decide (counts,
+ *   ids, batch size, documents, metadata, vectors) runs first; only once all of
+ *   it passes does an already-fired signal get to raise `ABORTED`; only once
+ *   both pass does an empty input return `[]`, still without a request.
  * - The first batch is written alone, because it is the one that may create the
  *   index; the rest run at most `maxConcurrent` at a time.
  */
@@ -170,7 +178,6 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
   }
 
   const ids = resolveIds('addVectors', scope, documents, opts.ids, 'vectors', vectors.length);
-  if (vectors.length === 0) return [];
 
   const batchSize = opts.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
   assertBatchSize('addVectors', scope, batchSize, MAX_PUT_BATCH_SIZE);
@@ -189,6 +196,12 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
     offset: 0,
     ids,
   });
+
+  // Everything above is decided by the arguments alone; only once all of it
+  // passes does an already-fired signal get to matter, and only once both
+  // pass does an empty input get to short-circuit for free.
+  checkAborted('addVectors', signal, scope);
+  if (vectors.length === 0) return [];
 
   await runBatchesConcurrently(
     chunk(records, batchSize),
@@ -212,15 +225,19 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
  * Embed documents and store them.
  *
  * Accepts: the documents, an optional `ids` list, a `batchSize` of 1–500, a
- * signal, the embeddings model to use for indexing, and the store's write
- * configuration.
+ * signal, a way to resolve the embeddings model to use for indexing, and the
+ * store's write configuration.
  *
  * Returns: the ids written, in document order, in an array this call owns.
  *
  * Throws, before any embedding call or AWS request: `VALIDATION` for a non-array
  * argument, a mismatched count, a malformed or repeated id, a bad batch size, or
  * a document or metadata S3 Vectors cannot store — each refusal about one
- * document carrying `recordIndex` and, where known, `recordId`.
+ * document carrying `recordIndex` and, where known, `recordId`; `ABORTED` for an
+ * already-fired signal. `EMBEDDINGS_MISSING` when no model is configured is
+ * raised only once every check above has passed and `documents` is non-empty —
+ * `addDocuments([])` on a model-less store resolves `[]` without ever asking for
+ * one.
  *
  * Throws, for a batch the model has embedded, before that batch is written:
  * - `VALIDATION` when the model returns something other than an array, the
@@ -236,6 +253,12 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
  *   first embedding call, so an input that cannot be written costs no embedding
  *   and no request. Only the model's own output is checked per batch, because it
  *   does not exist sooner.
+ * - One order, on every call: every check the arguments alone decide runs
+ *   first; only once it passes does an already-fired signal get to raise
+ *   `ABORTED`; only once both pass does an empty `documents` return `[]`; only
+ *   for a non-empty, valid, un-aborted call is the embeddings model resolved at
+ *   all, so a model-less store still tells VALIDATION from EMBEDDINGS_MISSING
+ *   from "nothing to do".
  * - What is embedded and what is stored are the page content as it was when the
  *   call started.
  * - The per-batch vector count is checked against the batch's document count. A
@@ -251,7 +274,6 @@ export async function addDocuments(opts: AddDocumentsOptions): Promise<string[]>
 
   assertIsArray('addDocuments', scope, 'documents', documents);
   const ids = resolveIds('addDocuments', scope, documents, opts.ids, 'documents', documents.length);
-  if (documents.length === 0) return [];
 
   const batchSize = opts.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
   assertBatchSize('addDocuments', scope, batchSize, MAX_PUT_BATCH_SIZE);
@@ -262,10 +284,18 @@ export async function addDocuments(opts: AddDocumentsOptions): Promise<string[]>
     ...writeConfig,
   });
 
+  // Everything above is decided by the arguments alone; only once all of it
+  // passes does an already-fired signal get to matter, only once both pass
+  // does an empty input get to short-circuit for free, and only for a
+  // non-empty call is there anything left to spend on — starting with
+  // resolving the embeddings model itself.
+  checkAborted('addDocuments', signal, scope);
+  if (documents.length === 0) return [];
+
+  const embeddings = opts.getEmbeddings();
+
   const embed = async (batch: readonly WriteRecord[], offset: number): Promise<number[][]> => {
-    const embedded: unknown = await opts.embeddings.embedDocuments(
-      batch.map((record) => record.text),
-    );
+    const embedded: unknown = await embeddings.embedDocuments(batch.map((record) => record.text));
     if (!Array.isArray(embedded)) {
       throw validationError(
         'addDocuments',

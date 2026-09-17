@@ -29,14 +29,21 @@ export interface GetByIdsOptions extends Omit<BatchedOperation, 'operation'> {
  * Throws: `VALIDATION` for a non-array `ids`; for an id that is not a string of
  * 1–1024 characters or not well-formed UTF-16, carrying `recordIndex` and, for a
  * string, `recordId`; or for a bad batch size — all before any request.
- * Otherwise whatever a failing batch raises, carrying `context.foundIds`: every
- * id already retrieved, including by a sibling batch that succeeded alongside
- * the one that failed. Unknown and absent stay distinguishable: a batch that
- * failed says nothing about whether its ids exist, so those slots are not
- * reported as `undefined`.
+ * `ABORTED` for an already-fired signal, checked only once every check above
+ * has passed. Otherwise whatever a failing batch raises, carrying
+ * `context.foundIds`: every id already retrieved, including by a sibling batch
+ * that succeeded alongside the one that failed. Unknown and absent stay
+ * distinguishable: a batch that failed says nothing about whether its ids
+ * exist, so those slots are not reported as `undefined`.
  *
- * Guarantees: each document carries a deep copy of its metadata, so duplicate
- * ids in one call yield independent documents.
+ * Guarantees:
+ * - Each document carries a deep copy of its metadata, so duplicate ids in one
+ *   call yield independent documents.
+ * - One order, on every call: `ids` and `batchSize` are checked before an
+ *   already-fired signal gets to raise `ABORTED`, and only once both pass does
+ *   an empty `ids` return `[]` — still without a request, since that
+ *   short-circuit lives in {@link fetchVectorsByKey}, which this delegates to
+ *   unconditionally rather than returning early itself.
  */
 export async function getByIds(opts: GetByIdsOptions): Promise<(Document | undefined)[]> {
   const { ids } = opts;
@@ -50,8 +57,11 @@ export async function getByIds(opts: GetByIdsOptions): Promise<(Document | undef
   // batch — every valid id in it — on one it refuses. A repeated id is fine: it
   // collapses into one request key and fills every slot that asked for it.
   assertKeysWellFormed(ids, { operation: 'getByIds', ...scope, source: 'the ids argument' });
-  if (ids.length === 0) return [];
 
+  // No early return on an empty `ids` here: batchSize and the signal still
+  // need checking even then, and fetchVectorsByKey already checks both ahead
+  // of its own empty-keys short-circuit — running it unconditionally reuses
+  // that order instead of restating it.
   const found = await fetchVectorsByKey({
     client: opts.client,
     operation: 'getByIds',
