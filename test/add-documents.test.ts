@@ -1,10 +1,12 @@
 import { GetIndexCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
+import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
+import type { S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import { BASE_CONFIG, createMockClient, createTestStore, mockExistingIndex } from './helpers.js';
 
 describe('AmazonS3Vectors.addDocuments — id count', () => {
@@ -147,5 +149,101 @@ describe('AmazonS3Vectors.addDocuments ids-option validation', () => {
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).toBe('ids must be an array.');
     expect(embeddings.embedDocuments).not.toHaveBeenCalled();
+  });
+});
+
+describe('AmazonS3Vectors.addDocuments — nothing is spent on an input that cannot be written (R1)', () => {
+  it('refuses a document S3 Vectors cannot store before embedding or requesting anything', async () => {
+    // The report's scenario, scaled down: batches of two, the bad record in the third.
+    const { store, mock, embeddings } = createTestStore();
+    mockExistingIndex(mock);
+    const docs = Array.from(
+      { length: 6 },
+      (_, i) =>
+        new Document({
+          pageContent: `ticket ${i}`,
+          metadata: { category: i === 4 ? null : 'billing' },
+        }),
+    );
+    const error = (await store
+      .addDocuments(docs, { ids: docs.map((_, i) => `ticket-${i}`), batchSize: 2 })
+      .catch((e: unknown) => e)) as S3VectorsError;
+
+    expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(error.message).toMatch(
+      /^Document at index 4 \(id "ticket-4"\): Metadata key 'category'/,
+    );
+    expect(error.context).toMatchObject({ recordIndex: 4, recordId: 'ticket-4' });
+    expect(error.context.writtenIds).toBeUndefined();
+    expect(embeddings.embedDocuments).not.toHaveBeenCalled();
+    expect(mock.calls()).toHaveLength(0);
+  });
+
+  it('names an embedded vector S3 Vectors cannot store by its position in the whole input', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    const embeddings: EmbeddingsInterface = {
+      embedDocuments: async (texts) =>
+        texts.map((text) => (text === 'd3' ? [Number.NaN, 1, 2] : [1, 2, 3])),
+      embedQuery: async () => [1, 2, 3],
+    };
+    const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+    const docs = ['d0', 'd1', 'd2', 'd3'].map((pageContent) => new Document({ pageContent }));
+    const error = (await store
+      .addDocuments(docs, { ids: ['a', 'b', 'c', 'd'], batchSize: 2 })
+      .catch((e: unknown) => e)) as S3VectorsError;
+
+    expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(error.message).toContain(
+      'Vector at index 3 (id "d") has a component at position 0 that is not a finite number',
+    );
+    // A model's output cannot be checked before it exists: the first batch had
+    // already landed, and the error says so.
+    expect(error.context).toMatchObject({
+      recordIndex: 3,
+      recordId: 'd',
+      writtenIds: ['a', 'b'],
+      attemptedIds: ['a', 'b', 'c', 'd'],
+    });
+  });
+});
+
+describe('AmazonS3Vectors.addDocuments — an embeddings model returning something unusable (N4)', () => {
+  const storeWith = (embedDocuments: () => Promise<unknown>) => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    const embeddings = {
+      embedDocuments,
+      embedQuery: async () => [1, 2, 3],
+    } as unknown as EmbeddingsInterface;
+    return new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+  };
+
+  it.each([
+    ['null', async () => null, 'Embeddings model returned null instead of an array of vectors.'],
+    [
+      'a string',
+      async () => 'vectors',
+      'Embeddings model returned a string instead of an array of vectors.',
+    ],
+  ])(
+    'refuses %s in place of the vector list as VALIDATION',
+    async (_label, embedDocuments, message) => {
+      const error = (await storeWith(embedDocuments)
+        .addDocuments([new Document({ pageContent: 'x' })])
+        .catch((e: unknown) => e)) as S3VectorsError;
+      expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
+      expect(error.message).toBe(message);
+    },
+  );
+
+  it('refuses a list holding null as VALIDATION, naming the document', async () => {
+    const error = (await storeWith(async () => [null])
+      .addDocuments([new Document({ pageContent: 'x' })], { ids: ['only'] })
+      .catch((e: unknown) => e)) as S3VectorsError;
+    expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(error.message).toContain(
+      'Vector at index 0 (id "only") is not an array (received null)',
+    );
   });
 });

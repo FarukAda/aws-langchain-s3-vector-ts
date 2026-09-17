@@ -49,7 +49,7 @@ describe('AmazonS3Vectors index compatibility validation', () => {
     if (empty.status === 'rejected') {
       expect(isS3VectorsError(empty.reason)).toBe(true);
       expect((empty.reason as Error).message).toContain(
-        'Every vector must have at least one dimension',
+        'has dimension 0, but a vector must have between 1 and 4096 components',
       );
       // Attributed to the caller whose batch was actually empty.
       expect((empty.reason as { context: { operation: string } }).context.operation).toBe(

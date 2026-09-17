@@ -11,25 +11,37 @@ import {
   validationError,
 } from '../internal/guards.js';
 import { assertIdsWellFormed, resolveWriteIds } from '../internal/ids.js';
+import { assertWriteVectors } from '../internal/limits.js';
+import { prepareRecords, type WriteRecord } from '../internal/records.js';
 import type { StoreScope } from '../internal/signals.js';
 import { chunk } from '../shared/batching.js';
+import { describeValue } from '../shared/describe.js';
+import type { DistanceMetric } from '../types.js';
 
 /** "Vectors per PutVectors call: 500" (limits page, `s3-vectors-limitations.html`). */
 const MAX_PUT_BATCH_SIZE = 500;
 /** Below the AWS ceiling, so a default-configured store never fails on batch size. */
 const DEFAULT_PUT_BATCH_SIZE = 200;
-
 /** Where a write's ids came from when the caller supplied none. */
 const DOCUMENT_ID_SOURCE =
   "the documents' own `id` fields (a UUID is generated only for a document with no id at all)";
 
-/** Writes one already-embedded batch; the store binds its own configuration to it. */
+/** The store configuration every write applies to its input. */
+export interface WriteConfig {
+  /** The index's metric; decides whether a zero vector is writable. */
+  readonly distanceMetric: DistanceMetric;
+  /** Where page content is stored, or `null` to store none. */
+  readonly pageContentMetadataKey: string | null;
+  /** The index's non-filterable keys, already merged with the page-content key. */
+  readonly nonFilterableKeys: readonly string[];
+}
+
+/** Writes one validated batch; the store binds its client and index lifecycle to it. */
 type PutBatchFn = (
   operation: string,
   batchOffset: number,
-  vectors: number[][],
-  documents: DocumentInterface[],
-  ids: string[],
+  records: readonly WriteRecord[],
+  vectors: readonly number[][],
   signal?: AbortSignal,
 ) => Promise<void>;
 
@@ -49,14 +61,16 @@ export interface AddVectorsOptions extends StoreScope {
   readonly maxConcurrent: number;
   /** Cancels the writes in flight and stops later batches from starting. */
   readonly signal?: AbortSignal | undefined;
-  /** Writes one batch; the store binds its own index configuration to it. */
+  /** The store configuration the input is validated and built against. */
+  readonly writeConfig: WriteConfig;
+  /** Writes one validated batch. */
   readonly putBatch: PutBatchFn;
 }
 
 export interface AddDocumentsOptions extends Omit<AddVectorsOptions, 'vectors'> {
   /**
    * The indexing model. Called once per batch, never concurrently with
-   * itself, and checked to return exactly one vector per document.
+   * itself, and checked to return exactly one usable vector per document.
    */
   readonly embeddings: EmbeddingsInterface;
 }
@@ -70,9 +84,11 @@ export interface AddDocumentsOptions extends Omit<AddVectorsOptions, 'vectors'> 
  * (which is what makes a read-modify-write round trip update in place), else a
  * fresh UUID.
  *
- * Throws: `VALIDATION` when `ids` is not an array, when its length disagrees
- * with the documents, or when any resolved id is empty, over-long or repeated
- * within the call.
+ * Throws: `VALIDATION` when `ids` is not an array, when a document is not an
+ * object with a string `pageContent`, when the count disagrees with the
+ * documents, or when any resolved id is not a 1–1024 character well-formed
+ * string or is repeated within the call — per-element refusals carrying
+ * `recordIndex`.
  *
  * Guarantees: validated **before** the empty-input short-circuit. A caller
  * passing a stale `ids` array alongside an empty document array has made a real
@@ -108,21 +124,39 @@ function resolveIds(
  * Store caller-supplied vectors alongside their documents.
  *
  * Accepts: equal-length `vectors` and `documents`, an optional `ids` list, a
- * `batchSize` of 1–500, and a signal.
+ * `batchSize` of 1–500, a signal, and the store's write configuration.
  *
- * Returns: the ids written, in document order.
+ * Returns: the ids written, in document order, in an array this call owns.
  *
- * Throws: `VALIDATION` for mismatched counts, a malformed id or batch size —
- * all before any AWS call; otherwise whatever the write raises, carrying
+ * Throws, before any AWS request:
+ * - `VALIDATION` for a non-array argument, mismatched counts, a malformed or
+ *   repeated id, a bad batch size, a document or metadata S3 Vectors cannot
+ *   store, or a vector it cannot store — not an array, a dimension outside
+ *   1–4096, a non-finite component, or zero norm on a cosine index. Each
+ *   refusal about one element carries `recordIndex` and, where known, `recordId`.
+ * - `INDEX_CONFIG_MISMATCH` for a vector whose dimension differs from the first
+ *   vector's, anywhere in the input.
+ *
+ * Otherwise whatever the write raises — `ABORTED` for the signal, whatever index
+ * creation raises, or the class the `PutVectors` failure maps to — carrying
  * `context.writtenIds` and `context.attemptedIds`.
  *
- * Guarantees: an empty input writes nothing and returns `[]`, but only after
- * its ids have been validated. The first batch is written alone because it is
- * the one that may create the index; the rest run at most `maxConcurrent` at a
- * time.
+ * Guarantees:
+ * - Every check on the input runs over all of it before the first request, so
+ *   an input that cannot be written is refused whole, never written in part. A
+ *   partial write can only come from AWS or from an abort.
+ * - The `vectors` and `documents` lists and each document's metadata are taken
+ *   once, so a caller mutating them while the promise is pending cannot change
+ *   what is written. A vector's own component array is not copied — that would
+ *   double peak vector memory — so mutating one mid-write is outside this
+ *   contract.
+ * - An empty input writes nothing and returns `[]`, but only after its ids have
+ *   been validated.
+ * - The first batch is written alone, because it is the one that may create the
+ *   index; the rest run at most `maxConcurrent` at a time.
  */
 export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
-  const { vectors, documents, signal } = opts;
+  const { vectors, documents, signal, writeConfig } = opts;
   const scope: StoreScope = {
     vectorBucketName: opts.vectorBucketName,
     indexName: opts.indexName,
@@ -144,15 +178,23 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
   const batchSize = opts.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
   assertBatchSize('addVectors', scope, batchSize, MAX_PUT_BATCH_SIZE);
 
-  // Each batch is sliced when it is dispatched, not now, so the array has to be
-  // this call's own by then: a caller mutating theirs while the promise is
-  // pending would otherwise change what later batches write. `chunk` already
-  // copies the vectors, and `resolveWriteIds` already copies the ids; the
-  // documents are the third input read the same way.
-  const documentSnapshot = [...documents];
+  const records = prepareRecords(documents, ids, {
+    operation: 'addVectors',
+    ...scope,
+    ...writeConfig,
+  });
+  // Taken before it is checked, so the list checked is the list written.
+  const vectorSnapshot = [...vectors];
+  assertWriteVectors(vectorSnapshot, {
+    operation: 'addVectors',
+    ...scope,
+    distanceMetric: writeConfig.distanceMetric,
+    offset: 0,
+    ids,
+  });
 
   await runBatchesConcurrently(
-    chunk(vectors, batchSize),
+    chunk(records, batchSize),
     ids,
     opts.maxConcurrent,
     { operation: 'addVectors', ...scope },
@@ -161,8 +203,7 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
         'addVectors',
         offset,
         batch,
-        documentSnapshot.slice(offset, offset + batch.length),
-        ids.slice(offset, offset + batch.length),
+        vectorSnapshot.slice(offset, offset + batch.length),
         signal,
       ),
   );
@@ -174,23 +215,38 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
  * Embed documents and store them.
  *
  * Accepts: the documents, an optional `ids` list, a `batchSize` of 1–500, a
- * signal, and the embeddings model to use for indexing.
+ * signal, the embeddings model to use for indexing, and the store's write
+ * configuration.
  *
- * Returns: the ids written, in document order.
+ * Returns: the ids written, in document order, in an array this call owns.
  *
- * Throws: `VALIDATION` for mismatched counts, a malformed id or batch size, or
- * an embeddings model that returns the wrong number of vectors; otherwise
- * whatever the embed or the write raises, carrying `context.writtenIds` and
- * `context.attemptedIds`.
+ * Throws, before any embedding call or AWS request: `VALIDATION` for a non-array
+ * argument, a mismatched count, a malformed or repeated id, a bad batch size, or
+ * a document or metadata S3 Vectors cannot store — each refusal about one
+ * document carrying `recordIndex` and, where known, `recordId`.
  *
- * Guarantees: the per-batch vector count is checked against the batch's
- * document count. A model that silently drops an entry — one that skips empty
- * strings, say — would otherwise re-pair every later vector with the wrong
- * document and id through the index-based zip the write path performs, storing
- * each document's embedding under its neighbour's key.
+ * Throws, for a batch the model has embedded, before that batch is written:
+ * - `VALIDATION` when the model returns something other than an array, the
+ *   wrong number of vectors, or a vector S3 Vectors cannot store;
+ * - `INDEX_CONFIG_MISMATCH` when the batch's vectors disagree on dimension.
+ *
+ * Every failure after the first batch started — those above, an embeddings
+ * model that throws (`UNEXPECTED_ERROR`), `ABORTED`, or an AWS failure —
+ * carries `context.writtenIds` and `context.attemptedIds`.
+ *
+ * Guarantees:
+ * - Everything knowable from the input is checked over all of it before the
+ *   first embedding call, so an input that cannot be written costs no embedding
+ *   and no request. Only the model's own output is checked per batch, because it
+ *   does not exist sooner.
+ * - What is embedded and what is stored are the page content as it was when the
+ *   call started.
+ * - The per-batch vector count is checked against the batch's document count. A
+ *   model that silently drops an entry — one that skips empty strings, say —
+ *   would otherwise pair every later vector with the wrong document and id.
  */
 export async function addDocuments(opts: AddDocumentsOptions): Promise<string[]> {
-  const { documents, signal } = opts;
+  const { documents, signal, writeConfig } = opts;
   const scope: StoreScope = {
     vectorBucketName: opts.vectorBucketName,
     indexName: opts.indexName,
@@ -203,8 +259,24 @@ export async function addDocuments(opts: AddDocumentsOptions): Promise<string[]>
   const batchSize = opts.batchSize ?? DEFAULT_PUT_BATCH_SIZE;
   assertBatchSize('addDocuments', scope, batchSize, MAX_PUT_BATCH_SIZE);
 
-  const embed = async (batch: DocumentInterface[]): Promise<number[][]> => {
-    const vectors = await opts.embeddings.embedDocuments(batch.map((doc) => doc.pageContent));
+  const records = prepareRecords(documents, ids, {
+    operation: 'addDocuments',
+    ...scope,
+    ...writeConfig,
+  });
+
+  const embed = async (batch: readonly WriteRecord[], offset: number): Promise<number[][]> => {
+    const embedded: unknown = await opts.embeddings.embedDocuments(
+      batch.map((record) => record.text),
+    );
+    if (!Array.isArray(embedded)) {
+      throw validationError(
+        'addDocuments',
+        scope,
+        `Embeddings model returned ${describeValue(embedded)} instead of an array of vectors.`,
+      );
+    }
+    const vectors = embedded as unknown[];
     if (vectors.length !== batch.length) {
       throw validationError(
         'addDocuments',
@@ -212,26 +284,25 @@ export async function addDocuments(opts: AddDocumentsOptions): Promise<string[]>
         `Embeddings model returned ${vectors.length} vectors for ${batch.length} documents — it must return exactly one vector per document.`,
       );
     }
-    return vectors;
+    assertWriteVectors(vectors, {
+      operation: 'addDocuments',
+      ...scope,
+      distanceMetric: writeConfig.distanceMetric,
+      offset,
+      ids: batch.map((record) => record.key),
+    });
+    return vectors as number[][];
   };
 
   await embedAndWrite({
     operation: 'addDocuments',
-    documents,
+    items: records,
     ids,
     batchSize,
     maxConcurrent: opts.maxConcurrent,
     signal,
     embed,
-    put: (batch, offset, vectors) =>
-      opts.putBatch(
-        'addDocuments',
-        offset,
-        vectors,
-        batch,
-        ids.slice(offset, offset + batch.length),
-        signal,
-      ),
+    put: (batch, offset, vectors) => opts.putBatch('addDocuments', offset, batch, vectors, signal),
     ...scope,
   });
 

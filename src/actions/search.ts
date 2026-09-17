@@ -1,8 +1,8 @@
 import type { Document } from '@langchain/core/documents';
 
 import { validateFilter } from '../internal/filter.js';
-import { assertIsArray, assertK, validationError } from '../internal/guards.js';
-import { assertVectorDimension, assertVectorsWritable } from '../internal/limits.js';
+import { assertK, validationError } from '../internal/guards.js';
+import { assertQueryVector } from '../internal/limits.js';
 import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
 import type { StoreScope } from '../internal/signals.js';
@@ -56,15 +56,13 @@ export async function searchByVector(opts: VectorSearchOptions): Promise<[Docume
   };
 
   assertK(operation, scope, opts.k);
-  assertIsArray(operation, scope, 'query vector', opts.queryVector);
-  // The same rules a stored vector is held to. All three failures were probed
-  // against the live service and answered identically — "Query vector contains
-  // invalid values or is invalid for this index" — for a zero-norm vector, an
-  // empty one, and one of the wrong length. That message names no component and
-  // no reason, so the round trip bought nothing this package could not say
-  // itself, and said better.
-  assertVectorDimension(opts.queryVector.length, operation, scope);
-  assertVectorsWritable([opts.queryVector], {
+  // The same rules a stored vector is held to. All of them were probed against
+  // the live service and answered identically — "Query vector contains invalid
+  // values or is invalid for this index" — for a zero-norm vector, an empty one,
+  // and one of the wrong length. That message names no component and no reason,
+  // so the round trip bought nothing this package could not say itself, and
+  // said better.
+  assertQueryVector(opts.queryVector, {
     operation,
     distanceMetric: opts.distanceMetric,
     ...scope,

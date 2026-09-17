@@ -5,7 +5,7 @@ import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 import { VectorStore, type MaxMarginalRelevanceSearchOptions } from '@langchain/core/vectorstores';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
-import { addDocuments, addVectors } from './actions/add.js';
+import { addDocuments, addVectors, type WriteConfig } from './actions/add.js';
 import { deleteVectors } from './actions/delete.js';
 import { getByIds } from './actions/get-by-ids.js';
 import { listDocuments, listVectors } from './actions/list.js';
@@ -24,6 +24,7 @@ import {
   type IndexLifecycle,
 } from './internal/index-lifecycle.js';
 import { putBatch } from './internal/put-batch.js';
+import type { WriteRecord } from './internal/records.js';
 import { checkAborted } from './internal/signals.js';
 import {
   AmazonS3VectorsRetriever,
@@ -163,6 +164,15 @@ export class AmazonS3Vectors extends VectorStore {
   /** The bucket and index every error names. */
   get #scope(): { vectorBucketName: string; indexName: string } {
     return { vectorBucketName: this.vectorBucketName, indexName: this.indexName };
+  }
+
+  /** What every write validates and builds its input against. */
+  get #writeConfig(): WriteConfig {
+    return {
+      distanceMetric: this.distanceMetric,
+      pageContentMetadataKey: this.pageContentMetadataKey,
+      nonFilterableKeys: this.#nonFilterableKeys,
+    };
   }
 
   // ── Constructor ───────────────────────────────────────────────────────
@@ -326,14 +336,17 @@ export class AmazonS3Vectors extends VectorStore {
    * from starting; a batch's `PutVectors` call already in flight when the
    * signal fires is cancelled mid-request, not allowed to complete.
    * @returns The IDs assigned to each stored vector
-   * @throws Error if counts of vectors, documents, or IDs don't match, or
-   * if any id (supplied or taken from a document) is not a non-empty
-   * string or appears more than once in the same call — S3 Vectors keys
-   * must be non-empty, and a duplicate key inside one call would silently
-   * overwrite an earlier vector with a later one. On a partial-write
-   * failure (a later batch fails after earlier ones already committed),
-   * the thrown {@link S3VectorsError}'s `context.writtenIds` lists every
-   * id that was durably written before the failure — check it before
+   * @throws {S3VectorsError} Before any request: `VALIDATION` for mismatched
+   * counts, a malformed or repeated id, a bad batch size, a document or metadata
+   * S3 Vectors cannot store, or a vector it cannot store (not an array, a
+   * dimension outside 1–4096, a non-finite component, zero norm on a cosine
+   * index); `INDEX_CONFIG_MISMATCH` when vectors anywhere in the input differ in
+   * dimension; `ABORTED` for a fired signal. Each refusal about one element
+   * carries `context.recordIndex` — its position in your input — and, where
+   * known, `context.recordId`. Nothing is written for an input that fails these.
+   * Otherwise, on a failure partway through a multi-batch write, the error's
+   * `context.writtenIds` lists every id durably written before it and
+   * `context.attemptedIds` every id the call resolved — check them before
    * retrying, especially for auto-generated ids, which would otherwise be
    * impossible to find or reconcile again.
    */
@@ -351,6 +364,7 @@ export class AmazonS3Vectors extends VectorStore {
       batchSize: options?.batchSize,
       maxConcurrent: this.maxConcurrentBatchCalls,
       signal: options?.signal,
+      writeConfig: this.#writeConfig,
       putBatch: this.#putBatch.bind(this),
       ...this.#scope,
     });
@@ -395,16 +409,19 @@ export class AmazonS3Vectors extends VectorStore {
    * afterward, and any `PutVectors` call already in flight is cancelled
    * mid-request.
    * @returns The IDs assigned to each stored vector
-   * @throws Error if count of IDs doesn't match count of documents, or if
-   * any id (supplied or taken from a document) is not a non-empty string
-   * or appears more than once in the same call. On a partial-write failure
-   * (a later batch fails after earlier ones already committed), the thrown
-   * {@link S3VectorsError}'s `context.writtenIds` lists every id that was
-   * durably written before the failure — check it before retrying,
-   * especially for auto-generated ids, which would otherwise be impossible
-   * to find or reconcile again. A failure stops further batches from being
-   * embedded or written; the error is thrown only after every `PutVectors`
-   * call already in flight has settled, so `writtenIds` is complete.
+   * @throws {S3VectorsError} `EMBEDDINGS_MISSING` when no model is configured.
+   * Before any embedding call or request: `VALIDATION` for a mismatched id
+   * count, a malformed or repeated id, a bad batch size, or a document or
+   * metadata S3 Vectors cannot store, carrying `context.recordIndex` and, where
+   * known, `context.recordId`. For a batch the model has embedded, before it is
+   * written: `VALIDATION` when the model returns something other than one
+   * storable vector per document, or `INDEX_CONFIG_MISMATCH` when that batch's
+   * vectors disagree on dimension. A model that throws surfaces as
+   * `UNEXPECTED_ERROR`. On any failure after the first batch started, the
+   * error's `context.writtenIds` lists every id durably written before it and
+   * `context.attemptedIds` every id the call resolved. A failure stops further
+   * batches from being embedded or written, and is thrown only after every
+   * `PutVectors` call already in flight has settled, so `writtenIds` is complete.
    */
   async addDocuments(
     documents: DocumentInterface[],
@@ -418,6 +435,7 @@ export class AmazonS3Vectors extends VectorStore {
       maxConcurrent: this.maxConcurrentBatchCalls,
       signal: options?.signal,
       embeddings: this.#getIndexEmbeddings(),
+      writeConfig: this.#writeConfig,
       putBatch: this.#putBatch.bind(this),
       ...this.#scope,
     });
@@ -1074,25 +1092,20 @@ export class AmazonS3Vectors extends VectorStore {
 
   // ── Private helpers ───────────────────────────────────────────────────
 
-  /** Bind this store's configuration to one {@link putBatch} call. */
+  /** Bind this store's client and index lifecycle to one {@link putBatch} call. */
   #putBatch(
     operation: string,
     batchOffset: number,
-    vectors: number[][],
-    documents: DocumentInterface[],
-    ids: string[],
+    records: readonly WriteRecord[],
+    vectors: readonly number[][],
     signal?: AbortSignal,
   ): Promise<void> {
     return putBatch({
       client: this.#client,
       operation,
       batchOffset,
+      records,
       vectors,
-      documents,
-      ids,
-      distanceMetric: this.distanceMetric,
-      pageContentMetadataKey: this.pageContentMetadataKey,
-      nonFilterableKeys: this.#nonFilterableKeys,
       ensureIndex: this.createIndexIfNotExist
         ? (dimension, abort) => this.#lifecycle.ensureExists(dimension, abort, operation)
         : undefined,

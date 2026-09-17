@@ -253,7 +253,7 @@ describe('addVectors — batch-internal dimension consistency', () => {
     expect((error as Error).message).toContain('index 1');
   });
 
-  it('rejects an internally-inconsistent second batch with INDEX_CONFIG_MISMATCH, not a raw AWS error', async () => {
+  it('refuses a later batch whose dimension differs before writing any batch (R1)', async () => {
     const { store, mock } = createTestStore();
     mockExistingIndex(mock);
 
@@ -265,12 +265,7 @@ describe('addVectors — batch-internal dimension consistency', () => {
           [1, 2, 3],
           [1, 2],
         ],
-        [
-          new Document({ pageContent: 'a' }),
-          new Document({ pageContent: 'b' }),
-          new Document({ pageContent: 'c' }),
-          new Document({ pageContent: 'd' }),
-        ],
+        ['a', 'b', 'c', 'd'].map((pageContent) => new Document({ pageContent })),
         { ids: ['id-1', 'id-2', 'id-3', 'id-4'], batchSize: 2 },
       )
       .catch((e: unknown) => e);
@@ -278,13 +273,51 @@ describe('addVectors — batch-internal dimension consistency', () => {
     expect((error as { code: S3VectorsErrorCode }).code).toBe(
       S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
     );
-    expect((error as Error).message).toContain('index 1');
-    // Batch 0 (the first two vectors) already succeeded before batch 1 was
-    // even validated — confirms this is genuinely testing the second
-    // batch, not accidentally re-testing batch 0.
-    expect((error as { context: { writtenIds: string[] } }).context.writtenIds).toEqual([
-      'id-1',
-      'id-2',
-    ]);
+    expect((error as Error).message).toContain('Vector at index 3 (id "id-4") has dimension 2');
+    expect((error as { context: Record<string, unknown> }).context).toMatchObject({
+      recordIndex: 3,
+      recordId: 'id-4',
+    });
+    // Nothing landed, so there is nothing to reconcile.
+    expect((error as { context: Record<string, unknown> }).context['writtenIds']).toBeUndefined();
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
+  });
+});
+
+describe('addVectors — the whole input is checked before anything is written (R1, R8)', () => {
+  it('refuses metadata S3 Vectors cannot store in a later batch without writing the earlier ones', async () => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+    const docs = [0, 1, 2, 3].map(
+      (i) => new Document({ pageContent: `d${i}`, metadata: i === 3 ? { category: null } : {} }),
+    );
+    const error = await store
+      .addVectors(
+        docs.map(() => [1, 2, 3]),
+        docs,
+        { ids: ['a', 'b', 'c', 'd'], batchSize: 2 },
+      )
+      .catch((e: unknown) => e);
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toMatch(/^Document at index 3 \(id "d"\): /);
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(0);
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
+  });
+
+  it('refuses a null vector after the first as VALIDATION, naming it', async () => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+    const error = await store
+      .addVectors(
+        [[1, 2, 3], null as unknown as number[]],
+        [new Document({ pageContent: 'a' }), new Document({ pageContent: 'b' })],
+        { ids: ['a', 'b'] },
+      )
+      .catch((e: unknown) => e);
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain(
+      'Vector at index 1 (id "b") is not an array (received null)',
+    );
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
   });
 });

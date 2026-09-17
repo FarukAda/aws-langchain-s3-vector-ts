@@ -27,9 +27,9 @@ describe('the write path names the method the caller invoked, on a rejected batc
         store.addDocuments([new Document({ pageContent: 'x', metadata: { bad: {} } })]),
     ],
   ])('%s', async (operation, run) => {
-    // The rejection comes from metadata validation inside the batch write,
-    // which both paths reach through the same helper — so the operation name
-    // is the only thing that says which one the caller called.
+    // The rejection comes from metadata validation, which both paths run over
+    // the whole input before anything is spent — so the operation name is the
+    // only thing that says which one the caller called.
     const { store, mock } = createTestStore();
     mockExistingIndex(mock);
     const error = await run(store).catch((e: unknown) => e);

@@ -62,6 +62,6 @@ describe('AmazonS3Vectors empty-batch dimension guard', () => {
     // that an "empty batch", which misattributes the actual cause.
     await expect(
       store.addVectors([[]], [new Document({ pageContent: 'x' })], { ids: ['id-1'] }),
-    ).rejects.toThrow('Every vector must have at least one dimension');
+    ).rejects.toThrow('has dimension 0, but a vector must have between 1 and 4096 components');
   });
 });

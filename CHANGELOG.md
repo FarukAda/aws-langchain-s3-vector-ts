@@ -10,11 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`error.context.recordIndex` and `error.context.recordId`.** A refusal about
-  one element of a list — a document, its metadata, a text passed to fromTexts,
-  or an id — now says which one: its position in *your* input, counted over the
-  whole call rather than within a batch, and its id when it has one. The message
-  leads with the same, as `Document at index 400 (id "ticket-400"): …`. Both
-  fields are optional and appear only on errors about a single element of a list.
+  one element of a list — a document, its metadata, a vector, a text passed to
+  fromTexts, or an id — now says which one: its position in *your* input,
+  counted over the whole call rather than within a batch, and its id when it has
+  one. The message leads with the same, as `Document at index 400 (id
+  "ticket-400"): …`. Both fields are optional and appear only on errors about a
+  single element of a list.
+
+### Changed
+
+- **`addVectors` requires every vector in the call to share one dimension, and
+  checks it before writing anything.** It was checked per batch, so a call whose
+  later batch disagreed wrote its earlier batches and then failed. An index has
+  one dimension, so such a call could never succeed whole; it is now refused whole,
+  with `INDEX_CONFIG_MISMATCH` naming the first vector that differs.
 
 ### Fixed
 
@@ -52,6 +61,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`delete` documented only half of its id rules.** Its `@throws` named a missing
   or non-array `ids`; the per-id rules and the refusal of a repeated id were
   enforced but unstated.
+
+- **A write refuses an input it cannot store before spending anything.** Metadata
+  and vector checks ran inside each batch's write — after `addDocuments` had
+  embedded that batch, and after every earlier batch had been stored. One bad
+  record anywhere in a bulk ingest left the index partially written, and the
+  embedding spend for every batch up to it was wasted, then paid again by the
+  documented retry. Every check that depends only on the input now runs over the
+  whole input before the first embedding call and the first request; a model's
+  vectors are checked as each batch returns, before that batch is written. The
+  batch write itself (`putBatch`) no longer validates at all, so each rule is
+  stated once.
+
+- **A `null` vector after the first no longer escapes as `UNEXPECTED_ERROR`.**
+  Only the first vector of a batch was checked for being an array; a later one
+  was read with `.length` and raised a `TypeError`. Every vector is now checked,
+  and a non-array is `VALIDATION` naming its position.
+
+- **An embeddings model that returns a non-array, or a list holding one, is
+  `VALIDATION`.** Both escaped as a raw `TypeError` wrapped in
+  `UNEXPECTED_ERROR`; the wrong number of vectors was already `VALIDATION`.
+
+- **A vector refusal names the vector's position in the caller's input.** It named
+  its position inside a batch, which is wrong for every vector after the first
+  batch — the report's `NaN` in vector #450 was reported as "index 50".
 
 ## [1.0.0-rc.2] - 2026-09-16
 

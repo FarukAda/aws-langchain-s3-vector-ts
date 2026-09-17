@@ -1,189 +1,194 @@
 import { describe, it, expect } from '@jest/globals';
 
-import { assertVectorDimension, assertVectorsWritable } from '../../src/internal/limits.js';
+import {
+  assertQueryVector,
+  assertWriteVectors,
+  vectorRejectionReason,
+} from '../../src/internal/limits.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
-import { isS3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
+import type { S3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
 
 /**
- * One test per domain cell of the write-path limit checks.
+ * One test per domain cell of the vector rules: the limits page (dimension),
+ * the PutInputVector API reference (finite components), and
+ * docs/evidence/zero-vector.md (zero norm on cosine).
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
-const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
 
-const thrownBy = (fn: () => void): unknown => {
+const thrownBy = (fn: () => void): S3VectorsError | undefined => {
   try {
     fn();
     return undefined;
-  } catch (e) {
-    return e;
+  } catch (e: unknown) {
+    return e as S3VectorsError;
   }
 };
 
-describe('assertVectorDimension', () => {
-  it.each([0, -1, 4097, 1.5, Number.NaN])('rejects %p', (dimension) => {
-    const error = thrownBy(() => {
-      assertVectorDimension(dimension, 'addVectors', SCOPE);
-    });
-    expect(isS3VectorsError(error)).toBe(true);
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-  });
-
-  it('names the range and what it got', () => {
-    const error = thrownBy(() => {
-      assertVectorDimension(0, 'addVectors', SCOPE);
-    });
-    expect((error as Error).message).toBe(
-      'Vector dimension must be an integer between 1 and 4096 (received 0).',
-    );
-  });
-
-  it.each([1, 384, 1536, 4096])('accepts %p', (dimension) => {
-    expect(() => {
-      assertVectorDimension(dimension, 'addVectors', SCOPE);
-    }).not.toThrow();
-  });
-});
-
-describe('assertVectorsWritable', () => {
-  const opts = { operation: 'addVectors', distanceMetric: 'cosine' as const, ...SCOPE };
-
-  it('accepts ordinary finite vectors', () => {
-    expect(() => {
-      assertVectorsWritable(
-        [
-          [1, 0, 0],
-          [0.5, -0.25, 0.1],
-        ],
-        opts,
-      );
-    }).not.toThrow();
-  });
-
-  it('accepts an empty batch', () => {
-    expect(() => {
-      assertVectorsWritable([], opts);
-    }).not.toThrow();
+describe('vectorRejectionReason', () => {
+  it.each([
+    ['an ordinary vector', [1, 0, 0]],
+    ['a single component', [0.5]],
+    ['4096 components', Array.from({ length: 4096 }, () => 0.1)],
+    ['a mostly-zero vector with a non-zero norm', [0, 0, 0.0001]],
+  ])('accepts %s', (_label, vector) => {
+    expect(vectorRejectionReason(vector, 'cosine')).toBeUndefined();
   });
 
   it.each([
-    ['NaN', Number.NaN],
-    ['Infinity', Number.POSITIVE_INFINITY],
-    ['-Infinity', Number.NEGATIVE_INFINITY],
-  ])('rejects %s, which AWS documents as disallowed', (_label, bad) => {
-    const error = thrownBy(() => {
-      assertVectorsWritable([[1, 0, bad]], opts);
-    });
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('S3 Vectors rejects NaN and Infinity');
+    ['null', null, 'is not an array (received null)'],
+    ['a string', '1,2,3', 'is not an array (received a string)'],
+    [
+      'a typed array',
+      new Float32Array([1, 2]),
+      'is not an array (received a Float32Array instance)',
+    ],
+    [
+      'an empty vector',
+      [],
+      'has dimension 0, but a vector must have between 1 and 4096 components',
+    ],
+    ['4097 components', Array.from({ length: 4097 }, () => 0.1), 'has dimension 4097'],
+    [
+      'NaN',
+      [1, Number.NaN],
+      'has a component at position 1 that is not a finite number (received NaN). S3 Vectors rejects NaN and Infinity',
+    ],
+    [
+      '-Infinity',
+      [Number.NEGATIVE_INFINITY],
+      'at position 0 that is not a finite number (received -Infinity)',
+    ],
+    ['a string component', ['1'], 'at position 0 that is not a finite number (received a string)'],
+  ])('refuses %s', (_label, vector, reason) => {
+    expect(vectorRejectionReason(vector, 'cosine')).toContain(reason);
   });
 
-  it('names the vector and the component so the caller can find it', () => {
-    const error = thrownBy(() => {
-      assertVectorsWritable(
-        [
-          [1, 0, 0],
-          [0, Number.NaN, 0],
-        ],
-        opts,
-      );
-    });
-    const message = (error as Error).message;
-    expect(message).toContain('1');
-    expect(message).toContain('NaN');
+  it('refuses a hole, which reads as undefined', () => {
+    const holed: number[] = [1];
+    holed[2] = 3;
+    expect(vectorRejectionReason(holed, 'cosine')).toContain(
+      'at position 1 that is not a finite number (received undefined)',
+    );
   });
 
-  it('checks every vector, not only the first, because one bad component fails the whole batch', () => {
-    const error = thrownBy(() => {
-      assertVectorsWritable(
-        [
-          [1, 0, 0],
-          [1, 0, 0],
-          [1, 0, Number.NaN],
-        ],
-        opts,
-      );
-    });
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+  it('refuses zero norm on a cosine index, naming the two ways it happens', () => {
+    const reason = vectorRejectionReason([0, 0, 0], 'cosine');
+    expect(reason).toContain('has zero norm, which a cosine index rejects');
+    expect(reason).toContain('empty string');
+    expect(reason).toContain('dividing by a zero norm');
   });
 
-  it('rejects a zero vector on a cosine index, which AWS refuses for zero norm', () => {
-    const error = thrownBy(() => {
-      assertVectorsWritable([[0, 0, 0]], opts);
-    });
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('norm');
-    // Names the two ways this actually happens, because the vector itself
-    // tells the caller nothing about where it came from.
-    expect((error as Error).message).toContain('empty string');
-    expect((error as Error).message).toContain('dividing by a zero norm');
-    expect((error as Error).message).toContain('produces this.');
-  });
-
-  it('accepts a zero vector on a euclidean index, because the evidence covers cosine only', () => {
-    expect(() => {
-      assertVectorsWritable([[0, 0, 0]], { ...opts, distanceMetric: 'euclidean' });
-    }).not.toThrow();
-  });
-
-  it('accepts a vector that is mostly zeros but has a non-zero norm', () => {
-    expect(() => {
-      assertVectorsWritable([[0, 0, 0.0001]], opts);
-    }).not.toThrow();
+  it('accepts zero norm on a euclidean index, because the evidence covers cosine only', () => {
+    expect(vectorRejectionReason([0, 0, 0], 'euclidean')).toBeUndefined();
   });
 });
 
-/**
- * Every one of these failures names the operation and the index (F-30).
- *
- * Mutation testing found this hole before a reviewer did: replacing `fail`'s
- * context with `{}` survived all seventeen tests that cover it, because every
- * one of them asserted the code and none asserted the context. An error that
- * lost its scope would still have looked correct — while telling an operator
- * which bucket and index to look at is most of what makes it useful, and is the
- * one thing a caller cannot reconstruct from the message alone.
- */
-describe('the write-path limit checks say what failed and where', () => {
-  const contextOf = (e: unknown): Record<string, unknown> =>
-    (e as { context: Record<string, unknown> }).context;
+describe('assertWriteVectors', () => {
+  const opts = (offset: number, ids: string[]) => ({
+    operation: 'addVectors',
+    ...SCOPE,
+    distanceMetric: 'cosine' as const,
+    offset,
+    ids,
+  });
 
-  it('names them on a rejected dimension', () => {
+  it('accepts vectors that share a dimension, and an empty list', () => {
+    expect(
+      thrownBy(() => {
+        assertWriteVectors(
+          [
+            [1, 0],
+            [0, 1],
+          ],
+          opts(0, ['a', 'b']),
+        );
+      }),
+    ).toBeUndefined();
+    expect(
+      thrownBy(() => {
+        assertWriteVectors([], opts(0, []));
+      }),
+    ).toBeUndefined();
+  });
+
+  it('names a refused vector by its position in the whole input, and its id (R3)', () => {
     const error = thrownBy(() => {
-      assertVectorDimension(0, 'addVectors', SCOPE);
+      assertWriteVectors(
+        [
+          [1, 0],
+          [Number.NaN, 0],
+        ],
+        opts(400, ['ticket-400', 'ticket-401']),
+      );
     });
-    expect(contextOf(error)).toEqual({
+    expect(error?.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(error?.message).toBe(
+      'Vector at index 401 (id "ticket-401") has a component at position 0 that is not a ' +
+        'finite number (received NaN). S3 Vectors rejects NaN and Infinity.',
+    );
+    expect(error?.context).toEqual({
       operation: 'addVectors',
-      vectorBucketName: 'b',
-      indexName: 'i',
+      ...SCOPE,
+      recordIndex: 401,
+      recordId: 'ticket-401',
     });
   });
 
-  it('names them on a non-finite component', () => {
+  it('refuses a null after the first vector as VALIDATION, not a TypeError (R8)', () => {
     const error = thrownBy(() => {
-      assertVectorsWritable([[1, Number.NaN]], {
-        operation: 'addDocuments',
-        distanceMetric: 'cosine',
-        ...SCOPE,
-      });
+      assertWriteVectors([[1, 0], null], opts(0, ['a', 'b']));
     });
-    expect(contextOf(error)).toEqual({
-      operation: 'addDocuments',
-      vectorBucketName: 'b',
-      indexName: 'i',
-    });
+    expect(error?.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(error?.message).toContain('Vector at index 1 (id "b") is not an array (received null)');
   });
 
-  it('names them on a zero-norm vector', () => {
+  it('refuses a dimension that differs from the first vector as INDEX_CONFIG_MISMATCH', () => {
     const error = thrownBy(() => {
-      assertVectorsWritable([[0, 0, 0]], {
-        operation: 'addVectors',
-        distanceMetric: 'cosine',
-        ...SCOPE,
-      });
+      assertWriteVectors(
+        [
+          [1, 0, 0],
+          [1, 0],
+        ],
+        opts(10, ['a', 'b']),
+      );
     });
-    expect(contextOf(error)).toEqual({
-      operation: 'addVectors',
-      vectorBucketName: 'b',
-      indexName: 'i',
+    expect(error?.code).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
+    expect(error?.message).toBe(
+      'Vector at index 11 (id "b") has dimension 2, but the vector at index 10 has ' +
+        'dimension 3. Every vector written to one index must share its dimension.',
+    );
+    expect(error?.context).toMatchObject({ recordIndex: 11, recordId: 'b' });
+  });
+
+  it('reports what is broken about a vector before comparing its dimension', () => {
+    const error = thrownBy(() => {
+      assertWriteVectors([[1, 0, 0], [Number.NaN]], opts(0, ['a', 'b']));
     });
+    expect(error?.code).toBe(S3VectorsErrorCode.VALIDATION);
+  });
+});
+
+describe('assertQueryVector', () => {
+  const opts = {
+    operation: 'similaritySearchVectorWithScore',
+    ...SCOPE,
+    distanceMetric: 'cosine' as const,
+  };
+
+  it('accepts an ordinary vector', () => {
+    expect(
+      thrownBy(() => {
+        assertQueryVector([0.1, 0.2], opts);
+      }),
+    ).toBeUndefined();
+  });
+
+  it('refuses what the write rules refuse, naming it a query vector and no record', () => {
+    const error = thrownBy(() => {
+      assertQueryVector([0, 0], opts);
+    });
+    expect(error?.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(error?.message).toMatch(/^Query vector has zero norm, which a cosine index rejects/);
+    expect(error?.context).toEqual({ operation: 'similaritySearchVectorWithScore', ...SCOPE });
   });
 });

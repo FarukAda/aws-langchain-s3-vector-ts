@@ -46,7 +46,7 @@ function harness(overrides: {
   const run = (): Promise<void> =>
     embedAndWrite({
       operation: 'addDocuments',
-      documents: docs(count),
+      items: docs(count),
       ids: ids(count),
       batchSize: 1,
       maxConcurrent: overrides.maxConcurrent ?? 2,
@@ -154,5 +154,23 @@ describe('embedAndWrite', () => {
     expect(state.embedCalls).toBe(1);
     // The first batch did land, and says so.
     expect(contextOf(error)['writtenIds']).toEqual(['id-0']);
+  });
+
+  it('hands each embed its batch offset, so a failure can name a position in the whole input', async () => {
+    const offsets: number[] = [];
+    await embedAndWrite({
+      operation: 'addDocuments',
+      items: docs(5),
+      ids: ids(5),
+      batchSize: 2,
+      maxConcurrent: 2,
+      embed: async (batch, offset) => {
+        offsets.push(offset);
+        return batch.map(() => [1, 2, 3]);
+      },
+      put: async () => undefined,
+      ...SCOPE,
+    });
+    expect(offsets).toEqual([0, 2, 4]);
   });
 });

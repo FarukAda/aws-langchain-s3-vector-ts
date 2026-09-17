@@ -1,17 +1,15 @@
-import type { DocumentInterface } from '@langchain/core/documents';
-
 import { chunk, offsetBatches } from '../shared/batching.js';
 import { attachPartialIds } from '../shared/errors/decorate.js';
 import { writeFirstBatch } from './concurrency.js';
 import type { OperationScope } from './operation.js';
 import { checkAborted, type StoreScope } from './signals.js';
 
-export interface EmbedPipelineOptions extends OperationScope {
-  /** The documents to embed and write, in caller order. */
-  readonly documents: readonly DocumentInterface[];
-  /** One id per document, already resolved and validated. */
+export interface EmbedPipelineOptions<T> extends OperationScope {
+  /** The items to embed and write, in caller order. */
+  readonly items: readonly T[];
+  /** One id per item, already resolved and validated. */
   readonly ids: string[];
-  /** Documents per batch: one embed call and one write call each. */
+  /** Items per batch: one embed call and one write call each. */
   readonly batchSize: number;
   /** How many writes may be un-settled at once; embedding pauses when full. */
   readonly maxConcurrent: number;
@@ -20,14 +18,17 @@ export interface EmbedPipelineOptions extends OperationScope {
    * `EmbeddingsInterface` takes no signal and cannot self-cancel.
    */
   readonly signal?: AbortSignal | undefined;
-  /** Embed one batch. Never called concurrently with itself. */
-  readonly embed: (batch: DocumentInterface[]) => Promise<number[][]>;
-  /** Write one embedded batch. Called with the batch's offset into the input. */
-  readonly put: (batch: DocumentInterface[], offset: number, vectors: number[][]) => Promise<void>;
+  /**
+   * Embed one batch, given its offset into `items` so a failure can name a
+   * position in the caller's input. Never called concurrently with itself.
+   */
+  readonly embed: (batch: T[], offset: number) => Promise<number[][]>;
+  /** Write one embedded batch. Called with the batch's offset into `items`. */
+  readonly put: (batch: T[], offset: number, vectors: number[][]) => Promise<void>;
 }
 
 /**
- * Embed documents batch by batch and write each batch as it is ready.
+ * Embed items batch by batch and write each batch as it is ready.
  *
  * Accepts: the documents and their ids, the batch size and concurrency cap,
  * and the two side-effecting steps (`embed`, `put`) the store supplies.
@@ -36,7 +37,7 @@ export interface EmbedPipelineOptions extends OperationScope {
  *
  * Throws: the first failure from either side — an `embed` that threw, an
  * abort, or a rejected `put` — carrying `context.writtenIds` (every id
- * durably written, in **document order**, regardless of the order the puts
+ * durably written, in **input order**, regardless of the order the puts
  * completed) and `context.attemptedIds`.
  *
  * Guarantees:
@@ -59,7 +60,7 @@ export interface EmbedPipelineOptions extends OperationScope {
  *   after every put already in flight has settled — a slower sibling that
  *   succeeds after another rejects is never missing from `writtenIds`.
  */
-export async function embedAndWrite(opts: EmbedPipelineOptions): Promise<void> {
+export async function embedAndWrite<T>(opts: EmbedPipelineOptions<T>): Promise<void> {
   const { operation, ids, signal, embed, put } = opts;
   const scope: StoreScope = {
     vectorBucketName: opts.vectorBucketName,
@@ -67,12 +68,12 @@ export async function embedAndWrite(opts: EmbedPipelineOptions): Promise<void> {
   };
 
   // The caller returns early on empty input, so there is always one batch.
-  const batches = chunk([...opts.documents], opts.batchSize);
+  const batches = chunk([...opts.items], opts.batchSize);
   const firstBatch = batches[0]!;
 
   checkAborted(operation, signal, scope);
   const writtenIds = await writeFirstBatch(firstBatch, ids, operation, scope, async () => {
-    await put(firstBatch, 0, await embed(firstBatch));
+    await put(firstBatch, 0, await embed(firstBatch, 0));
   });
 
   const rest = offsetBatches(batches.slice(1), firstBatch.length);
@@ -93,7 +94,7 @@ export async function embedAndWrite(opts: EmbedPipelineOptions): Promise<void> {
 
   const launchPut = (
     batchIndex: number,
-    batch: DocumentInterface[],
+    batch: T[],
     batchOffset: number,
     vectors: number[][],
   ): void => {
@@ -112,7 +113,7 @@ export async function embedAndWrite(opts: EmbedPipelineOptions): Promise<void> {
     let vectors: number[][];
     try {
       checkAborted(operation, signal, scope);
-      vectors = await embed(batch);
+      vectors = await embed(batch, batchOffset);
       checkAborted(operation, signal, scope);
     } catch (error: unknown) {
       recordError(error);

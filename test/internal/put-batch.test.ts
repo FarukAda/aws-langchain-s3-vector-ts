@@ -1,21 +1,23 @@
 import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
-import { Document } from '@langchain/core/documents';
 
 import { putBatch, sendAws } from '../../src/internal/put-batch.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { createMockClient, sendOptionsOf } from '../helpers.js';
 
 /**
- * One test per domain cell of the single-batch write. The ordering matters as
- * much as the checks: everything this refuses, it refuses before the index can
- * be created, so a rejected batch cannot leave a freshly created index behind.
+ * One test per domain cell of the single-batch write. It validates nothing —
+ * every rule is applied to the whole input before the first batch is written —
+ * so what is tested here is what it sends, when it creates the index, and what a
+ * failure carries.
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
 
-function setup(overrides: Record<string, unknown> = {}) {
+const record = (key: string, text = 'x') => ({ key, text, metadata: { _page_content: text } });
+
+function setup() {
   const { client, mock } = createMockClient();
   mock.on(PutVectorsCommand).resolves({});
   const created: number[] = [];
@@ -25,12 +27,8 @@ function setup(overrides: Record<string, unknown> = {}) {
       client,
       operation: 'addVectors',
       batchOffset: 0,
+      records: [record('a')],
       vectors: [[1, 2, 3]],
-      documents: [new Document({ pageContent: 'x' })],
-      ids: ['a'],
-      distanceMetric: 'cosine',
-      pageContentMetadataKey: '_page_content',
-      nonFilterableKeys: ['_page_content'],
       ensureIndex: async (dimension: number) => {
         created.push(dimension);
       },
@@ -38,22 +36,37 @@ function setup(overrides: Record<string, unknown> = {}) {
         absent.push(1);
       },
       ...SCOPE,
-      ...overrides,
       ...more,
     });
   return { mock, run, created, absent };
 }
 
+type PutInput = {
+  vectors: { key: string; data: { float32: number[] }; metadata: Record<string, unknown> }[];
+};
+
 describe('putBatch', () => {
-  it('writes the batch with its ids, vectors and metadata', async () => {
+  it('writes each record with its vector, key and metadata, in order', async () => {
     const { mock, run } = setup();
-    await run();
-    const input = mock.commandCalls(PutVectorsCommand)[0]!.args[0].input as {
-      vectors: { key: string; data: { float32: number[] }; metadata: Record<string, unknown> }[];
-    };
-    expect(input.vectors[0]!.key).toBe('a');
-    expect(input.vectors[0]!.data.float32).toEqual([1, 2, 3]);
-    expect(input.vectors[0]!.metadata['_page_content']).toBe('x');
+    await run({
+      records: [record('a', 'one'), record('b', 'two')],
+      vectors: [
+        [1, 2, 3],
+        [4, 5, 6],
+      ],
+    });
+    const input = mock.commandCalls(PutVectorsCommand)[0]!.args[0].input as PutInput;
+    expect(input.vectors).toEqual([
+      { key: 'a', data: { float32: [1, 2, 3] }, metadata: { _page_content: 'one' } },
+      { key: 'b', data: { float32: [4, 5, 6] }, metadata: { _page_content: 'two' } },
+    ]);
+  });
+
+  it('sends what it is given without validating it, because the whole input was validated first', async () => {
+    const { mock, run } = setup();
+    await run({ vectors: [[Number.NaN, 1, 2]] });
+    const input = mock.commandCalls(PutVectorsCommand)[0]!.args[0].input as PutInput;
+    expect(input.vectors[0]!.data.float32[0]).toBeNaN();
   });
 
   it('creates the index on batch 0, with the dimension taken from the first vector', async () => {
@@ -72,55 +85,6 @@ describe('putBatch', () => {
     const { run, created } = setup();
     await run({ ensureIndex: undefined });
     expect(created).toEqual([]);
-  });
-
-  it('rejects metadata this index cannot store before creating anything', async () => {
-    const { mock, run, created } = setup();
-    const error = await run({
-      documents: [new Document({ pageContent: 'x', metadata: { nested: { a: 1 } } })],
-    }).catch((e: unknown) => e);
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    // The point of building metadata first: no index was created for a batch
-    // that was never going to be writable.
-    expect(created).toEqual([]);
-    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
-  });
-
-  it('rejects a batch with no usable dimension', async () => {
-    const { run } = setup();
-    expect(codeOf(await run({ vectors: [[]], ids: ['a'] }).catch((e: unknown) => e))).toBe(
-      S3VectorsErrorCode.VALIDATION,
-    );
-  });
-
-  it('rejects vectors that disagree on dimension inside one batch', async () => {
-    const { run } = setup();
-    const error = await run({
-      vectors: [
-        [1, 2, 3],
-        [1, 2],
-      ],
-      documents: [new Document({ pageContent: 'x' }), new Document({ pageContent: 'y' })],
-      ids: ['a', 'b'],
-    }).catch((e: unknown) => e);
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
-    expect((error as Error).message).toBe(
-      "Vector at index 1 in this batch has dimension 2, but this batch's first vector has " +
-        'dimension 3. All vectors in the same batch must share the same dimension.',
-    );
-  });
-
-  it('checks every vector for writability, not only the first', async () => {
-    const { run } = setup();
-    const error = await run({
-      vectors: [
-        [1, 2, 3],
-        [1, 2, Number.NaN],
-      ],
-      documents: [new Document({ pageContent: 'x' }), new Document({ pageContent: 'y' })],
-      ids: ['a', 'b'],
-    }).catch((e: unknown) => e);
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
   });
 
   it('threads the signal into the request', async () => {
@@ -153,12 +117,11 @@ describe('putBatch', () => {
       }),
     );
     const error = await run({
+      records: [record('a'), record('b')],
       vectors: [
         [1, 2, 3],
         [4, 5, 6],
       ],
-      documents: [new Document({ pageContent: 'a' }), new Document({ pageContent: 'b' })],
-      ids: ['a', 'b'],
     }).catch((e: unknown) => e);
 
     expect(codeOf(error)).toBe(S3VectorsErrorCode.SERVICE_UNAVAILABLE);

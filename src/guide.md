@@ -43,12 +43,11 @@ The library auto-creates the vector index on the first write if `createIndexIfNo
 
 ### Document ↔ Vector Mapping
 
-When you call `addDocuments()`, each document goes through this pipeline:
+When you call `addDocuments()`, the documents go through this pipeline:
 
-1. **Text extraction** — `doc.pageContent` is read
-2. **Embedding** — the configured `EmbeddingsInterface` produces a vector
-3. **Metadata assembly** — `doc.metadata` is merged with `{ _page_content: doc.pageContent }`
-4. **Storage** — the vector + metadata are sent to S3 Vectors via `PutVectorsCommand`
+1. **Validation and metadata assembly** — for the whole input, before anything is spent: every id is checked, and each document's `doc.metadata` is merged with `{ _page_content: doc.pageContent }` and checked against S3 Vectors' rules
+2. **Embedding** — per batch, the configured `EmbeddingsInterface` produces vectors, which are checked as they come back
+3. **Storage** — each batch's vectors and metadata are sent to S3 Vectors via `PutVectorsCommand`
 
 When reading documents back (via search or `getByIds`), the process reverses: `_page_content` is extracted from metadata and restored as `doc.pageContent`, then removed from the metadata object.
 
@@ -74,7 +73,7 @@ Unlike a naive approach that embeds all documents at once (which can exhaust mem
 await store.addDocuments(largeDocs, { batchSize: 200 });
 ```
 
-`embedDocuments` is never called for two batches at once, but a batch's `PutVectors` is dispatched while the next batch is embedded, so up to `maxConcurrentBatchCalls` (default 10) writes are in flight. Peak memory for in-flight vectors is therefore bounded by roughly `(maxConcurrentBatchCalls + 1) × batchSize` — by the two knobs, never by the size of the input, which is what makes a large ingest survivable.
+`embedDocuments` is never called for two batches at once, but a batch's `PutVectors` is dispatched while the next batch is embedded, so up to `maxConcurrentBatchCalls` (default 10) writes are in flight. Peak memory for in-flight vectors is therefore bounded by roughly `(maxConcurrentBatchCalls + 1) × batchSize` — by the two knobs, never by the size of the input, which is what makes a large ingest survivable. Before the first batch is embedded, every document's id and metadata are checked, so an input that cannot be stored is refused without an embedding call; each batch's vectors are checked as the model returns them.
 
 ## Similarity Search
 

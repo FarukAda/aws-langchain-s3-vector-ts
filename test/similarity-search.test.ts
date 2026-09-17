@@ -772,7 +772,7 @@ describe('AmazonS3Vectors query-vector validation', () => {
       .catch((e: unknown) => e);
 
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toBe('query vector must be an array.');
+    expect((error as Error).message).toBe('Query vector is not an array (received a string).');
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
   });
 });
