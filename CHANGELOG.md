@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A misspelled configuration option is refused, not ignored.** `new
+  AmazonS3Vectors(embeddings, { …, createIndexIfNotExists: false })` — one
+  letter out — constructed a store that created the index with every default,
+  and an index's configuration cannot be changed afterwards. A key that differs
+  from an option only in case, or that is within two edits of one or the start
+  of one, now raises `VALIDATION` naming both. Unrecognised keys that are not
+  near misses are still accepted, because `@langchain/core`'s
+  `SemanticSimilarityExampleSelector` passes its own `k`, `filter`,
+  `exampleKeys` and `inputKeys` in the same object; the closest any of those
+  comes to an option here is four edits.
+
 - **`writeRateLimit`: writes are paced to AWS's per-index limits.** S3 Vectors
   allows up to 1,000 `PutVectors`/`DeleteVectors` requests and 2,500 vectors a
   second per index, and nothing here bounded either: `maxConcurrentBatchCalls`

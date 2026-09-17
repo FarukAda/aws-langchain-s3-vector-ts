@@ -172,3 +172,63 @@ describe('the options that build the client are validated', () => {
     expect(message).toContain('socketTimeout');
   });
 });
+
+describe('a configuration key that is almost an option', () => {
+  it.each([
+    ['createIndexIfNotExists', 'createIndexIfNotExist'],
+    ['distanceMetrics', 'distanceMetric'],
+    ['indexname', 'indexName'],
+    ['requesttimeout', 'requestTimeout'],
+    ['maxAttempt', 'maxAttempts'],
+    ['nonFilterableMetadataKey', 'nonFilterableMetadataKeys'],
+    ['vectorBucket', 'vectorBucketName'],
+  ])('refuses %s, naming %s', (typo, meant) => {
+    // An index's configuration is fixed at creation, so a silently ignored
+    // `createIndexIfNotExists` creates the wrong index permanently.
+    const result = rejectionFor({ [typo]: 'anything' });
+    expect(result.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(result.message).toContain(typo);
+    expect(result.message).toContain(meant);
+  });
+
+  it('accepts the keys @langchain/core puts in a store config', () => {
+    // `SemanticSimilarityExampleSelector.fromExamples` hands its own `k`,
+    // `filter`, `exampleKeys` and `inputKeys` to `vectorStoreCls.fromTexts`
+    // alongside the store config (`@langchain/core@1.2.11`
+    // `dist/example_selectors/semantic_similarity.js:106`), so refusing every
+    // unknown key would break that selector with this store. None of them is
+    // within two edits of an option here — the closest anything of core's comes
+    // is four.
+    expect(() =>
+      assertValidConfig({
+        ...BASE_CONFIG,
+        k: 4,
+        filter: { genre: 'scifi' },
+        exampleKeys: ['input'],
+        inputKeys: ['input'],
+      } as AmazonS3VectorsConfig),
+    ).not.toThrow();
+  });
+
+  it('accepts the write options the static factories take in the same object', () => {
+    expect(() =>
+      assertValidConfig({
+        ...BASE_CONFIG,
+        ids: ['a'],
+        batchSize: 10,
+        signal: new AbortController().signal,
+      } as AmazonS3VectorsConfig),
+    ).not.toThrow();
+  });
+
+  it("accepts a caller's own unrelated fields", () => {
+    expect(() =>
+      assertValidConfig({
+        ...BASE_CONFIG,
+        tenantId: 't-1',
+        cleanup: 'full',
+        searchType: 'similarity',
+      } as AmazonS3VectorsConfig),
+    ).not.toThrow();
+  });
+});

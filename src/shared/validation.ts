@@ -475,6 +475,112 @@ function assertClientExclusivity(config: AmazonS3VectorsConfig): void {
 }
 
 /**
+ * Every key a store configuration may carry: the options themselves, plus the
+ * three write options the static factories take in the same object.
+ */
+const KNOWN_CONFIG_KEYS: readonly string[] = [
+  'vectorBucketName',
+  'indexName',
+  'dataType',
+  'distanceMetric',
+  'nonFilterableMetadataKeys',
+  'pageContentMetadataKey',
+  'createIndexIfNotExist',
+  'encryptionConfiguration',
+  'tags',
+  'maxConcurrentBatchCalls',
+  'writeRateLimit',
+  'relevanceScoreFn',
+  'embeddings',
+  'queryEmbeddings',
+  'client',
+  'region',
+  'credentials',
+  'endpoint',
+  'maxAttempts',
+  'retryMode',
+  'connectionTimeout',
+  'socketTimeout',
+  'requestTimeout',
+  'ids',
+  'batchSize',
+  'signal',
+];
+
+/** Shortest edit distance between two keys, capped at 3 because nothing further matters. */
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) {
+      row[j] = Math.min(
+        previous[j]! + 1,
+        row[j - 1]! + 1,
+        previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    previous = row;
+  }
+  return previous[b.length]!;
+}
+
+/**
+ * The option an unknown key was probably meant to be, or `undefined`.
+ *
+ * A key is a near miss when it differs only in case, or — from six characters
+ * up — when it is within two edits of an option or is the start of one. Below
+ * that the rule stays silent: `k` is three edits from `ids`, and short keys
+ * belong to callers.
+ *
+ * The margin is measured, not guessed. Of the keys `@langchain/core` and
+ * `@langchain/classic` put beside a store config — `k`, `filter`,
+ * `exampleKeys`, `inputKeys`, `vectorStore`, `cleanup`, `sourceIdKey`,
+ * `searchType`, `minSimilarityScore` — the closest to any option here is
+ * `cleanup`, four edits from `client`. Every realistic misspelling is within
+ * two, or is a truncation.
+ */
+function optionMeantBy(key: string): string | undefined {
+  const lower = key.toLowerCase();
+  for (const option of KNOWN_CONFIG_KEYS) {
+    if (option.toLowerCase() === lower) return option;
+  }
+  if (key.length < 6) return undefined;
+  for (const option of KNOWN_CONFIG_KEYS) {
+    if (option.toLowerCase().startsWith(lower) || editDistance(lower, option.toLowerCase()) <= 2) {
+      return option;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Refuse a key that is one typo away from an option, and ignore the rest.
+ *
+ * @throws {S3VectorsError} `VALIDATION` naming both the key and the option it
+ * resembles. An unknown key cannot simply be refused: `@langchain/core`'s
+ * `SemanticSimilarityExampleSelector` passes its own `k`, `filter`,
+ * `exampleKeys` and `inputKeys` through `fromTexts` in the same object
+ * (`@langchain/core@1.2.11` `dist/example_selectors/semantic_similarity.js:106`),
+ * and refusing those would break that selector with this store. A near miss is
+ * different: nothing else means it, and the cost of reading it as unset is
+ * silence — `createIndexIfNotExists` created an index with every default, which
+ * an index's immutable configuration then makes permanent.
+ */
+function assertNoMisspeltOption(config: Record<string, unknown>): void {
+  for (const key of Object.keys(config)) {
+    if (KNOWN_CONFIG_KEYS.includes(key)) continue;
+    const meant = optionMeantBy(key);
+    if (meant !== undefined) {
+      fail(
+        `config.${key} is not an option — did you mean config.${meant}? An option this ` +
+          'package does not recognise would be read as unset, and an index created from a ' +
+          'configuration cannot be reconfigured afterwards.',
+      );
+    }
+  }
+}
+
+/**
  * Validate the store configuration before anything is built from it.
  *
  * Accepts: the configuration as given, before any default is applied.
@@ -505,6 +611,7 @@ export function assertValidConfig(config: AmazonS3VectorsConfig): void {
         'It must name at least `vectorBucketName` and `indexName`.',
     );
   }
+  assertNoMisspeltOption(config);
   assertEnumMember(config.distanceMetric, Object.values(DistanceMetric), 'distanceMetric');
   assertEnumMember(config.dataType, Object.values(DataType), 'dataType');
   assertPageContentKey(config.pageContentMetadataKey);
