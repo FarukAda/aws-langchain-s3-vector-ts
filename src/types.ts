@@ -193,9 +193,9 @@ export interface AmazonS3VectorsConfig {
   readonly maxAttempts?: number;
 
   /**
-   * AWS SDK retry mode. Throttling (`TooManyRequestsException`) and 5xx errors
-   * are retried by the SDK. Not accepted together with `client`, which carries
-   * its own.
+   * AWS SDK retry mode. Throttling (`TooManyRequestsException`), 5xx errors and
+   * the SDK's own `TimeoutError` are retried by the SDK. Not accepted together
+   * with `client`, which carries its own.
    */
   readonly retryMode?: 'standard' | 'adaptive' | 'legacy';
 
@@ -203,6 +203,8 @@ export interface AmazonS3VectorsConfig {
    * Milliseconds the connection phase of a request may take before it is
    * abandoned, defaulting to 5,000. `0` disables it. Not accepted together
    * with `client`, which carries its own request handler.
+   *
+   * A `TimeoutError` from this is `SERVICE_UNAVAILABLE` and retryable.
    */
   readonly connectionTimeout?: number;
 
@@ -216,8 +218,9 @@ export interface AmazonS3VectorsConfig {
    * interrupt a large upload that is still making progress — which is why it,
    * rather than {@link requestTimeout}, is the one with a default.
    *
-   * A `TimeoutError` from this is `SERVICE_UNAVAILABLE` and retryable, so the worst-case wait for a
-   * black-holed endpoint is `maxAttempts` times this value, plus backoff.
+   * A `TimeoutError` from this is `SERVICE_UNAVAILABLE` and retryable, so the
+   * worst-case wait for a black-holed endpoint is `maxAttempts` times this
+   * value, plus backoff.
    */
   readonly socketTimeout?: number;
 
@@ -233,6 +236,10 @@ export interface AmazonS3VectorsConfig {
    * Setting it also sets the SDK's `throwOnRequestTimeout`. Without that flag
    * the SDK emits a warning and keeps waiting, so the option would otherwise
    * mean something other than what its name says.
+   *
+   * A `TimeoutError` from this is `SERVICE_UNAVAILABLE` and retryable. The
+   * deadline applies to each attempt, so a call can take up to `maxAttempts`
+   * times this value, plus backoff.
    */
   readonly requestTimeout?: number;
 }
