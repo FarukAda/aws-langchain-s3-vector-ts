@@ -1204,6 +1204,24 @@ export class AmazonS3Vectors extends VectorStore {
     return selectRelevanceScoreFn(this.distanceMetric, this.#scope, this.#relevanceScoreFn);
   }
 
+  /**
+   * The distance-to-relevance conversion this store would apply, or the
+   * `VALIDATION` refusing to invent one.
+   *
+   * @internal Used by {@link AmazonS3VectorsRetriever} to refuse a
+   * `scoreThreshold` it could never apply — a euclidean index with no
+   * `relevanceScoreFn` — while the retriever is being built rather than when it
+   * runs. Not part of the public surface.
+   *
+   * @returns The conversion, unused: what matters to the caller is that asking
+   * for one is possible at all.
+   * @throws {S3VectorsError} `VALIDATION` on a euclidean index with no
+   * `relevanceScoreFn`.
+   */
+  _assertRelevanceScoresAvailable(): (distance: number) => number {
+    return this.#selectRelevanceScoreFn();
+  }
+
   // ── Private helpers ───────────────────────────────────────────────────
 
   /** Bind this store's client and index lifecycle to one {@link putBatch} call. */

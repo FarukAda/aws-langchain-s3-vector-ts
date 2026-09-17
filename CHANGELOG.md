@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`asRetriever({ scoreThreshold })`.** Keeps only documents whose relevance
+  score — higher is better, the same conversion
+  `similaritySearchWithRelevanceScores` applies — reaches the threshold. It is
+  checked when the retriever is built, like every other field: combined with
+  `searchType: 'mmr'` it is refused, because MMR returns documents without
+  scores, and on a euclidean index with no `relevanceScoreFn` it is refused
+  rather than failing at the first query. This exists because the obvious
+  LangChain route is wrong against this store: `@langchain/classic`'s
+  `ScoreThresholdRetriever` filters on `similaritySearchWithScore`, which here
+  is AWS's raw distance, where lower is better — so it keeps the worst matches
+  and drops the best. `similaritySearchWithScore` still returns the distance;
+  what changed is that a threshold is now available that reads the right number.
+
 - **A misspelled configuration option is refused, not ignored.** `new
   AmazonS3Vectors(embeddings, { …, createIndexIfNotExists: false })` — one
   letter out — constructed a store that created the index with every default,

@@ -114,6 +114,22 @@ export interface AmazonS3VectorsRetrieverFields<V extends AmazonS3Vectors = Amaz
    * the request already in flight.
    */
   readonly signal?: AbortSignal;
+  /**
+   * Keep only documents whose **relevance score** is at least this — the score
+   * {@link AmazonS3Vectors.similaritySearchWithRelevanceScores} computes, where
+   * higher is better, not the raw distance. At most `k` documents are fetched
+   * and then filtered, so a threshold never widens the search.
+   *
+   * Only for `searchType: 'similarity'`; MMR returns documents without scores,
+   * and asking for both is refused. On a euclidean index it needs
+   * `relevanceScoreFn`, and is refused without one when the retriever is built.
+   *
+   * `@langchain/classic`'s `ScoreThresholdRetriever` is **not** an alternative
+   * here: it thresholds `similaritySearchWithScore`, which this store answers
+   * with AWS's distance, where lower is better — so it keeps the worst matches
+   * and drops the best.
+   */
+  readonly scoreThreshold?: number;
   /** Run tags. This store's type is appended to whatever is given, as core does. */
   readonly tags?: string[];
   /** Run metadata, passed through to core's callback machinery unchanged. */
@@ -126,7 +142,7 @@ export interface AmazonS3VectorsRetrieverFields<V extends AmazonS3Vectors = Amaz
 
 /** What {@link AmazonS3VectorsRetriever}'s constructor takes. */
 export type AmazonS3VectorsRetrieverInput<V extends AmazonS3Vectors = AmazonS3Vectors> =
-  VectorStoreRetrieverInput<V> & { signal?: AbortSignal };
+  VectorStoreRetrieverInput<V> & { signal?: AbortSignal; scoreThreshold?: number };
 
 /**
  * The retriever {@link AmazonS3Vectors.asRetriever} returns.
@@ -173,9 +189,15 @@ export class AmazonS3VectorsRetriever<
   readonly signal?: AbortSignal | undefined;
 
   /**
+   * The relevance score a document must reach to be returned, or `undefined`
+   * for every result the search found.
+   */
+  readonly scoreThreshold?: number | undefined;
+
+  /**
    * @param fields - Everything core's `VectorStoreRetriever` takes, plus
    * `signal` — the field signal, threaded into every AWS request this
-   * retriever makes
+   * retriever makes, and `scoreThreshold`
    * @returns The retriever. Constructing one issues no request.
    * @throws {S3VectorsError} `VALIDATION`, naming `retriever.constructor` as
    * its operation. First, naming no bucket or index, for `fields` that are not
@@ -190,6 +212,7 @@ export class AmazonS3VectorsRetriever<
   constructor(fields: AmazonS3VectorsRetrieverInput<V>) {
     super(requireRetrieverInput(fields));
     this.signal = fields.signal;
+    this.scoreThreshold = fields.scoreThreshold;
     this.#assertSearchFields('retriever.constructor');
   }
 
@@ -228,6 +251,15 @@ export class AmazonS3VectorsRetriever<
     // Widened, because the declared type is what an untyped caller can break.
     const searchType: unknown = this.searchType;
     if (searchType === 'mmr') {
+      if (this.scoreThreshold !== undefined) {
+        throw validationError(
+          operation,
+          scope,
+          "scoreThreshold cannot be combined with searchType 'mmr': a maximal-marginal-relevance " +
+            'search returns documents without scores, so there is nothing to threshold. Use ' +
+            "searchType 'similarity' with a threshold, or MMR without one.",
+        );
+      }
       assertOptionsBag(operation, scope, this.searchKwargs, '`searchKwargs`');
       const options = this.#mmrOptions;
       resolveMmrParameters(options, operation, scope);
@@ -235,6 +267,20 @@ export class AmazonS3VectorsRetriever<
     } else if (searchType === 'similarity') {
       assertK(operation, scope, this.k);
       validateFilter(this.filter, operation, scope);
+      if (this.scoreThreshold !== undefined) {
+        if (typeof this.scoreThreshold !== 'number' || !Number.isFinite(this.scoreThreshold)) {
+          throw validationError(
+            operation,
+            scope,
+            `scoreThreshold must be a finite number (received ${renderValue(this.scoreThreshold)}). ` +
+              'It is compared against the relevance score, where higher is better.',
+          );
+        }
+        // A euclidean index has no built-in conversion, so there would be
+        // nothing to compare against; refused here rather than at the first
+        // invocation, as every other field is.
+        this.vectorStore._assertRelevanceScoresAvailable();
+      }
     } else {
       const received =
         typeof searchType === 'string' ? JSON.stringify(searchType) : renderValue(searchType);
@@ -350,6 +396,19 @@ export class AmazonS3VectorsRetriever<
     runManager?: CallbackManagerForRetrieverRun,
   ): Promise<DocumentInterface<Record<string, unknown>>[]> {
     const child = runManager?.getChild('vectorstore');
+    if (this.scoreThreshold !== undefined) {
+      // The relevance score, not the distance: higher is better, and the
+      // conversion is the one `similaritySearchWithRelevanceScores` applies.
+      const scored = await this.vectorStore.similaritySearchWithRelevanceScores(
+        query,
+        this.k,
+        this.filter,
+        child,
+        this.signal,
+      );
+      const threshold = this.scoreThreshold;
+      return scored.filter(([, score]) => score >= threshold).map(([document]) => document);
+    }
     if (this.searchType === 'mmr') {
       return await this.vectorStore.maxMarginalRelevanceSearch(
         query,
@@ -448,6 +507,7 @@ function buildRetriever<V extends AmazonS3Vectors>(
     ...(resolvedMetadata === undefined ? {} : { metadata: resolvedMetadata }),
     ...(resolvedVerbose === undefined ? {} : { verbose: resolvedVerbose }),
     ...(fields.signal === undefined ? {} : { signal: fields.signal }),
+    ...(fields.scoreThreshold === undefined ? {} : { scoreThreshold: fields.scoreThreshold }),
   };
 
   return fields.searchType === 'mmr'
