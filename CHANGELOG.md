@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`flattenMetadata`, for documents a loader or splitter produced.** S3 Vectors
+  stores no nested object, no `null`, no empty array and no mixed array — under
+  a non-filterable key just as much as a filterable one, measured against the
+  live service (`docs/evidence/metadata-value-types.md`). Every chunk
+  `@langchain/textsplitters` returns carries `loc: { lines: { from, to } }`, and
+  the PDF loaders in `@langchain/community` add `pdf: { … }` and `loc: { … }`,
+  so the standard ingestion pipeline was refused on its first write. This
+  exported helper turns those into the dotted keys the service does store
+  (`loc.lines.from`), drops the fields a loader leaves empty, and passes
+  everything else through untouched so a value it cannot flatten is still
+  refused by name at the write rather than silently converted. It refuses a
+  collision (`'loc.pageNumber'` alongside `loc: { pageNumber }`) instead of
+  picking one. It is a function you call, not a store option: what a store
+  writes stays what you passed it.
+
 - **Write batches are split to fit AWS's request limit.** S3 Vectors refuses a
   request body over 20 MiB — exactly and inclusively: 20,971,520 bytes is
   accepted and one byte more comes back `ValidationException` "Request body

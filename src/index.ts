@@ -22,6 +22,8 @@ export type { AmazonS3VectorsRetrieverFields, AmazonS3VectorsRetrieverInput } fr
 
 export { cosineRelevanceScoreFn } from './relevance-scores.js';
 
+export { flattenMetadata } from './shared/flatten-metadata.js';
+
 export { S3VectorsError, isS3VectorsError } from './shared/errors/s3-vectors-error.js';
 export type { S3VectorsErrorContext } from './shared/errors/s3-vectors-error.js';
 export { S3VectorsErrorCode } from './shared/errors/error-code.js';

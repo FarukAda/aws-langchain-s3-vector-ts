@@ -5,6 +5,7 @@ import {
   AmazonS3Vectors,
   AmazonS3VectorsRetriever,
   cosineRelevanceScoreFn,
+  flattenMetadata,
   isS3VectorsError,
   S3VectorsError,
   S3VectorsErrorCode,
@@ -23,6 +24,7 @@ describe('public exports', () => {
       'S3VectorsError',
       'S3VectorsErrorCode',
       'cosineRelevanceScoreFn',
+      'flattenMetadata',
       'isS3VectorsError',
     ]);
   });
@@ -33,6 +35,7 @@ describe('public exports', () => {
     expect(typeof S3VectorsError).toBe('function');
     expect(typeof isS3VectorsError).toBe('function');
     expect(typeof cosineRelevanceScoreFn).toBe('function');
+    expect(typeof flattenMetadata).toBe('function');
     expect(S3VectorsErrorCode.VALIDATION).toBe('VALIDATION');
   });
 });
