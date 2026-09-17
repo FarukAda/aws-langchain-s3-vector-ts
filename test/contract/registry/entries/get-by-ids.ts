@@ -96,7 +96,6 @@ const FETCH_FAILURE = [...SCOPE, 'foundIds'];
 /** The executable contract for `AmazonS3Vectors.getByIds`. */
 export const getByIdsContract: EntryPointContract<GetByIdsInput> = {
   symbol: 'AmazonS3Vectors.getByIds',
-  docSource: 'src/s3-vectors.ts:getByIds',
   mayThrow: new Set([
     S3VectorsErrorCode.VALIDATION,
     S3VectorsErrorCode.ABORTED,

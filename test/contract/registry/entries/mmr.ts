@@ -145,7 +145,6 @@ const SCOPE = ['vectorBucketName', 'indexName'];
 /** The executable contract for `AmazonS3Vectors.maxMarginalRelevanceSearch`. */
 export const mmrContract: EntryPointContract<MmrInput> = {
   symbol: 'AmazonS3Vectors.maxMarginalRelevanceSearch',
-  docSource: 'src/s3-vectors.ts:maxMarginalRelevanceSearch',
   mayThrow: new Set([
     S3VectorsErrorCode.VALIDATION,
     S3VectorsErrorCode.ABORTED,

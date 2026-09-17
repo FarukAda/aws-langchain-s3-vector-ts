@@ -35,8 +35,6 @@ export interface ContractCase<I> {
 export interface EntryPointContract<I> {
   /** Fully qualified, e.g. `AmazonS3Vectors.delete`. */
   readonly symbol: string;
-  /** Where its prose contract lives, for the JSDoc cross-check. */
-  readonly docSource: string;
   /**
    * The closed set of codes that may escape. Anything else — a raw `TypeError`
    * included — is a contract breach, not an edge case.

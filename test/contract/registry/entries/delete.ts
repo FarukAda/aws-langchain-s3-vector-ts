@@ -90,7 +90,6 @@ const DELETE_FAILURE = [...SCOPE, 'deletedIds'];
 /** The executable contract for `AmazonS3Vectors.delete`. */
 export const deleteContract: EntryPointContract<unknown> = {
   symbol: 'AmazonS3Vectors.delete',
-  docSource: 'src/s3-vectors.ts:delete',
   mayThrow: new Set([
     S3VectorsErrorCode.VALIDATION,
     S3VectorsErrorCode.ABORTED,

@@ -172,7 +172,6 @@ const WRITE_FAILURE = [...SCOPE, 'writtenIds', 'attemptedIds'];
 /** The executable contract for `AmazonS3Vectors.addVectors`. */
 export const addVectorsContract: EntryPointContract<AddVectorsInput> = {
   symbol: 'AmazonS3Vectors.addVectors',
-  docSource: 'src/s3-vectors.ts:addVectors',
   mayThrow: new Set([
     S3VectorsErrorCode.VALIDATION,
     S3VectorsErrorCode.ABORTED,
