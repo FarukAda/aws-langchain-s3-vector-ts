@@ -3,6 +3,7 @@ import { describe, it, expect } from '@jest/globals';
 
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import type { S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
+import type { AmazonS3VectorsConfig } from '../src/types.js';
 import { createTestStore } from './helpers.js';
 
 /**
@@ -14,10 +15,10 @@ import { createTestStore } from './helpers.js';
  * threshold reads the relevance score instead, the same conversion
  * `similaritySearchWithRelevanceScores` applies.
  */
-function storeWithResults(configOverrides = {}) {
+function storeWithResults(configOverrides: Partial<AmazonS3VectorsConfig> = {}) {
   const { store, mock } = createTestStore(configOverrides);
   mock.on(QueryVectorsCommand).resolves({
-    distanceMetric: (configOverrides as { distanceMetric?: string }).distanceMetric ?? 'cosine',
+    distanceMetric: configOverrides.distanceMetric ?? 'cosine',
     vectors: [
       { key: 'near', distance: 0.05, metadata: { _page_content: 'nearly identical' } },
       { key: 'middling', distance: 0.5, metadata: { _page_content: 'related' } },
