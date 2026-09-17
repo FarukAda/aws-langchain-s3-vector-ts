@@ -6,6 +6,7 @@ import {
   GetIndexCommand,
   GetVectorsCommand,
   PutVectorsCommand,
+  QueryVectorsCommand,
   S3VectorsClient,
 } from '@aws-sdk/client-s3vectors';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
@@ -36,12 +37,18 @@ if (!env) {
   });
 } else {
   const safeEnv = env;
+  // Single-attempt for the probes: a retry could mask the response a claim is
+  // about. Fixtures use a retrying client instead — a transient socket hang up
+  // while creating an index says nothing about any claim here, and failing the
+  // suite on one would make these guards look flaky rather than strict.
   const client = new S3VectorsClient({ region: safeEnv.region, maxAttempts: 1 });
+  const setupClient = new S3VectorsClient({ region: safeEnv.region });
   const suffix = randomUUID().slice(0, 8);
   const created: string[] = [];
 
+  /** Create an index as a fixture; probes that assert on CreateIndex use `client`. */
   const createIndex = async (indexName: string, input: Record<string, unknown>): Promise<void> => {
-    await client.send(
+    await setupClient.send(
       new CreateIndexCommand({
         vectorBucketName: safeEnv.bucketName,
         indexName,
@@ -75,6 +82,7 @@ if (!env) {
         .catch(() => undefined);
     }
     client.destroy();
+    setupClient.destroy();
   });
 
   describe('T3-20 — the request payload limit', () => {
@@ -194,24 +202,72 @@ if (!env) {
     }, 120000);
   });
 
+  describe('T3-25 — a flattened key is still filterable', () => {
+    const indexName = `dotted-${suffix}`;
+
+    beforeAll(async () => {
+      await createIndex(indexName, { dimension: 4 });
+    });
+
+    it('matches a dotted key by equality, by range and by existence', async () => {
+      // What `flattenMetadata` produces has to be queryable, or flattening
+      // would trade a failed write for an unsearchable document.
+      const write = (key: string, metadata: Record<string, unknown>): Promise<unknown> =>
+        client.send(
+          new PutVectorsCommand({
+            vectorBucketName: safeEnv.bucketName,
+            indexName,
+            vectors: [
+              { key, data: { float32: [0.1, 0.2, 0.3, 0.4] }, metadata: metadata as DocumentType },
+            ],
+          }),
+        );
+      await write('p2', flattenMetadata({ source: 'a.pdf', loc: { pageNumber: 2 } }));
+      await write('p7', flattenMetadata({ source: 'a.pdf', loc: { pageNumber: 7 } }));
+
+      const matching = async (filter: Record<string, unknown>): Promise<string[]> => {
+        const result = await client.send(
+          new QueryVectorsCommand({
+            vectorBucketName: safeEnv.bucketName,
+            indexName,
+            topK: 10,
+            queryVector: { float32: [0.1, 0.2, 0.3, 0.4] },
+            filter: filter as DocumentType,
+          }),
+        );
+        return (result.vectors ?? []).map((vector) => vector.key ?? '').sort();
+      };
+
+      expect(await matching({ 'loc.pageNumber': 2 })).toEqual(['p2']);
+      expect(await matching({ 'loc.pageNumber': { $gte: 5 } })).toEqual(['p7']);
+      expect(await matching({ 'loc.pageNumber': { $exists: true } })).toEqual(['p2', 'p7']);
+    }, 120000);
+  });
+
   describe('T3-22 — the KMS pairing', () => {
     const key = `arn:aws:kms:${safeEnv.region}:000000000000:key/00000000-0000-0000-0000-000000000000`;
 
     it('refuses a KMS key with AES256, and aws:kms without one', async () => {
+      const attempt = (indexName: string, encryptionConfiguration: unknown): Promise<unknown> =>
+        client.send(
+          new CreateIndexCommand({
+            vectorBucketName: safeEnv.bucketName,
+            indexName,
+            dataType: 'float32',
+            distanceMetric: 'cosine',
+            dimension: 4,
+            encryptionConfiguration,
+          } as never),
+        );
+
       const withKey = await failureOf(() =>
-        createIndex(`kms-aes-${suffix}`, {
-          dimension: 4,
-          encryptionConfiguration: { sseType: 'AES256', kmsKeyArn: key },
-        }),
+        attempt(`kms-aes-${suffix}`, { sseType: 'AES256', kmsKeyArn: key }),
       );
       expect(withKey.name).toBe('ValidationException');
       expect(withKey.message).toContain('kmsKeyArn must not be specified when sseType is AES256');
 
       const withoutKey = await failureOf(() =>
-        createIndex(`kms-none-${suffix}`, {
-          dimension: 4,
-          encryptionConfiguration: { sseType: 'aws:kms' },
-        }),
+        attempt(`kms-none-${suffix}`, { sseType: 'aws:kms' }),
       );
       expect(withoutKey.name).toBe('ValidationException');
       expect(withoutKey.message).toContain(
@@ -223,11 +279,18 @@ if (!env) {
   describe('T3-23 — losing an index-creation race', () => {
     it('lets the loser read the winner’s configuration immediately', async () => {
       const indexName = `race-${suffix}`;
+      created.push(indexName);
       const attempt = (keys: string[]): Promise<unknown> =>
-        createIndex(indexName, {
-          dimension: 4,
-          metadataConfiguration: { nonFilterableMetadataKeys: keys },
-        });
+        client.send(
+          new CreateIndexCommand({
+            vectorBucketName: safeEnv.bucketName,
+            indexName,
+            dataType: 'float32',
+            distanceMetric: 'cosine',
+            dimension: 4,
+            metadataConfiguration: { nonFilterableMetadataKeys: keys },
+          }),
+        );
 
       const [first, second] = await Promise.allSettled([
         attempt(['_page_content']),

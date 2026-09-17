@@ -54,3 +54,4 @@ and which therefore had to run through it. Each run used a bucket created for it
 | T3-22 | 3 | `CreateIndex` enforces the KMS pairing in both directions | `index-encryption.md` |
 | T3-23 | 3 | A lost creation race can read the winner's configuration at once | `index-create-race.md` |
 | T3-24 | 3 | What the write rate does under concurrency, and what bounds it | `write-rate.md` |
+| T3-25 | 3 | A flattened, dotted metadata key is filterable like any other | `filter-validation.md` |

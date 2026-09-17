@@ -129,3 +129,40 @@ The AWS SDK's JSON serialiser writes a non-finite number as a quoted string
 caller's `NaN` became a filter that silently matches nothing. This is the reason
 this package refuses a non-finite number and a `Date` in a filter, as it already
 does in metadata: what would be sent is not what was written.
+
+## T3-25 — a flattened, dotted key is filterable like any other
+
+Run conditions: run 3 in [`README.md`](./README.md).
+
+`flattenMetadata` turns `loc: { pageNumber: 2 }` into `"loc.pageNumber": 2`, and
+that is only worth doing if the result can still be searched. Two vectors were
+written with flattened metadata and queried through every operator shape the
+documentation offers for a scalar:
+
+```
+stored  p2 { source: 'a.pdf', 'loc.pageNumber': 2, 'pdf.info.Title': 'report' }
+        p7 { source: 'a.pdf', 'loc.pageNumber': 7, 'pdf.info.Title': 'appendix' }
+
+filter { 'loc.pageNumber': 2 }                       → ['p2']
+filter { 'loc.pageNumber': { $eq: 2 } }              → ['p2']
+filter { 'loc.pageNumber': { $gte: 5 } }             → ['p7']
+filter { 'loc.pageNumber': { $exists: true } }       → ['p2', 'p7']
+filter { 'pdf.info.Title': { $eq: 'report' } }       → ['p2']
+filter { source: 'a.pdf' }            (control)      → ['p2', 'p7']
+```
+
+### What this establishes
+
+A dot in a metadata key is an ordinary character to the filter language: it
+selects no nested path, and it prevents nothing. So flattening loses no query —
+`loc.pageNumber` is as filterable as `source`, including through a range and an
+existence check, and a key flattened from two levels down (`pdf.info.Title`)
+behaves the same.
+
+That is what licenses the README's ingestion advice. Without it, flattening
+would have traded a refused write for a document nobody can find.
+
+### Guarded by
+
+`test/integration/evidence-guards-run3.test.ts` — "matches a dotted key by
+equality, by range and by existence".

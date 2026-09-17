@@ -687,7 +687,7 @@ await store.addDocuments(
 // { source: "a.pdf", "pdf.version": "1.10.100", "loc.pageNumber": 2, … }
 ```
 
-It turns nested objects into dotted keys, drops the four empty shapes a loader emits for a field it has no value for (`null`, `undefined`, `[]`, `{}`), and passes everything else through untouched — so a `Date` or a mixed array is still refused at the write, naming the key, rather than being quietly converted into something you did not choose. Two fields that would land on the same key (`"loc.pageNumber"` alongside `loc: { pageNumber }`) are refused rather than silently resolved. It is a function you call, not a store option, so what a store writes stays what you passed it.
+It turns nested objects into dotted keys, drops the four empty shapes a loader emits for a field it has no value for (`null`, `undefined`, `[]`, `{}`), and passes everything else through untouched — so a `Date` or a mixed array is still refused at the write, naming the key, rather than being quietly converted into something you did not choose. Two fields that would land on the same key (`"loc.pageNumber"` alongside `loc: { pageNumber }`) are refused rather than silently resolved. It is a function you call, not a store option, so what a store writes stays what you passed it. The keys it produces are filterable like any other — `{ "loc.pageNumber": { $gte: 5 } }` selects as `{ source: "a.pdf" }` does, including `$exists` and keys flattened from two levels down ([`docs/evidence/filter-validation.md`](docs/evidence/filter-validation.md)) — so flattening costs no query.
 
 ### Disabling Page-Content Round-Tripping
 
