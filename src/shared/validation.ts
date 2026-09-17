@@ -428,11 +428,20 @@ function assertTags(value: unknown): void {
 }
 
 /**
- * `encryptionConfiguration`: an object whose `sseType` the service defines, and
- * whose `kmsKeyArn`, when present, is a well-formed string.
+ * `encryptionConfiguration`: an object whose `sseType` the service defines,
+ * whose `kmsKeyArn` is a well-formed string when present, and whose two fields
+ * are paired the way `CreateIndex` requires.
  *
  * @throws {S3VectorsError} `VALIDATION`. A `kmsKeyArn` that is not well-formed
- * UTF-16 fails `CreateIndex` with `SerializationException` (T3-15).
+ * UTF-16 fails `CreateIndex` with `SerializationException` (T3-15). The pairing
+ * is AWS's own, in both directions, measured against the live service
+ * (`docs/evidence/index-encryption.md`): a key with `AES256` — or with no
+ * `sseType`, which the service reads as `AES256` — is refused with "kmsKeyArn
+ * must not be specified when sseType is AES256.", and `aws:kms` without a key
+ * with "kmsKeyArn must be specified when sseType is set to aws:kms". The API
+ * reference states neither: it marks `kmsKeyArn` as not required and says only
+ * that it is allowed if and only if `sseType` is `aws:kms`. Both refusals
+ * otherwise arrive at the first write, after its batch has been embedded.
  */
 function assertEncryption(value: unknown): void {
   if (value === undefined) return;
@@ -440,8 +449,24 @@ function assertEncryption(value: unknown): void {
     fail(`config.encryptionConfiguration must be an object (received ${describeValue(value)}).`);
   }
   assertEnumMember(value['sseType'], Object.values(SseType), 'encryptionConfiguration.sseType');
+  const sseType: unknown = value['sseType'];
   const kmsKeyArn: unknown = value['kmsKeyArn'];
-  if (kmsKeyArn === undefined) return;
+  if (kmsKeyArn === undefined) {
+    if (sseType === SseType.AWS_KMS) {
+      fail(
+        'config.encryptionConfiguration: kmsKeyArn must be specified when sseType is set to ' +
+          'aws:kms. AWS refuses the index creation otherwise; there is no default key.',
+      );
+    }
+    return;
+  }
+  if (sseType !== SseType.AWS_KMS) {
+    fail(
+      'config.encryptionConfiguration: kmsKeyArn must not be specified when sseType is AES256 ' +
+        `(received sseType ${sseType === undefined ? 'unset, which AWS reads as AES256' : describeOption(sseType)}). ` +
+        'Set sseType to "aws:kms" to use your key, or drop kmsKeyArn to use S3-managed keys.',
+    );
+  }
   if (typeof kmsKeyArn !== 'string') {
     fail(
       'config.encryptionConfiguration.kmsKeyArn must be a string (received ' +

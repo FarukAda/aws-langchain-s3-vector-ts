@@ -202,6 +202,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An encryption configuration AWS would refuse is refused at construction.**
+  `CreateIndex` enforces the pairing in both directions — "kmsKeyArn must not be
+  specified when sseType is AES256." (and an absent `sseType` reads as
+  `AES256`), and "kmsKeyArn must be specified when sseType is set to aws:kms" —
+  neither of which the API reference states. Both are now checked before any
+  request, rather than arriving at the first write after its batch has been
+  embedded (`docs/evidence/index-encryption.md`).
+
 - **`delete()` sends through the store's own client, whatever its params
   carry.** The parameters were spread into the internal call, so an extra
   `client` key — from an application config object spread into the call, say —

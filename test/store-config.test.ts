@@ -281,8 +281,18 @@ describe('tags', () => {
 });
 
 describe('encryptionConfiguration', () => {
-  it.each(['AES256', 'aws:kms'])('accepts the documented sseType %s', (sseType) => {
-    expect(build({ encryptionConfiguration: { sseType } })).toBeInstanceOf(AmazonS3Vectors);
+  // `aws:kms` needs a key and `AES256` refuses one: both directions are
+  // CreateIndex's own rules, measured live (docs/evidence/index-encryption.md).
+  it.each([
+    ['AES256', {}],
+    [
+      'aws:kms',
+      { kmsKeyArn: 'arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab' },
+    ],
+  ])('accepts the documented sseType %s, paired as the service requires', (sseType, rest) => {
+    expect(build({ encryptionConfiguration: { sseType, ...rest } })).toBeInstanceOf(
+      AmazonS3Vectors,
+    );
   });
 
   it('rejects any other sseType', () => {

@@ -232,3 +232,38 @@ describe('a configuration key that is almost an option', () => {
     ).not.toThrow();
   });
 });
+
+describe('encryptionConfiguration pairing (docs/evidence/index-encryption.md)', () => {
+  const KEY = 'arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab';
+
+  it('refuses a KMS key alongside AES256, as CreateIndex does', () => {
+    const result = rejectionFor({ encryptionConfiguration: { sseType: 'AES256', kmsKeyArn: KEY } });
+    expect(result.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(result.message).toContain('kmsKeyArn must not be specified when sseType is AES256');
+  });
+
+  it('refuses a KMS key with no sseType, which AWS reads as AES256', () => {
+    const result = rejectionFor({ encryptionConfiguration: { kmsKeyArn: KEY } });
+    expect(result.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(result.message).toContain('sseType');
+  });
+
+  it('refuses aws:kms with no key, which CreateIndex also refuses', () => {
+    const result = rejectionFor({ encryptionConfiguration: { sseType: 'aws:kms' } });
+    expect(result.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(result.message).toContain('kmsKeyArn must be specified when sseType is set to aws:kms');
+  });
+
+  it('accepts each pairing the service accepts', () => {
+    expect(() =>
+      assertValidConfig({
+        ...BASE_CONFIG,
+        encryptionConfiguration: { sseType: 'aws:kms', kmsKeyArn: KEY },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertValidConfig({ ...BASE_CONFIG, encryptionConfiguration: { sseType: 'AES256' } }),
+    ).not.toThrow();
+    expect(() => assertValidConfig({ ...BASE_CONFIG })).not.toThrow();
+  });
+});
