@@ -286,3 +286,62 @@ describe('what construction does not do', () => {
     expect(mock.calls()).toHaveLength(0);
   });
 });
+
+describe('configuration strings sent to AWS must be well-formed UTF-16 (T3-15)', () => {
+  const LONE = 'k\ud800';
+
+  it.each([
+    [
+      'pageContentMetadataKey',
+      { pageContentMetadataKey: LONE },
+      'config.pageContentMetadataKey contains an unpaired UTF-16 surrogate at position 1.',
+    ],
+    [
+      'a nonFilterableMetadataKeys entry',
+      { nonFilterableMetadataKeys: ['ok', LONE] },
+      'config.nonFilterableMetadataKeys[1] contains an unpaired UTF-16 surrogate at position 1.',
+    ],
+    [
+      'a tag key',
+      { tags: { [LONE]: 'v' } },
+      'config.tags has a key that contains an unpaired UTF-16 surrogate at position 1.',
+    ],
+    [
+      'a tag value',
+      { tags: { team: LONE } },
+      'config.tags["team"] contains an unpaired UTF-16 surrogate at position 1.',
+    ],
+    [
+      'encryptionConfiguration.kmsKeyArn',
+      { encryptionConfiguration: { sseType: 'aws:kms', kmsKeyArn: LONE } },
+      'config.encryptionConfiguration.kmsKeyArn contains an unpaired UTF-16 surrogate at position 1.',
+    ],
+  ])('refuses one in %s at construction', (_label, overrides, message) => {
+    const error = build(overrides);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toContain(message);
+  });
+
+  it('refuses a kmsKeyArn that is not a string', () => {
+    const error = build({ encryptionConfiguration: { sseType: 'aws:kms', kmsKeyArn: 42 } });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toBe(
+      'config.encryptionConfiguration.kmsKeyArn must be a string (received a number).',
+    );
+  });
+
+  it('accepts a surrogate pair in every one of them', () => {
+    const pair = 'k😀';
+    expect(
+      build({
+        pageContentMetadataKey: pair,
+        nonFilterableMetadataKeys: [pair],
+        tags: { [pair]: pair },
+        encryptionConfiguration: {
+          sseType: 'aws:kms',
+          kmsKeyArn: `arn:aws:kms:us-east-1:1:key/${pair}`,
+        },
+      }),
+    ).toBeInstanceOf(AmazonS3Vectors);
+  });
+});

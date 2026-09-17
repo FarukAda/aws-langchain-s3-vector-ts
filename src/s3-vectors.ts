@@ -182,34 +182,19 @@ export class AmazonS3Vectors extends VectorStore {
    * Create a new Amazon S3 Vectors store
    *
    * @param embeddings - Embedding model for indexing and querying, or `undefined` for raw-vector workflows
-   * @param config - Configuration options for the store
-   * @param config.vectorBucketName - Name of an existing S3 vector bucket
-   * @param config.indexName - Name of the vector index (3–63 chars)
-   * @param config.client - Optional pre-configured S3VectorsClient. Exclusive
-   * with the five options that would configure one
-   * @param config.region - AWS region (not accepted together with `client`)
-   * @param config.credentials - AWS credentials (not accepted together with `client`)
-   * @param config.distanceMetric - Distance metric: `"cosine"` (default) or `"euclidean"`
-   * @param config.createIndexIfNotExist - Auto-create index on first write (default: `true`)
-   * @param config.queryEmbeddings - Separate embedding model for queries only
-   * @param config.nonFilterableMetadataKeys - Metadata keys excluded from query filters
-   * @param config.maxAttempts - Max attempts (initial + retries) for AWS requests (not accepted together with `client`)
-   * @param config.retryMode - AWS SDK retry mode: `"standard"` | `"adaptive"` | `"legacy"` (not accepted together with `client`)
-   * @param config.encryptionConfiguration - Server-side encryption for an auto-created index (ignored for an existing index)
-   * @param config.tags - Tags for an auto-created index (ignored for an existing index)
-   * @param config.maxConcurrentBatchCalls - Cap on concurrent batch AWS calls (default: `10`)
+   * @param config - The store configuration. Every option, its default and its
+   * constraints are documented on {@link AmazonS3VectorsConfig}; they are not
+   * repeated here, because a second copy is how this list once came to omit
+   * three of them.
    * @returns A store bound to one index. Constructing it issues **no AWS
    * request**: the index is checked, and created, on the first write that
    * needs it.
-   * @throws {S3VectorsError} `VALIDATION` for any option outside its
-   * documented set or shape — a bucket or index name that breaks AWS's naming
-   * rules, a `distanceMetric`, `dataType` or `sseType` outside the SDK's own
-   * enum, a `pageContentMetadataKey` that is neither `null` nor 1–63
-   * characters, a non-array `nonFilterableMetadataKeys`, a non-function
-   * `relevanceScoreFn`, malformed `tags`, a non-positive
-   * `maxConcurrentBatchCalls`, a `client` that is not an `S3VectorsClient`, or
-   * a `client` supplied alongside `region`, `credentials`, `endpoint`,
-   * `maxAttempts` or `retryMode`, which it would silently override.
+   * @throws {S3VectorsError} `VALIDATION` for any option outside the set or
+   * shape its field documents — including a string AWS cannot decode where one
+   * is sent to it (`pageContentMetadataKey`, `nonFilterableMetadataKeys`,
+   * `tags`, `encryptionConfiguration.kmsKeyArn`) — and for a `client` supplied
+   * together with any option that would configure one, which it would silently
+   * override.
    */
   constructor(embeddings: EmbeddingsInterface | undefined, config: AmazonS3VectorsConfig) {
     // Before `super()`, which copies config onto `lc_kwargs`, and before any

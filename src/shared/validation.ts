@@ -7,6 +7,7 @@ import { describeValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
 import { isObjectLike } from './objects.js';
+import { unpairedSurrogateReason } from './utf16.js';
 
 const BUCKET_NAME_MIN_LENGTH = 3;
 const BUCKET_NAME_MAX_LENGTH = 63;
@@ -71,9 +72,9 @@ export function assertValidIndexConfig(vectorBucketName: string, indexName: stri
 }
 
 /**
- * The five options an explicitly supplied `client` would otherwise decide
- * silently: each one is a constructor argument to the client this store would
- * have built, and a caller-supplied client was built with its own.
+ * The options an explicitly supplied `client` would otherwise decide silently:
+ * each one configures the client this store would have built, and a
+ * caller-supplied client was built with its own.
  */
 const CLIENT_EXCLUSIVE_OPTIONS = [
   'region',
@@ -241,6 +242,9 @@ function assertBooleanOption(value: unknown, option: string): void {
  * one key name that is a setter on every plain object rather than a storable
  * property, so page content written under it is discarded in silence — the
  * write succeeds, and every document reads back with an empty `pageContent`.
+ * A key that is not well-formed UTF-16 is refused too: every write carries it
+ * as a metadata key, and S3 Vectors fails any request containing one
+ * (docs/evidence/string-encoding.md, T3-15).
  */
 function assertPageContentKey(value: unknown): void {
   if (value === undefined || value === null) return;
@@ -264,13 +268,16 @@ function assertPageContentKey(value: unknown): void {
         'pageContent. Choose any other key.',
     );
   }
+  const reason = unpairedSurrogateReason(value);
+  if (reason !== undefined) fail(`config.pageContentMetadataKey ${reason}.`);
 }
 
 /**
- * `nonFilterableMetadataKeys`: an array of strings.
+ * `nonFilterableMetadataKeys`: an array of well-formed strings.
  *
  * @throws {S3VectorsError} `VALIDATION`. Unchecked, a non-array is spread into
- * `CreateIndex` and fails as a raw `TypeError`.
+ * `CreateIndex` and fails as a raw `TypeError`, and a key that is not well-formed
+ * UTF-16 fails `CreateIndex` with `SerializationException` (T3-15).
  */
 function assertNonFilterableKeys(value: unknown): void {
   if (value === undefined) return;
@@ -280,13 +287,17 @@ function assertNonFilterableKeys(value: unknown): void {
         `${describeValue(value)}).`,
     );
   }
-  for (const key of value as unknown[]) {
+  const keys = value as unknown[];
+  for (let index = 0; index < keys.length; index++) {
+    const key: unknown = keys[index];
     if (typeof key !== 'string') {
       fail(
         'config.nonFilterableMetadataKeys must contain only strings (received ' +
           `${describeValue(key)}).`,
       );
     }
+    const reason = unpairedSurrogateReason(key);
+    if (reason !== undefined) fail(`config.nonFilterableMetadataKeys[${index}] ${reason}.`);
   }
 }
 
@@ -308,10 +319,12 @@ function assertRelevanceScoreFn(value: unknown): void {
 }
 
 /**
- * `tags`: string keys of 1–128 characters, string values of at most 256.
+ * `tags`: well-formed string keys of 1–128 characters, well-formed string
+ * values of at most 256.
  *
  * @throws {S3VectorsError} `VALIDATION`. The bounds are `CreateIndex`'s own
- * (API reference `API_S3VectorBuckets_CreateIndex.html`).
+ * (API reference `API_S3VectorBuckets_CreateIndex.html`). A string that is not
+ * well-formed UTF-16 fails CreateIndex with SerializationException (T3-15).
  */
 function assertTags(value: unknown): void {
   if (value === undefined) return;
@@ -324,6 +337,8 @@ function assertTags(value: unknown): void {
     if (key.length < 1 || key.length > TAG_KEY_MAX_LENGTH) {
       fail(`config.tags keys must be 1–${TAG_KEY_MAX_LENGTH} characters (received ${key.length}).`);
     }
+    const keyReason = unpairedSurrogateReason(key);
+    if (keyReason !== undefined) fail(`config.tags has a key that ${keyReason}.`);
     if (typeof tagValue !== 'string') {
       fail(`config.tags["${key}"] must be a string (received ${describeValue(tagValue)}).`);
     }
@@ -333,13 +348,17 @@ function assertTags(value: unknown): void {
           `(received ${tagValue.length}).`,
       );
     }
+    const valueReason = unpairedSurrogateReason(tagValue);
+    if (valueReason !== undefined) fail(`config.tags["${key}"] ${valueReason}.`);
   }
 }
 
 /**
- * `encryptionConfiguration`: an object whose `sseType` the service defines.
+ * `encryptionConfiguration`: an object whose `sseType` the service defines, and
+ * whose `kmsKeyArn`, when present, is a well-formed string.
  *
- * @throws {S3VectorsError} `VALIDATION`.
+ * @throws {S3VectorsError} `VALIDATION`. A `kmsKeyArn` that is not well-formed
+ * UTF-16 fails `CreateIndex` with `SerializationException` (T3-15).
  */
 function assertEncryption(value: unknown): void {
   if (value === undefined) return;
@@ -347,10 +366,21 @@ function assertEncryption(value: unknown): void {
     fail(`config.encryptionConfiguration must be an object (received ${describeValue(value)}).`);
   }
   assertEnumMember(value['sseType'], Object.values(SseType), 'encryptionConfiguration.sseType');
+  const kmsKeyArn: unknown = value['kmsKeyArn'];
+  if (kmsKeyArn === undefined) return;
+  if (typeof kmsKeyArn !== 'string') {
+    fail(
+      'config.encryptionConfiguration.kmsKeyArn must be a string (received ' +
+        `${describeValue(kmsKeyArn)}).`,
+    );
+  }
+  const reason = unpairedSurrogateReason(kmsKeyArn);
+  if (reason !== undefined) fail(`config.encryptionConfiguration.kmsKeyArn ${reason}.`);
 }
 
 /**
- * `client` is exclusive with the five options that would configure one.
+ * `client` is exclusive with every option in {@link CLIENT_EXCLUSIVE_OPTIONS},
+ * each of which configures the client this store would otherwise build.
  *
  * @throws {S3VectorsError} `VALIDATION`, naming every option that conflicts —
  * not just the first, so a caller fixes the call once rather than one option
@@ -426,10 +456,11 @@ export function assertValidConfig(config: AmazonS3VectorsConfig): void {
  * Accepts: the configuration, and the scope for any error.
  *
  * Returns: `config.client` when one was supplied, otherwise a new
- * `S3VectorsClient` built from exactly `region`, `credentials`, `endpoint`,
- * `maxAttempts` and `retryMode` — the five options this package passes
- * through. Anything else an `S3VectorsClientConfig` accepts (a custom request
- * handler, a logger, a proxy) needs a caller-built client.
+ * `S3VectorsClient` built from `region`, `credentials`, `endpoint`,
+ * `maxAttempts` and `retryMode`, with `connectionTimeout`, `socketTimeout` and
+ * `requestTimeout` applied to its request handler — every option this package
+ * passes through. Anything else an `S3VectorsClientConfig` accepts (a custom
+ * request handler, a logger, a proxy) needs a caller-built client.
  *
  * Throws: `VALIDATION` when `client` is present but is not an
  * `S3VectorsClient`. A value check on `config.serviceId`, not `instanceof`:

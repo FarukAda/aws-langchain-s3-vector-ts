@@ -39,11 +39,13 @@ favour.
 
 > `readonly` `optional` **connectionTimeout?**: `number`
 
-Defined in: [types.ts:207](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L207)
+Defined in: [types.ts:209](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L209)
 
 Milliseconds the connection phase of a request may take before it is
 abandoned, defaulting to 5,000. `0` disables it. Not accepted together
 with `client`, which carries its own request handler.
+
+A `TimeoutError` from this is `SERVICE_UNAVAILABLE` and retryable.
 
 ***
 
@@ -289,7 +291,7 @@ relevance scores on a euclidean index without this option raises
 
 > `readonly` `optional` **requestTimeout?**: `number`
 
-Defined in: [types.ts:237](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L237)
+Defined in: [types.ts:244](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L244)
 
 Milliseconds a whole request and response may take, as a **total
 deadline**. No default, and `0` disables it. Not accepted together with
@@ -303,6 +305,10 @@ Setting it also sets the SDK's `throwOnRequestTimeout`. Without that flag
 the SDK emits a warning and keeps waiting, so the option would otherwise
 mean something other than what its name says.
 
+A `TimeoutError` from this is `SERVICE_UNAVAILABLE` and retryable. The
+deadline applies to each attempt, so a call can take up to `maxAttempts`
+times this value, plus backoff.
+
 ***
 
 ### retryMode?
@@ -311,9 +317,9 @@ mean something other than what its name says.
 
 Defined in: [types.ts:200](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L200)
 
-AWS SDK retry mode. Throttling (`TooManyRequestsException`) and 5xx errors
-are retried by the SDK. Not accepted together with `client`, which carries
-its own.
+AWS SDK retry mode. Throttling (`TooManyRequestsException`), 5xx errors and
+the SDK's own `TimeoutError` are retried by the SDK. Not accepted together
+with `client`, which carries its own.
 
 ***
 
@@ -321,7 +327,7 @@ its own.
 
 > `readonly` `optional` **socketTimeout?**: `number`
 
-Defined in: [types.ts:222](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L222)
+Defined in: [types.ts:225](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L225)
 
 Milliseconds a socket may sit **idle** before the request is failed,
 defaulting to 60,000. `0` disables it. Not accepted together with
@@ -332,8 +338,9 @@ connection and then never answers. It is idle-based, so it does not
 interrupt a large upload that is still making progress — which is why it,
 rather than [requestTimeout](#requesttimeout), is the one with a default.
 
-A `TimeoutError` from this is retryable, so the worst-case wait for a
-black-holed endpoint is `maxAttempts` times this value, plus backoff.
+A `TimeoutError` from this is `SERVICE_UNAVAILABLE` and retryable, so the
+worst-case wait for a black-holed endpoint is `maxAttempts` times this
+value, plus backoff.
 
 ***
 

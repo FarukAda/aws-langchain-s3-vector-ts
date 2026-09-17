@@ -28,7 +28,7 @@ for the documents that already committed.
 
 > `readonly` `optional` **awsErrorName?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:88](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L88)
+Defined in: [shared/errors/s3-vectors-error.ts:106](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L106)
 
 The AWS exception name (`"AccessDeniedException"`,
 `"TooManyRequestsException"`, `"ValidationException"`, …) when the failure
@@ -48,7 +48,7 @@ from AWS: a validation error, or an embeddings model that threw.
 
 > `readonly` `optional` **batchSize?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:66](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L66)
+Defined in: [shared/errors/s3-vectors-error.ts:84](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L84)
 
 How many vectors the failed `PutVectors` call carried.
 
@@ -67,7 +67,7 @@ splitting.
 
 > `readonly` `optional` **deletedIds?**: `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:33](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L33)
+Defined in: [shared/errors/s3-vectors-error.ts:51](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L51)
 
 Ids confirmed durably deleted before a partial `delete({ ids })` failure.
 
@@ -77,7 +77,7 @@ Ids confirmed durably deleted before a partial `delete({ ids })` failure.
 
 > `readonly` `optional` **fieldList?**: `object`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:31](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L31)
+Defined in: [shared/errors/s3-vectors-error.ts:49](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L49)
 
 The specific validation failures AWS reported, each naming the field that
 failed and why. A `ValidationException` carries these
@@ -98,7 +98,7 @@ and they are the actionable half of an otherwise opaque rejection.
 
 > `readonly` `optional` **foundIds?**: `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:122](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L122)
+Defined in: [shared/errors/s3-vectors-error.ts:140](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L140)
 
 Ids confirmed found (and already fetched) before a partial fetch failure —
 either a `GetVectors` batch rejecting while sibling batches in the same
@@ -114,7 +114,7 @@ Set by `getByIds` **and** by MMR, which fetches its candidates the same way.
 
 > `readonly` `optional` **httpStatusCode?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:90](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L90)
+Defined in: [shared/errors/s3-vectors-error.ts:108](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L108)
 
 HTTP status of the failed AWS response (`cause.$metadata.httpStatusCode`), when known.
 
@@ -134,7 +134,7 @@ The index the failed operation named. Absent only on a failure raised before one
 
 > `readonly` `optional` **instance?**: [`AmazonS3Vectors`](../classes/AmazonS3Vectors.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:147](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L147)
+Defined in: [shared/errors/s3-vectors-error.ts:165](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L165)
 
 The store constructed by a `fromDocuments`/`fromTexts` factory call that
 failed partway through writing. Only ever set on an error thrown by
@@ -175,7 +175,7 @@ The logical operation that failed (e.g. `"PutVectors"`, `"getByIds"`).
 
 > `readonly` `optional` **pagesScanned?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:47](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L47)
+Defined in: [shared/errors/s3-vectors-error.ts:65](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L65)
 
 Pages scanned before a paginated operation stopped.
 
@@ -191,11 +191,41 @@ into the generator that keeps the count.
 
 ***
 
+### recordId?
+
+> `readonly` `optional` **recordId?**: `string`
+
+Defined in: [shared/errors/s3-vectors-error.ts:42](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L42)
+
+The id of that element, whenever it has one that is a string: the resolved
+id of a document or vector, or the offending id itself. Absent when the
+element is not a string id, or when ids were not yet resolved (a document
+that is not an object).
+
+***
+
+### recordIndex?
+
+> `readonly` `optional` **recordIndex?**: `number`
+
+Defined in: [shared/errors/s3-vectors-error.ts:35](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L35)
+
+Position, in the caller's own input and counted from 0 over the whole call
+— never over a batch — of the one element this error is about.
+
+Set on every error raised for a single element of a caller's list: a
+`VALIDATION` for a document, its metadata, a vector or an id, and the
+`INDEX_CONFIG_MISMATCH` for a vector whose dimension disagrees with the
+first. Raised by `addVectors`, `addDocuments`, `fromDocuments`, `fromTexts`,
+`delete` and `getByIds`. Absent on every other error.
+
+***
+
 ### requestId?
 
 > `readonly` `optional` **requestId?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:95](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L95)
+Defined in: [shared/errors/s3-vectors-error.ts:113](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L113)
 
 The AWS request id (`cause.$metadata.requestId`), when known. This is the
 identifier AWS Support asks for — it also appears in the error message.
@@ -206,7 +236,7 @@ identifier AWS Support asks for — it also appears in the error message.
 
 > `readonly` `optional` **resultsCollected?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:53](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L53)
+Defined in: [shared/errors/s3-vectors-error.ts:71](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L71)
 
 Results collected before a paginated search stopped early. Compare
 against the requested `k` to see how far short it fell. Set alongside
@@ -218,7 +248,7 @@ against the requested `k` to see how far short it fell. Set alongside
 
 > `readonly` `optional` **retryable?**: `boolean`
 
-Defined in: [shared/errors/s3-vectors-error.ts:112](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L112)
+Defined in: [shared/errors/s3-vectors-error.ts:130](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L130)
 
 Whether the failed AWS call is worth retrying after a backoff. `true` for
 throttling (`TooManyRequestsException`, HTTP 429), transient service errors
@@ -264,7 +294,7 @@ can find and clean up or reconcile vectors that already landed.
 
 > `readonly` `optional` **yielded?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:74](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L74)
+Defined in: [shared/errors/s3-vectors-error.ts:92](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L92)
 
 Vectors already yielded by an enumeration (`listDocuments`/`listVectors`)
 before it failed. Those records have been consumed by the caller already,

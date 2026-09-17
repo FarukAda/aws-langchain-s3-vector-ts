@@ -156,6 +156,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handling, where a second failure replaces the first. Pagination errors built
   their own copy of that splice; they now share the one guarded implementation.
 
+- **A configuration string AWS cannot decode is refused at construction.**
+  `pageContentMetadataKey`, a `nonFilterableMetadataKeys` entry, a tag key or
+  value, or `encryptionConfiguration.kmsKeyArn` containing an unpaired UTF-16
+  surrogate made `CreateIndex` — or, for the page-content key, every write — fail
+  with `SerializationException` (T3-15). A `kmsKeyArn` that is not a string is
+  refused too.
+
+- **The documentation counted the options a `client` excludes as five.** They are
+  eight: the three timeouts were added to the rule and left out of the prose in
+  four places, and the constructor's `@param` list — a partial copy of
+  `AmazonS3VectorsConfig`'s own field documentation — had drifted the same way.
+  The prose no longer counts, and the constructor refers to the type instead of
+  copying it.
+
 ## [1.0.0-rc.2] - 2026-09-16
 
 A contract-first rework of the whole package. Every function was specified
