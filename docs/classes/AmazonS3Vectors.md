@@ -449,7 +449,7 @@ impossible to find or reconcile again.
 
 > **asRetriever**(`kOrFields?`, `filter?`, `callbacks?`, `tags?`, `metadata?`, `verbose?`): [`AmazonS3VectorsRetriever`](AmazonS3VectorsRetriever.md)\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:999](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L999)
+Defined in: [s3-vectors.ts:1009](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1009)
 
 Build a retriever over this store.
 
@@ -498,7 +498,7 @@ Verbose logging, for the numeric form
 
 [`AmazonS3VectorsRetriever`](AmazonS3VectorsRetriever.md)\<`AmazonS3Vectors`\>
 
-A retriever bound to this store
+A retriever bound to this store. Building one issues no request.
 
 #### Remarks
 
@@ -512,13 +512,23 @@ signal passed to `invoke(query, { signal })` ends that invocation only:
 core's `BaseRetriever.invoke` never hands the config to
 `_getRelevantDocuments` (`@langchain/core@1.2.11`
 `dist/retrievers/index.js:81`, `:85`), so no subclass can route it to the
-request. Both may be given at once.
+request. Both may be given at once. A positive `timeout` in that config
+ends the invocation the way its signal does.
+
+**Its fields are checked here**, by the checks the search they configure
+applies, so an invocation of the retriever this returns never fails on how
+it was built.
 
 #### Throws
 
-Nothing. Building a retriever issues no request and validates
-nothing: its `k` and `filter` are checked when it runs a search, by the
-same guards a direct call goes through.
+Every error names `asRetriever` as its operation.
+`VALIDATION` for a `searchType` other than `'similarity'` or `'mmr'`; then,
+by the checks the search that type dispatches to applies, `k` — with
+`searchKwargs.fetchK` and `searchKwargs.lambda` for `'mmr'` — and the
+filter; then a `signal` that is not an `AbortSignal`. A signal that has
+already fired is accepted here and is `ABORTED` when the retriever runs.
+`UNEXPECTED_ERROR` for a fields argument that cannot be read at all, such
+as `null`.
 
 #### Overrides
 
@@ -629,7 +639,7 @@ the `DeleteIndex` failure maps to. A missing index is not a failure.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1106](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1106)
+Defined in: [s3-vectors.ts:1116](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1116)
 
 Create a store and add the given documents to it.
 
@@ -681,7 +691,7 @@ same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1026](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1026)
+Defined in: [s3-vectors.ts:1036](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1036)
 
 Create a store, embed the given texts and add them to it.
 

@@ -65,7 +65,7 @@ export function isAbortSignalLike(value: unknown): value is AbortSignal {
  * dropping a cancellation is the one outcome this package refuses to do
  * quietly.
  */
-function assertSignal(
+export function assertSignal(
   operation: string,
   signal: unknown,
   scope: StoreScope,

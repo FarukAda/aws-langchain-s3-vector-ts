@@ -57,7 +57,7 @@ export interface MmrSearchOptions extends AwsOperation {
  * not a trade-off between relevance and diversity, it is arbitrary, and
  * silently clamping would return a ranking the caller did not ask for.
  */
-export function assertMmrParameters(
+function assertMmrParameters(
   k: number,
   fetchK: number,
   lambda: number,
@@ -89,6 +89,36 @@ export function assertMmrParameters(
       { operation, ...scope },
     );
   }
+}
+
+/**
+ * The three numbers an MMR search runs with, resolved from the options a caller
+ * gave and checked.
+ *
+ * Accepts: the options `maxMarginalRelevanceSearch` takes, any of `k`, `fetchK`
+ * and `lambda` absent.
+ *
+ * Returns: all three, each absent one defaulted — `k` to 4, `fetchK` to 20,
+ * `lambda` to 0.5.
+ *
+ * Throws: `VALIDATION`, as {@link assertMmrParameters} does, for the resolved
+ * values.
+ *
+ * Guarantees: the one place those defaults are stated. The store's MMR search
+ * resolves its options here before embedding, and a retriever resolves the
+ * options it will search with here when it is built, so the two can never
+ * disagree on what a missing `fetchK` means or on whether a value is allowed.
+ */
+export function resolveMmrParameters(
+  options: { readonly k?: number; readonly fetchK?: number; readonly lambda?: number },
+  operation: string,
+  scope: StoreScope,
+): { k: number; fetchK: number; lambda: number } {
+  const k = options.k ?? 4;
+  const fetchK = options.fetchK ?? 20;
+  const lambda = options.lambda ?? 0.5;
+  assertMmrParameters(k, fetchK, lambda, operation, scope);
+  return { k, fetchK, lambda };
 }
 
 /**

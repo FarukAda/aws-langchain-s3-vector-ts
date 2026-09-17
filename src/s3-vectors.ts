@@ -9,7 +9,7 @@ import { addDocuments, addVectors, type WriteConfig } from './actions/add.js';
 import { deleteVectors } from './actions/delete.js';
 import { getByIds } from './actions/get-by-ids.js';
 import { listDocuments, listVectors } from './actions/list.js';
-import { assertMmrParameters, mmrSearch } from './actions/mmr.js';
+import { mmrSearch, resolveMmrParameters } from './actions/mmr.js';
 import { searchByVector, selectRelevanceScoreFn } from './actions/search.js';
 import { validateFilter } from './internal/filter.js';
 import {
@@ -729,15 +729,15 @@ export class AmazonS3Vectors extends VectorStore {
           'each have a default, but the argument itself is not optional.',
       );
     }
-    const k = options.k ?? 4;
-    const fetchK = options.fetchK ?? 20;
-    const lambda = options.lambda ?? 0.5;
-
     // Before the embed, not after it. `mmrSearch` checks these too and checks
     // them first, but the store calls it *after* embedding — so an impossible
     // `k` cost a billable, uncancellable round trip before failing, which is
     // exactly what this method's own documentation promised it would not.
-    assertMmrParameters(k, fetchK, lambda, 'maxMarginalRelevanceSearch', this.#scope);
+    const { k, fetchK, lambda } = resolveMmrParameters(
+      options,
+      'maxMarginalRelevanceSearch',
+      this.#scope,
+    );
     validateFilter(options.filter, 'maxMarginalRelevanceSearch', this.#scope);
 
     // embedQuery has no signal support, so it cannot self-cancel — check
@@ -980,7 +980,12 @@ export class AmazonS3Vectors extends VectorStore {
    * core's `BaseRetriever.invoke` never hands the config to
    * `_getRelevantDocuments` (`@langchain/core@1.2.11`
    * `dist/retrievers/index.js:81`, `:85`), so no subclass can route it to the
-   * request. Both may be given at once.
+   * request. Both may be given at once. A positive `timeout` in that config
+   * ends the invocation the way its signal does.
+   *
+   * **Its fields are checked here**, by the checks the search they configure
+   * applies, so an invocation of the retriever this returns never fails on how
+   * it was built.
    *
    * @param kOrFields - Documents to retrieve, or a fields object
    * (`k`, `filter`, `searchType`, `searchKwargs`, `signal`, `tags`,
@@ -991,10 +996,15 @@ export class AmazonS3Vectors extends VectorStore {
    * appended to whatever is given, as core does
    * @param metadata - Run metadata, for the numeric form
    * @param verbose - Verbose logging, for the numeric form
-   * @returns A retriever bound to this store
-   * @throws Nothing. Building a retriever issues no request and validates
-   * nothing: its `k` and `filter` are checked when it runs a search, by the
-   * same guards a direct call goes through.
+   * @returns A retriever bound to this store. Building one issues no request.
+   * @throws {S3VectorsError} Every error names `asRetriever` as its operation.
+   * `VALIDATION` for a `searchType` other than `'similarity'` or `'mmr'`; then,
+   * by the checks the search that type dispatches to applies, `k` — with
+   * `searchKwargs.fetchK` and `searchKwargs.lambda` for `'mmr'` — and the
+   * filter; then a `signal` that is not an `AbortSignal`. A signal that has
+   * already fired is accepted here and is `ABORTED` when the retriever runs.
+   * `UNEXPECTED_ERROR` for a fields argument that cannot be read at all, such
+   * as `null`.
    */
   override asRetriever(
     kOrFields?: number | AmazonS3VectorsRetrieverFields<this>,

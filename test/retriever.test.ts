@@ -1,9 +1,15 @@
-import { GetVectorsCommand, QueryVectorsCommand } from '@aws-sdk/client-s3vectors';
+import {
+  GetIndexCommand,
+  GetVectorsCommand,
+  PutVectorsCommand,
+  QueryVectorsCommand,
+} from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
+import { Document } from '@langchain/core/documents';
 
 import { AmazonS3VectorsRetriever } from '../src/retriever.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
-import { createTestStore, sendOptionsOf } from './helpers.js';
+import { createTestStore, gate, indexFixture, sendOptionsOf } from './helpers.js';
 
 /**
  * One test per domain cell of `AmazonS3VectorsRetriever`. Core's
@@ -181,6 +187,17 @@ describe('the config signal — invoke(query, { signal })', () => {
     expect(unhandled).toEqual([]);
   });
 
+  it('does not hand core a legacy callbacks argument as a config', async () => {
+    // Core's own `invoke` accepts a callbacks list in the config's place
+    // (`@langchain/core@1.2.11` `dist/retrievers/index.js:82`, through
+    // `parseCallbackConfigArg`); reading that config here must not lose it.
+    const { store } = retrieverStore();
+    const started: string[] = [];
+    const handler = { handleRetrieverStart: (): void => void started.push('start') };
+    await store.asRetriever({ k: 1 }).invoke('q', [handler] as never);
+    expect(started).toEqual(['start']);
+  });
+
   it('honours both signals at once, each doing its own job', async () => {
     const { store, mock } = retrieverStore();
     const field = new AbortController();
@@ -189,6 +206,95 @@ describe('the config signal — invoke(query, { signal })', () => {
     expect(sendOptionsOf(mock.commandCalls(QueryVectorsCommand)[0]!)?.abortSignal).toBe(
       field.signal,
     );
+  });
+});
+
+describe('a config timeout — invoke(query, { timeout })', () => {
+  // Core turns a positive `timeout` into a signal in `ensureConfig`
+  // (`@langchain/core@1.2.11` `dist/runnables/config.js:105-126`) but its
+  // `BaseRetriever.invoke` never races it; this retriever does.
+  it('ends an invocation that outlasts it, ABORTED with the TimeoutError as cause', async () => {
+    const { store, mock } = retrieverStore();
+    const release = gate();
+    mock.on(QueryVectorsCommand).callsFake(async () => {
+      await release.promise;
+      return { distanceMetric: 'cosine', vectors: [] };
+    });
+
+    const error = await store
+      .asRetriever({ k: 1 })
+      .invoke('q', { timeout: 20 })
+      .catch((e: unknown) => e);
+    release.open();
+
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.ABORTED);
+    expect((error as { context: { operation: string } }).context.operation).toBe(
+      'retriever.invoke',
+    );
+    expect(((error as Error).cause as Error).name).toBe('TimeoutError');
+  });
+
+  it('lets an invocation that finishes in time resolve', async () => {
+    const { store } = retrieverStore();
+    expect(await store.asRetriever({ k: 2 }).invoke('q', { timeout: 500 })).toHaveLength(2);
+  });
+
+  it('refuses a non-positive one as core does, coded UNEXPECTED_ERROR', async () => {
+    const { store, mock } = retrieverStore();
+    const error = await store
+      .asRetriever({ k: 1 })
+      .invoke('q', { timeout: 0 })
+      .catch((e: unknown) => e);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(((error as Error).cause as Error).message).toBe('Timeout must be a positive number');
+    expect(mock.calls()).toHaveLength(0);
+  });
+});
+
+describe('a retriever is checked when it is built', () => {
+  it('builds with valid fields, a fired field signal included — that is ABORTED when it runs', () => {
+    const { store } = retrieverStore();
+    const ac = new AbortController();
+    ac.abort();
+    expect(store.asRetriever({ k: 1, signal: ac.signal })).toBeInstanceOf(AmazonS3VectorsRetriever);
+    expect(
+      new AmazonS3VectorsRetriever({
+        vectorStore: store,
+        k: 2,
+        searchType: 'mmr',
+        searchKwargs: { fetchK: 5, lambda: 1 },
+      }),
+    ).toBeInstanceOf(AmazonS3VectorsRetriever);
+  });
+
+  it('refuses a field it could never search with, by the rule the search itself applies', () => {
+    const { store } = retrieverStore();
+    expect(() => store.asRetriever({ k: 10_001 })).toThrow("k (10001) exceeds AWS's topK limit");
+    expect(() => new AmazonS3VectorsRetriever({ vectorStore: store, k: 1.5 })).toThrow(
+      'k must be a positive integer',
+    );
+    expect(() =>
+      store.asRetriever({ searchType: 'mmr', searchKwargs: { fetchK: 10_001 } }),
+    ).toThrow('fetchK must be an integer between 1 and 10000');
+    expect(() => store.asRetriever({ searchType: 'similarity_score_threshold' as never })).toThrow(
+      `searchType must be 'similarity' or 'mmr' (received "similarity_score_threshold").`,
+    );
+    expect(() => store.asRetriever({ searchType: 7 as never })).toThrow(
+      `searchType must be 'similarity' or 'mmr' (received 7).`,
+    );
+  });
+});
+
+describe('retriever.addDocuments', () => {
+  it('writes through the store, options included, and returns its ids', async () => {
+    const { store, mock } = retrieverStore();
+    mock.on(GetIndexCommand).resolves({ index: indexFixture() });
+    mock.on(PutVectorsCommand).resolves({});
+    const ids = await store
+      .asRetriever()
+      .addDocuments([new Document({ pageContent: 'x' })], { ids: ['doc-1'] });
+    expect(ids).toEqual(['doc-1']);
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
   });
 });
 

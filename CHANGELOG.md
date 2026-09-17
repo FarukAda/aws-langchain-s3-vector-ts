@@ -51,13 +51,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The retriever and the static factories reported the method they ran
   underneath instead. A retriever's failures named `similaritySearch` or
   `maxMarginalRelevanceSearch` — only its own `invoke` signal firing named
-  `retriever.invoke` — and `fromDocuments`/`fromTexts` named `constructor` for
-  a configuration the store refused and `addDocuments` for a failed write. Each
-  now names itself — `retriever.invoke` (through `batch` and `stream` too),
-  `fromDocuments`, `fromTexts` — with the code, cause, `awsCommand`, stack and
-  `context.instance` unchanged. **Migration:** match `retriever.invoke`,
-  `fromDocuments` or `fromTexts` where a branch expected the underlying
-  method's name from those calls.
+  `retriever.invoke` — its inherited `addDocuments` named `addDocuments`, and
+  `fromDocuments`/`fromTexts` named `constructor` for a configuration the store
+  refused and `addDocuments` for a failed write. Each now names itself —
+  `retriever.invoke`, `retriever.addDocuments`, `fromDocuments`, `fromTexts` —
+  with the code, cause, `awsCommand`, stack and `context.instance` unchanged. A
+  failure raised inside `retriever.invoke` reaches core's `batch` and `stream`
+  under that name too; what those two refuse before calling `invoke` does not
+  (see *Fixed*). **Migration:** match `retriever.invoke`,
+  `retriever.addDocuments`, `fromDocuments` or `fromTexts` where a branch
+  expected the underlying method's name from those calls.
 
 - **`addVectors` requires every vector in the call to share one dimension, and
   checks it before writing anything.** It was checked per batch, so a call whose
@@ -115,6 +118,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   embeddings model now resolves `[]` for `addDocuments([])` and reports
   `VALIDATION` for invalid input, rather than always failing
   `EMBEDDINGS_MISSING` first.
+
+- **An invalid retriever configuration fails at `asRetriever()`, not at the
+  first `invoke`.** A retriever's `k`, `filter`, `searchType`, `searchKwargs`
+  (`fetchK` and `lambda`, for `'mmr'`) and field `signal` are checked when it
+  is built — by the checks the search they configure applies, in that
+  search's order — and refused with `VALIDATION` naming `asRetriever`, or
+  `retriever.constructor` for a retriever constructed directly. They were
+  checked only once a search ran, so an `invoke` handed an already-fired
+  signal reported `ABORTED` for a retriever that could never have searched,
+  against the order above; and a `searchType` other than `'similarity'` or
+  `'mmr'` ran as a similarity search. `retriever.invoke` likewise checks that
+  its query is a string before it looks at its signal. **Migration:** a `try`
+  that caught a configuration `VALIDATION` from the first `invoke` must
+  surround `asRetriever()` instead.
 
 ### Fixed
 
@@ -253,11 +270,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `vectorBucketName`/`indexName`. `createDocument` now takes the operation,
   bucket and index as a required parameter; every caller supplies its own.
 
-- **Every failure out of `retriever.invoke` is an `S3VectorsError`.** A
-  callback handler with `raiseError` set that threw, and `@langchain/core`'s
-  refusal of a non-positive `timeout`, escaped the retriever as raw errors —
-  through `batch` and `stream` as well. Both are `UNEXPECTED_ERROR` now, with
-  the original as `cause`.
+- **Every failure out of `retriever.invoke` and `asRetriever` is an
+  `S3VectorsError`.** A callback handler with `raiseError` set that threw, and
+  `@langchain/core`'s refusal of a non-positive `timeout`, escaped `invoke` as
+  raw errors, and `asRetriever(null)` threw a raw `TypeError`. All three are
+  `UNEXPECTED_ERROR` now, with the original as `cause`. A failure raised inside
+  `invoke` reaches core's `batch` and `stream` coded too. Two failures of
+  theirs never reach `invoke` and stay core's own: both refuse a non-positive
+  `timeout` before calling it, and `stream` rejects with its signal's reason
+  when its signal fires or its timeout passes.
+
+- **A positive `timeout` ends `retriever.invoke`.** Core turns it into a
+  signal and never races that signal, so `invoke(query, { timeout: 20 })` ran
+  to completion however long it took. It now rejects `ABORTED`, naming
+  `retriever.invoke`, with the `TimeoutError` as `cause` — as a config signal
+  that fires does.
 
 - **Two decorated errors lost the stack of the failure they decorated.** A
   failed `GetVectors` batch reported with `context.foundIds`, and a failed

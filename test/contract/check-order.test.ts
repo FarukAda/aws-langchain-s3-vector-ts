@@ -118,6 +118,92 @@ describe('check order — (c) batchSize is checked even on empty input: VALIDATI
   });
 });
 
+describe('check order — (e) the retriever: its fields at creation, its query before its signal', () => {
+  // A retriever's search fields are arguments too, given to `asRetriever`
+  // rather than to `invoke`. Checked when the retriever is built, they cannot
+  // lose to a signal that `invoke` is later handed already fired.
+  const FIELD_CASES: [string, (store: Store) => unknown][] = [
+    ['k', (store) => store.asRetriever({ k: -1 })],
+    ['numeric k', (store) => store.asRetriever(0)],
+    ['filter', (store) => store.asRetriever({ k: 1, filter: { a: 1, b: 2 } })],
+    ['positional filter', (store) => store.asRetriever(1, { a: 1, b: 2 })],
+    ['searchType', (store) => store.asRetriever({ searchType: 'bogus' as never })],
+    ['mmr k', (store) => store.asRetriever({ k: 0, searchType: 'mmr' })],
+    [
+      'mmr fetchK',
+      (store) => store.asRetriever({ k: 1, searchType: 'mmr', searchKwargs: { fetchK: 0 } }),
+    ],
+    [
+      'mmr lambda',
+      (store) => store.asRetriever({ k: 1, searchType: 'mmr', searchKwargs: { lambda: 2 } }),
+    ],
+    ['mmr filter', (store) => store.asRetriever({ searchType: 'mmr', filter: { a: 1, b: 2 } })],
+    ['field signal type', (store) => store.asRetriever({ k: 1, signal: 'nope' as never })],
+  ];
+
+  it.each(FIELD_CASES)(
+    'an invalid %s is VALIDATION at asRetriever(), before any invoke signal is looked at',
+    async (_field, build) => {
+      const { store, mock, embeddings } = createTestStore();
+      const error = await (async () => build(store))()
+        .then((retriever) =>
+          (retriever as ReturnType<Store['asRetriever']>).invoke('q', { signal: fired() }),
+        )
+        .catch((e: unknown) => e);
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+      expect((error as { context: object }).context).toEqual({
+        operation: 'asRetriever',
+        ...BASE_CONFIG,
+      });
+      expect(embeddings.embedQuery).not.toHaveBeenCalled();
+      expect(mock.calls()).toHaveLength(0);
+    },
+  );
+
+  it('an invalid query with a fired signal is VALIDATION, not ABORTED', async () => {
+    const { store, mock, embeddings } = createTestStore();
+    const error = await store
+      .asRetriever({ k: 1 })
+      .invoke(7 as never, { signal: fired() })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as { context: { operation: string } }).context.operation).toBe(
+      'retriever.invoke',
+    );
+    expect(embeddings.embedQuery).not.toHaveBeenCalled();
+    expect(mock.calls()).toHaveLength(0);
+  });
+
+  it('an invoke signal that is not a signal is VALIDATION, even alongside a timeout', async () => {
+    // Core's `ensureConfig` combines the signal with the timeout's through
+    // `AbortSignal.any`, which throws a raw `TypeError` for a non-signal. The
+    // signal is checked before that happens.
+    const { store, mock } = createTestStore();
+    const error = await store
+      .asRetriever({ k: 1 })
+      .invoke('q', { signal: 'nope' as never, timeout: 20 })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as { context: { operation: string } }).context.operation).toBe(
+      'retriever.invoke',
+    );
+    expect(mock.calls()).toHaveLength(0);
+  });
+
+  it('a valid invocation with a fired signal is ABORTED, before anything is spent', async () => {
+    const { store, mock, embeddings } = createTestStore();
+    for (const retriever of [
+      store.asRetriever({ k: 1, filter: { genre: 'scifi' } }),
+      store.asRetriever({ k: 1, searchType: 'mmr', searchKwargs: { fetchK: 2, lambda: 0.5 } }),
+    ]) {
+      const error = await retriever.invoke('q', { signal: fired() }).catch((e: unknown) => e);
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
+    }
+    expect(embeddings.embedQuery).not.toHaveBeenCalled();
+    expect(mock.calls()).toHaveLength(0);
+  });
+});
+
 describe('check order — (d) addDocuments: input and emptiness are decided before the embeddings model is ever asked for', () => {
   it('an invalid input on a model-less store is VALIDATION, not EMBEDDINGS_MISSING', async () => {
     const { client } = createMockClient();

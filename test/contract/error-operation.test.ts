@@ -14,8 +14,10 @@ import { Document } from '@langchain/core/documents';
 import type { DocumentType } from '@smithy/types';
 
 import { createIndexLifecycle } from '../../src/internal/index-lifecycle.js';
+import { AmazonS3VectorsRetriever } from '../../src/retriever.js';
 import { AmazonS3Vectors } from '../../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
+import { isS3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
 import {
   BASE_CONFIG,
   createMockClient,
@@ -60,6 +62,16 @@ const fired = (): AbortSignal => {
 
 const drain = async (iterator: AsyncGenerator<unknown>): Promise<void> => {
   for await (const _item of iterator) break;
+};
+
+/** What a synchronous call threw, or `undefined` when it returned. */
+const captureSync = (call: () => unknown): unknown => {
+  try {
+    call();
+    return undefined;
+  } catch (error: unknown) {
+    return error;
+  }
 };
 
 const CASES: [string, (store: Store) => Promise<unknown>][] = [
@@ -677,8 +689,15 @@ describe('a retriever invocation names itself, whatever fails underneath', () =>
 
   it.each([
     [
+      // The retriever's own fields are checked when it is built (see below), so
+      // what a search can still refuse here is what only running it reveals: a
+      // query vector the model returned that no cosine index can search with.
       S3VectorsErrorCode.VALIDATION,
-      (): Promise<unknown> => createTestStore().store.asRetriever({ k: 0 }).invoke('q'),
+      (): Promise<unknown> => {
+        const { client } = createMockClient();
+        const zero = { ...createMockEmbeddings(), embedQuery: async () => [0, 0, 0] };
+        return new AmazonS3Vectors(zero, { ...BASE_CONFIG, client }).asRetriever().invoke('q');
+      },
     ],
     [
       S3VectorsErrorCode.EMBEDDINGS_MISSING,
@@ -727,7 +746,7 @@ describe('a retriever invocation names itself, whatever fails underneath', () =>
     expect(contextOf(error)['operation']).toBe('retriever.invoke');
   });
 
-  it('batch and stream run through invoke, so they report it too', async () => {
+  it('batch and stream run a failure from inside invoke through it, so they report it too', async () => {
     const { store, mock } = createTestStore();
     FAIL['QueryVectors']!(mock);
     const retriever = store.asRetriever({ k: 1 });
@@ -750,6 +769,71 @@ describe('a retriever invocation names itself, whatever fails underneath', () =>
     });
   });
 
+  it("batch's own signal and timeout reach invoke, so their abort reports it", async () => {
+    // Core's `batch` builds each input's config with `ensureConfig` and hands it
+    // to `invoke` (`@langchain/core@1.2.11` `dist/runnables/base.js:77-84`,
+    // `:88-94`), and `invoke` races that config's signal.
+    const { store, mock } = createTestStore();
+    const release = gate();
+    mock.on(QueryVectorsCommand).callsFake(async () => {
+      await release.promise;
+      return { vectors: [], distanceMetric: 'cosine' };
+    });
+    const retriever = store.asRetriever({ k: 1 });
+
+    const aborted = await retriever.batch(['q'], { signal: fired() }).catch((e: unknown) => e);
+    const timedOut = await retriever.batch(['q'], { timeout: 20 }).catch((e: unknown) => e);
+    release.open();
+
+    for (const error of [aborted, timedOut]) {
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ABORTED);
+      expect(contextOf(error)['operation']).toBe('retriever.invoke');
+    }
+    expect(((timedOut as Error).cause as Error).name).toBe('TimeoutError');
+  });
+
+  it("core's own refusals in batch and stream never reach invoke, and are core's raw errors", async () => {
+    // Pinned so an upstream change surfaces here. `batch` and `stream` run
+    // `ensureConfig` before `invoke` (`@langchain/core@1.2.11`
+    // `dist/runnables/base.js:77-84`, `:121`), which throws for a non-positive
+    // `timeout`; and `stream` races the config signal itself
+    // (`dist/utils/stream.js:131-134`, through `raceWithSignal`, which rejects
+    // with the signal's reason and discards `invoke`'s own rejection once the
+    // signal has fired).
+    const { store, mock } = createTestStore();
+    const release = gate();
+    mock.on(QueryVectorsCommand).callsFake(async () => {
+      await release.promise;
+      return { vectors: [], distanceMetric: 'cosine' };
+    });
+    const retriever = store.asRetriever({ k: 1 });
+    const drainStream = (options: object): Promise<unknown> =>
+      (async () => {
+        for await (const _chunk of await retriever.stream('q', options)) break;
+      })().catch((e: unknown) => e);
+
+    const batchTimeoutZero = await retriever.batch(['q'], { timeout: 0 }).catch((e: unknown) => e);
+    const streamTimeoutZero = await drainStream({ timeout: 0 });
+    const controller = new AbortController();
+    controller.abort('stopped by the caller');
+    const streamFired = await drainStream({ signal: controller.signal });
+    const streamTimedOut = await drainStream({ timeout: 20 });
+    release.open();
+
+    for (const error of [batchTimeoutZero, streamTimeoutZero]) {
+      expect(isS3VectorsError(error)).toBe(false);
+      expect((error as Error).message).toBe('Timeout must be a positive number');
+    }
+    // Core's `getAbortSignalError` passes an `Error` reason through and wraps a
+    // string one (`dist/utils/signal.js`). A string reason is used for the fired
+    // signal because the default `DOMException` fails core's `instanceof Error`
+    // inside Jest's VM realm and comes back as `Error('Aborted')` — where, outside
+    // it, the `AbortError` or `TimeoutError` itself is what the caller sees.
+    expect(isS3VectorsError(streamFired)).toBe(false);
+    expect((streamFired as Error).message).toBe('stopped by the caller');
+    expect(isS3VectorsError(streamTimedOut)).toBe(false);
+  });
+
   it('keeps the stack of the code that actually failed', async () => {
     const { store, mock } = createTestStore();
     FAIL['QueryVectors']!(mock);
@@ -764,6 +848,52 @@ describe('a retriever invocation names itself, whatever fails underneath', () =>
     expect(stack).toContain('query-pages.ts');
     expect(stack).toContain('wrap-error.ts');
     expect(stack).not.toContain('decorate.ts');
+  });
+});
+
+describe("a retriever's other public methods name themselves", () => {
+  it('asRetriever, for a field the retriever could never search with', () => {
+    const { store } = createTestStore();
+    const error = captureSync(() => store.asRetriever({ k: 0 }));
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(contextOf(error)).toEqual({ operation: 'asRetriever', ...BASE_CONFIG });
+  });
+
+  it('asRetriever, for a fields argument it cannot read at all', () => {
+    const { store } = createTestStore();
+    const error = captureSync(() => store.asRetriever(null as never));
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(contextOf(error)).toEqual({ operation: 'asRetriever', ...BASE_CONFIG });
+  });
+
+  it('the constructor, when a retriever is built directly', () => {
+    const { store } = createTestStore();
+    const error = captureSync(
+      () => new AmazonS3VectorsRetriever({ vectorStore: store, signal: 'nope' as never }),
+    );
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(contextOf(error)).toEqual({ operation: 'retriever.constructor', ...BASE_CONFIG });
+    expect((error as Error).message.startsWith('retriever.constructor was given a `signal`')).toBe(
+      true,
+    );
+  });
+
+  it('retriever.addDocuments, rather than the store method it writes through', async () => {
+    const { store, mock } = createTestStore();
+    FAIL['PutVectors']!(mock);
+    const error = await store
+      .asRetriever()
+      .addDocuments([doc()])
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+    expect(contextOf(error)).toMatchObject({
+      operation: 'retriever.addDocuments',
+      awsCommand: 'PutVectors',
+      ...BASE_CONFIG,
+    });
+    expect(
+      (error as Error).message.startsWith('retriever.addDocuments failed on PutVectors ('),
+    ).toBe(true);
   });
 });
 
