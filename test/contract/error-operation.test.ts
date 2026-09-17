@@ -2,8 +2,9 @@ import { GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
+import { AmazonS3Vectors } from '../../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
-import { createTestStore, indexFixture } from '../helpers.js';
+import { BASE_CONFIG, createMockClient, createTestStore, indexFixture } from '../helpers.js';
 
 /**
  * Every error names the call the caller actually made.
@@ -179,5 +180,24 @@ describe('every error names the public method that raised it', () => {
       vectorBucketName: 'test-bucket',
       indexName: 'test-index',
     });
+  });
+
+  it.each([
+    ['similaritySearch', (store: Store) => store.similaritySearch('q', 1)],
+    ['similaritySearchWithScore', (store: Store) => store.similaritySearchWithScore('q', 1)],
+    [
+      'similaritySearchWithRelevanceScores',
+      (store: Store) => store.similaritySearchWithRelevanceScores('q', 1),
+    ],
+    [
+      'maxMarginalRelevanceSearch',
+      (store: Store) => store.maxMarginalRelevanceSearch('q', { k: 1 }),
+    ],
+  ])('%s names itself when no embeddings model is configured (R9)', async (operation, run) => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(undefined, { ...BASE_CONFIG, client });
+    const error = await run(store).catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.EMBEDDINGS_MISSING);
+    expect((error as { context: { operation: string } }).context.operation).toBe(operation);
   });
 });

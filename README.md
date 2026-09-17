@@ -425,13 +425,13 @@ Only the options listed above are read by this library. The constructor builds i
 
 ### Retries
 
-Throttling (`TooManyRequestsException`, HTTP 429 — S3 Vectors' name for it; not `ThrottlingException`, which several other AWS services use and this one never sends) and transient 5xx failures are retried automatically by the AWS SDK's retry strategy — **3 attempts total (1 + 2 retries) with exponential backoff and jitter** under the default `"standard"` mode. This library adds no retry layer of its own: an `AWS_REQUEST_FAILED` error you catch means the SDK's attempts were exhausted.
+Throttling (`TooManyRequestsException`, HTTP 429 — S3 Vectors' name for it; not `ThrottlingException`, which several other AWS services use and this one never sends) and transient 5xx failures are retried automatically by the AWS SDK's retry strategy — **3 attempts total (1 + 2 retries) with exponential backoff and jitter** under the default `"standard"` mode. This library adds no retry layer of its own: a `THROTTLED` or `SERVICE_UNAVAILABLE` error you catch means the SDK's attempts were exhausted.
 
 Tune it with `maxAttempts` / `retryMode`, or pass a fully pre-configured `client`:
 
 - **`retryMode: "adaptive"`** is the better default for bulk ingest against a shared account. It adds a client-side token bucket that slows the *request rate* on throttling instead of only retrying — so a large `addDocuments` against a busy quota degrades to a steady trickle rather than a burst of 429s that exhaust `maxAttempts`.
 - **`maxAttempts`** controls attempts per individual call (e.g. one `PutVectors` batch), not per `addDocuments`. Raising it lengthens the worst-case time a single batch can block.
-- Every `AWS_REQUEST_FAILED` error carries `context.retryable` (`true` for throttling and 5xx), `context.awsErrorName`, `context.httpStatusCode` and `context.requestId`, so an application-level retry or dead-letter decision can be made from the error alone — see [Errors](#errors).
+- Every error from an AWS call carries `context.retryable` (`true` for throttling, 5xx and a timed-out or reset connection), `context.awsErrorName`, `context.httpStatusCode` and `context.requestId`, so an application-level retry or dead-letter decision can be made from the error alone — see [Errors](#errors).
 
 The embeddings side is different: `embedDocuments`/`embedQuery` come from *your* embeddings model, and this library never retries them (the interface gives no way to know whether a failure is safe to retry). Configure retries on the embeddings client itself.
 
@@ -472,7 +472,7 @@ exception the service declares — never a substring match on a message:
 | `VALIDATION` | Caller input was invalid — a mismatched count, a non-array argument, a bad batch size or page size, a malformed filter, a reserved metadata key, an empty-string or duplicate vector id within one write call, a configuration option outside its documented set, or a `client` supplied alongside the options that would configure one. Raised before any AWS call. |
 | `AWS_REJECTED` | `ValidationException` (400): AWS itself refused the request. `context.fieldList` carries the field-level detail AWS returned, which is the actionable half of an otherwise opaque rejection. |
 | `THROTTLED` | `TooManyRequestsException` (429). Retry after a backoff; the SDK has already retried. |
-| `SERVICE_UNAVAILABLE` | `InternalServerException` (500), `ServiceUnavailableException` (503) or `RequestTimeoutException` (408). Transient — except that a 503 from `PutVectors` is also AWS's documented answer to a batch exceeding resource capacity, which backoff cannot fix. The two are indistinguishable by code, so a write failure carries `context.batchSize`: that is what tells you whether to back off or to split. |
+| `SERVICE_UNAVAILABLE` | `InternalServerException` (500), `ServiceUnavailableException` (503) or `RequestTimeoutException` (408), or the SDK's own `TimeoutError` — a connection, socket-idle or request timeout, or a connection refused or reset. Transient — except that a 503 from `PutVectors` is also AWS's documented answer to a batch exceeding resource capacity, which backoff cannot fix. The two are indistinguishable by code, so a write failure carries `context.batchSize`: that is what tells you whether to back off or to split. |
 | `ACCESS_DENIED` | `AccessDeniedException` (403). An IAM problem, not a retryable one. Enumeration also raises this when `s3vectors:GetVectors` is missing, and says so. |
 | `QUOTA_EXCEEDED` | `ServiceQuotaExceededException` (402). Needs a quota increase, not a retry. |
 | `CONFLICT` | `ConflictException` (409) from `CreateIndex`: the index already exists. Two writers racing to create the same index is normal and handled internally; this surfaces only when it is not that race. |

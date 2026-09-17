@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   T3-19). This is the rule metadata already followed, and it is the one place
   the filter check refuses something the service would take.
 
+- **A timed-out, refused or reset connection is `SERVICE_UNAVAILABLE`.** The SDK's
+  HTTP handler raises `TimeoutError` for a connection, socket-idle or request
+  timeout and for `ECONNRESET`/`ECONNREFUSED`/`EPIPE`/`ETIMEDOUT`, and its retry
+  strategy treats that name as transient alongside `RequestTimeoutException` —
+  which this package already mapped to `SERVICE_UNAVAILABLE`. It was
+  `AWS_REQUEST_FAILED`, so retry logic keyed on the documented transient codes
+  treated a timeout as a hard failure; only `context.retryable` said otherwise.
+  A caller branching on `AWS_REQUEST_FAILED` for timeouts must switch to
+  `SERVICE_UNAVAILABLE`.
+
 ### Fixed
 
 - **An empty metadata array, and one mixing strings with numbers, are refused
@@ -134,6 +144,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A filter string or field name containing an unpaired UTF-16 surrogate is
   refused locally**, instead of failing the request with `SerializationException`
   ([`docs/evidence/string-encoding.md`](./docs/evidence/string-encoding.md), T3-15).
+
+- **A missing query model names the search that needed it.** Every read path
+  reported `context.operation: "query"`, so logs could not tell
+  `similaritySearch` from `maxMarginalRelevanceSearch`; it names the public method
+  now, as every other error does.
+
+- **Decorating an error can no longer throw.** Rebuilding an error with extra
+  context read `stack.indexOf` without checking `stack` was a string — reachable
+  only through a value forging this package's error brand, but inside error
+  handling, where a second failure replaces the first. Pagination errors built
+  their own copy of that splice; they now share the one guarded implementation.
 
 ## [1.0.0-rc.2] - 2026-09-16
 

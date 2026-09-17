@@ -84,4 +84,8 @@ describe('classifyAwsError', () => {
       classifyAwsError(named('InternalServerException')),
     );
   });
+
+  it("maps the SDK's own TimeoutError to SERVICE_UNAVAILABLE, the class its retry strategy puts it in", () => {
+    expect(classifyAwsError(named('TimeoutError'))).toBe(S3VectorsErrorCode.SERVICE_UNAVAILABLE);
+  });
 });

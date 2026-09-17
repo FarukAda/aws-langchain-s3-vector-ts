@@ -2,6 +2,19 @@ import { isAbortError } from './aws-abort.js';
 import { S3VectorsErrorCode } from './error-code.js';
 
 /**
+ * The name the SDK's own HTTP handler gives a request that timed out, or whose
+ * connection was refused, reset or broken: `@smithy/node-http-handler` raises
+ * it for a connection, socket-idle or request timeout, and renames
+ * `ECONNRESET`, `ECONNREFUSED`, `EPIPE` and `ETIMEDOUT` to it. The SDK's retry
+ * strategy classifies it as transient, alongside `RequestTimeoutException`
+ * (`@smithy/core` `retry/service-error-classification`, `TRANSIENT_ERROR_CODES`).
+ *
+ * It is not a service exception, so it is not in the table below, which lists
+ * exactly the exceptions the service declares.
+ */
+export const SDK_TIMEOUT_ERROR_NAME = 'TimeoutError';
+
+/**
  * Exception name to error class. Names are literal types on every exception the
  * service declares (`@aws-sdk/client-s3vectors@3.1133.0`
  * `dist-types/models/errors.d.ts`), so this lookup is exact rather than a
@@ -30,7 +43,9 @@ const BY_NAME: Readonly<Record<string, S3VectorsErrorCode>> = {
  * including a non-object, yields `AWS_REQUEST_FAILED`.
  *
  * Returns: one {@link S3VectorsErrorCode}, selected by the exception's `name`.
- * An abort is classified first: the caller cancelled, so nothing failed.
+ * An abort is classified first: the caller cancelled, so nothing failed. The
+ * SDK's own {@link SDK_TIMEOUT_ERROR_NAME} is `SERVICE_UNAVAILABLE`, the class
+ * of the service's own timeout.
  *
  * Throws: nothing.
  *
@@ -44,6 +59,7 @@ export function classifyAwsError(error: unknown): S3VectorsErrorCode {
   // key and finds nothing, so it falls through to the catch-all like any other
   // unrecognised value.
   const { name } = error as { name?: unknown };
+  if (name === SDK_TIMEOUT_ERROR_NAME) return S3VectorsErrorCode.SERVICE_UNAVAILABLE;
   return Object.hasOwn(BY_NAME, name as string)
     ? (BY_NAME[name as string] as S3VectorsErrorCode)
     : S3VectorsErrorCode.AWS_REQUEST_FAILED;

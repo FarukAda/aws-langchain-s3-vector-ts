@@ -18,9 +18,11 @@ export enum S3VectorsErrorCode {
   THROTTLED = 'THROTTLED',
   /**
    * `InternalServerException` (500), `ServiceUnavailableException` (503) or
-   * `RequestTimeoutException` (408) — transient, and already retried by the
-   * SDK before reaching here. A 503 from `PutVectors` is also AWS's documented
-   * response to a batch exceeding resource capacity, which backoff cannot fix.
+   * `RequestTimeoutException` (408), or the SDK's own `TimeoutError` — a
+   * connection, socket-idle or request timeout, or a connection refused, reset
+   * or broken on the way. All transient, and already retried by the SDK before
+   * reaching here. A 503 from `PutVectors` is also AWS's documented response to a
+   * batch exceeding resource capacity, which backoff cannot fix.
    */
   SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
   /** `AccessDeniedException` (403). An IAM problem, not a retryable one. */

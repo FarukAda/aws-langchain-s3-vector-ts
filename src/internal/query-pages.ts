@@ -2,6 +2,7 @@ import { QueryVectorsCommand, type QueryVectorsCommandOutput } from '@aws-sdk/cl
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
 import { classifyAwsError } from '../shared/errors/classify.js';
+import { rebuildWithContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
@@ -227,18 +228,12 @@ function explainPagination(
   k: number,
 ): S3VectorsError {
   if (pageCount === 0 || base.code === S3VectorsErrorCode.ABORTED) return base;
-  const rebuilt = new S3VectorsError(
+  return rebuildWithContext(
+    base,
     `${base.message} This failed while fetching page ${pageCount + 1} of a paginated ` +
       `QueryVectors search, with ${resultsCollected} of the ${k} requested result(s) already ` +
       'collected. Pagination tokens stay valid for only a few minutes — if the search ran ' +
       'long, re-issue the original query to start a new pagination session.',
-    base.code,
     { ...base.context, pagesScanned: pageCount, resultsCollected },
-    base.cause,
   );
-  const framesStart = base.stack?.indexOf('\n    at ') ?? -1;
-  if (base.stack !== undefined && framesStart !== -1) {
-    rebuilt.stack = `${rebuilt.name}: ${rebuilt.message}${base.stack.slice(framesStart)}`;
-  }
-  return rebuilt;
 }

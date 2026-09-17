@@ -1141,7 +1141,7 @@ export class AmazonS3Vectors extends VectorStore {
    */
   async #embedQuery(operation: string, query: string): Promise<number[]> {
     try {
-      return await this.#getQueryEmbeddings().embedQuery(query);
+      return await this.#getQueryEmbeddings(operation).embedQuery(query);
     } catch (error: unknown) {
       throw wrapAwsError(error, S3VectorsErrorCode.UNEXPECTED_ERROR, {
         operation,
@@ -1167,15 +1167,20 @@ export class AmazonS3Vectors extends VectorStore {
     }
   }
 
-  /** Return the query-embedding model, falling back to the indexing model. */
-  #getQueryEmbeddings(): EmbeddingsInterface {
+  /**
+   * Return the query-embedding model, falling back to the indexing model.
+   *
+   * @param operation - The public method the caller invoked, named in the error
+   * @throws {S3VectorsError} `EMBEDDINGS_MISSING` when neither model is configured
+   */
+  #getQueryEmbeddings(operation: string): EmbeddingsInterface {
     const emb = this.#queryEmbeddings ?? this.embeddings;
     if (isStubEmbeddings(emb)) {
       throw new S3VectorsError(
         'No embedding model available for queries. ' +
           'Provide `embeddings` or `queryEmbeddings` in the config.',
         S3VectorsErrorCode.EMBEDDINGS_MISSING,
-        { operation: 'query', vectorBucketName: this.vectorBucketName, indexName: this.indexName },
+        { operation, ...this.#scope },
       );
     }
     return emb;

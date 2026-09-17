@@ -45,26 +45,31 @@ function normalizeToS3VectorsError(
  * every decorator has to construct one — carrying `base`'s frames under its own
  * header line.
  *
- * Throws: nothing.
+ * Throws: nothing, whatever `base` carries.
  *
  * Guarantees: the stack still points at the code that actually failed. A fresh
  * `Error` captures a fresh stack, which made the decorator the apparent origin:
  * an abort raised in `checkAborted` reported `at attachPartialIds` as its top
  * frame, hiding the one thing a stack exists to show.
  *
- * Falls back to the rebuilt error's own stack if `base` has none, or if its
- * stack is not in the `\n    at ` frame format this splices on — no
- * engine-specific format is assumed to be present, only recognised.
+ * Falls back to the rebuilt error's own stack when `base` has none, when it is
+ * not a string — reachable only through a value forging this package's brand,
+ * and still not a reason to throw inside error handling — or when it is not in
+ * the `\n    at ` frame format this splices on. No engine-specific format is
+ * assumed to be present, only recognised.
  */
-function rebuildWithContext(
+export function rebuildWithContext(
   base: S3VectorsError,
   message: string,
   context: S3VectorsErrorContext,
 ): S3VectorsError {
   const rebuilt = new S3VectorsError(message, base.code, context, base.cause);
-  const framesStart = base.stack?.indexOf('\n    at ') ?? -1;
-  if (base.stack !== undefined && framesStart !== -1) {
-    rebuilt.stack = `${rebuilt.name}: ${message}${base.stack.slice(framesStart)}`;
+  const stack: unknown = base.stack;
+  if (typeof stack === 'string') {
+    const framesStart = stack.indexOf('\n    at ');
+    if (framesStart !== -1) {
+      rebuilt.stack = `${rebuilt.name}: ${message}${stack.slice(framesStart)}`;
+    }
   }
   return rebuilt;
 }

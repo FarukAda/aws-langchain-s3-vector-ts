@@ -216,7 +216,7 @@ export interface AmazonS3VectorsConfig {
    * interrupt a large upload that is still making progress — which is why it,
    * rather than {@link requestTimeout}, is the one with a default.
    *
-   * A `TimeoutError` from this is retryable, so the worst-case wait for a
+   * A `TimeoutError` from this is `SERVICE_UNAVAILABLE` and retryable, so the worst-case wait for a
    * black-holed endpoint is `maxAttempts` times this value, plus backoff.
    */
   readonly socketTimeout?: number;

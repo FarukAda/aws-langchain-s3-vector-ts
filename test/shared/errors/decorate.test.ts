@@ -109,6 +109,25 @@ describe('attachPartialIds', () => {
     // fragment of the original spliced onto it.
     expect(decorated.stack).toContain('\n    at ');
   });
+
+  it('falls back to its own stack when the original stack is not a string', () => {
+    // Reachable only through a value forging this package's error brand, but a
+    // decorator documented as throwing nothing must not throw inside error
+    // handling whatever it is handed.
+    const base = new S3VectorsError('original failed', S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+      operation: 'op',
+    });
+    Object.defineProperty(base, 'stack', { value: 42, configurable: true });
+    const decorated = attachPartialIds(
+      base,
+      'op',
+      { vectorBucketName: 'b', indexName: 'i' },
+      'writtenIds',
+      ['a'],
+    );
+    expect(typeof decorated.stack).toBe('string');
+    expect(decorated.message).toContain('were already durably written');
+  });
 });
 
 describe('attachInstance', () => {

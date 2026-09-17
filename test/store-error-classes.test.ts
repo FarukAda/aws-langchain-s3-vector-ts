@@ -28,6 +28,7 @@ describe('store — AWS failures carry their class', () => {
     ['ServiceUnavailableException', S3VectorsErrorCode.SERVICE_UNAVAILABLE],
     ['InternalServerException', S3VectorsErrorCode.SERVICE_UNAVAILABLE],
     ['RequestTimeoutException', S3VectorsErrorCode.SERVICE_UNAVAILABLE],
+    ['TimeoutError', S3VectorsErrorCode.SERVICE_UNAVAILABLE],
     ['ServiceQuotaExceededException', S3VectorsErrorCode.QUOTA_EXCEEDED],
     ['AccessDeniedException', S3VectorsErrorCode.ACCESS_DENIED],
     ['ValidationException', S3VectorsErrorCode.AWS_REJECTED],
@@ -76,5 +77,15 @@ describe('store — AWS failures carry their class', () => {
       .addVectors([[1, 2, 3]], [doc('x')], { ids: ['a'] })
       .catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.ABORTED);
+  });
+});
+
+describe('store — a timed-out or reset connection (R7)', () => {
+  it('is SERVICE_UNAVAILABLE and retryable, as RequestTimeoutException is', async () => {
+    const error = (await writeFailingWith(
+      Object.assign(new Error('socket hang up'), { name: 'TimeoutError' }),
+    )) as { code: string; context: Record<string, unknown> };
+    expect(error.code).toBe(S3VectorsErrorCode.SERVICE_UNAVAILABLE);
+    expect(error.context).toMatchObject({ awsErrorName: 'TimeoutError', retryable: true });
   });
 });

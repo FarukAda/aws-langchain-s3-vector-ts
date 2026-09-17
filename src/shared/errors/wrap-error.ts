@@ -1,4 +1,5 @@
 import { renderValue } from '../describe.js';
+import { SDK_TIMEOUT_ERROR_NAME } from './classify.js';
 import { S3VectorsErrorCode } from './error-code.js';
 import {
   isS3VectorsError,
@@ -72,7 +73,7 @@ const RETRYABLE_AWS_ERROR_NAMES = new Set([
   // Raised by the SDK's own HTTP handler when a socket goes idle past
   // `socketTimeout`, or a request past `requestTimeout`. Waiting again is
   // exactly what might work, so it is retryable.
-  'TimeoutError',
+  SDK_TIMEOUT_ERROR_NAME,
   'TooManyRequestsException',
   'ServiceUnavailableException',
   'InternalServerException',
@@ -153,7 +154,7 @@ function awsDiagnostics(cause: unknown): AwsDiagnostics {
   // with a socket timeout now applied by default it is one callers will
   // actually see, so it has to arrive carrying a retryability verdict.
   const isSdkFailure =
-    name !== undefined && (name.endsWith('Exception') || name === 'TimeoutError');
+    name !== undefined && (name.endsWith('Exception') || name === SDK_TIMEOUT_ERROR_NAME);
   if (metadata === undefined && !isSdkFailure) return {};
 
   const out: {
