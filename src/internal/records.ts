@@ -14,10 +14,7 @@ export interface WriteRecord {
 }
 
 /** The store configuration a record is built against. */
-export interface RecordConfig extends MetadataConfig, OperationScope {
-  // No fields of its own: this is exactly {@link MetadataConfig} and
-  // {@link OperationScope} merged under one name.
-}
+export type RecordConfig = MetadataConfig & OperationScope;
 
 /**
  * Build and validate every record of one write.

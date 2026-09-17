@@ -123,7 +123,10 @@ describe('every field of an options type is documented', () => {
       lines.forEach((line, index) => {
         const open = /^export (?:interface|type) (\w+)/.exec(line);
         if (open) {
-          current = open[1];
+          // Only a declaration whose body opens on this line has fields below it.
+          // A one-line `type A = B & C;` or `interface A extends B {}` has none,
+          // and must not leave its name attached to the lines that follow.
+          current = /{s*$/.test(line) ? open[1] : undefined;
           return;
         }
         if (current !== undefined && /^\}/.test(line)) {
