@@ -126,7 +126,7 @@ describe('every field of an options type is documented', () => {
           // Only a declaration whose body opens on this line has fields below it.
           // A one-line `type A = B & C;` or `interface A extends B {}` has none,
           // and must not leave its name attached to the lines that follow.
-          current = /{s*$/.test(line) ? open[1] : undefined;
+          current = /\{\s*$/.test(line) ? open[1] : undefined;
           return;
         }
         if (current !== undefined && /^\}/.test(line)) {

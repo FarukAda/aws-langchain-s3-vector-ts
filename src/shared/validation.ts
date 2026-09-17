@@ -2,7 +2,13 @@ import { DataType, DistanceMetric, S3VectorsClient, SseType } from '@aws-sdk/cli
 
 import type { StoreScope } from '../internal/signals.js';
 import type { AmazonS3VectorsConfig } from '../types.js';
-import { METADATA_KEY_MAX_LENGTH, TAG_KEY_MAX_LENGTH, TAG_VALUE_MAX_LENGTH } from './aws-limits.js';
+import {
+  METADATA_KEY_MAX_LENGTH,
+  METADATA_KEY_MIN_LENGTH,
+  TAG_KEY_MAX_LENGTH,
+  TAG_KEY_MIN_LENGTH,
+  TAG_VALUE_MAX_LENGTH,
+} from './aws-limits.js';
 import { describeValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
@@ -18,9 +24,16 @@ const INDEX_NAME_MIN_LENGTH = 3;
 const INDEX_NAME_MAX_LENGTH = 63;
 const INDEX_NAME_PATTERN = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
 
-/** Raise a `VALIDATION` against the constructor, the only caller here. */
-function fail(message: string): never {
-  throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, { operation: 'constructor' });
+/**
+ * Raise a `VALIDATION` against the constructor, the only caller here — naming
+ * the bucket and index when the check runs after they were validated, and
+ * neither before, when neither is known to be one.
+ */
+function fail(message: string, scope?: StoreScope): never {
+  throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, {
+    operation: 'constructor',
+    ...scope,
+  });
 }
 
 /**
@@ -254,10 +267,10 @@ function assertPageContentKey(value: unknown): void {
         `${describeValue(value)}). Use null to keep page content out of metadata.`,
     );
   }
-  if (value.length < 1 || value.length > METADATA_KEY_MAX_LENGTH) {
+  if (value.length < METADATA_KEY_MIN_LENGTH || value.length > METADATA_KEY_MAX_LENGTH) {
     fail(
-      `config.pageContentMetadataKey must be 1–${METADATA_KEY_MAX_LENGTH} characters ` +
-        `(received ${value.length}).`,
+      `config.pageContentMetadataKey must be ${METADATA_KEY_MIN_LENGTH}–${METADATA_KEY_MAX_LENGTH} ` +
+        `characters (received ${value.length}).`,
     );
   }
   if (value === '__proto__') {
@@ -305,7 +318,8 @@ function assertNonFilterableKeys(value: unknown): void {
  * Refuse construction for a `nonFilterableMetadataKeys` list no index could be
  * created with, naming the option.
  *
- * Accepts: `pageContentMetadataKey` as resolved (never `undefined`), and
+ * Accepts: `pageContentMetadataKey` as resolved (never `undefined`); the
+ * bucket and index, already validated by the time this rule runs; and
  * `message`, the text {@link assertKeysCreatable} raised. It is passed as that
  * rule's `fail`, over the list merged with the page-content key, so the
  * decision stays in one place and this only says where the list came from.
@@ -315,17 +329,19 @@ function assertNonFilterableKeys(value: unknown): void {
  * @throws {S3VectorsError} `VALIDATION` naming `config.nonFilterableMetadataKeys`,
  * the way every other construction error names its option, and the
  * page-content key merged into it when one is configured — the list checked is
- * that merge, not the configured list alone.
+ * that merge, not the configured list alone. Its context carries the bucket
+ * and index, as {@link resolveClient}'s does.
  */
 export function failNonFilterableKeys(
   pageContentMetadataKey: string | null,
+  scope: StoreScope,
   message: string,
 ): never {
   const merged =
     pageContentMetadataKey === null
       ? ''
       : ` (merged with the page-content key ${JSON.stringify(pageContentMetadataKey)})`;
-  fail(`config.nonFilterableMetadataKeys${merged}: ${message}`);
+  fail(`config.nonFilterableMetadataKeys${merged}: ${message}`, scope);
 }
 
 /**
@@ -361,8 +377,11 @@ function assertTags(value: unknown): void {
     );
   }
   for (const [key, tagValue] of Object.entries(value)) {
-    if (key.length < 1 || key.length > TAG_KEY_MAX_LENGTH) {
-      fail(`config.tags keys must be 1–${TAG_KEY_MAX_LENGTH} characters (received ${key.length}).`);
+    if (key.length < TAG_KEY_MIN_LENGTH || key.length > TAG_KEY_MAX_LENGTH) {
+      fail(
+        `config.tags keys must be ${TAG_KEY_MIN_LENGTH}–${TAG_KEY_MAX_LENGTH} characters ` +
+          `(received ${key.length}).`,
+      );
     }
     const keyReason = unpairedSurrogateReason(key);
     if (keyReason !== undefined) fail(`config.tags has a key that ${keyReason}.`);

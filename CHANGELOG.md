@@ -100,8 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and, for `addDocuments`, after the first batch was embedded — so a store
   configured this way could sit unused, or serve reads, before the mistake
   surfaced. A store configured with such a list now fails to construct, even
-  one that never writes. `CreateIndex` still re-checks the same rule, as
-  defence.
+  one that never writes, and the error's context names the bucket and index,
+  as every constructor error raised after those two names are checked does.
+  `CreateIndex` still re-checks the same rule, as defence.
 
 - **One order of checks on every public entry point, when several faults
   coincide: `VALIDATION` for anything the arguments alone decide, then

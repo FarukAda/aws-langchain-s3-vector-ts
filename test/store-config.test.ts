@@ -17,6 +17,8 @@ const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code
  *  class of thing went wrong, the message is the only thing that says which
  *  option and what to do about it. */
 const messageOf = (e: unknown): string => String((e as Error).message);
+/** The whole context, so a field missing from it fails the cell. */
+const contextOf = (e: unknown): unknown => (e as { context?: unknown }).context;
 
 function build(overrides: Record<string, unknown>): unknown {
   const { client } = createMockClient();
@@ -136,7 +138,9 @@ describe('nonFilterableMetadataKeys', () => {
  * D5: merged with `pageContentMetadataKey`, `nonFilterableMetadataKeys` must
  * fit an index — at most 10 keys, each 1–63 characters. Such a configuration
  * can never be written to any index, so it is refused here, at construction,
- * rather than only once a write first creates the index.
+ * rather than only once a write first creates the index. It is checked after
+ * the bucket and index names, so — like every constructor error raised from
+ * that point — it names both.
  */
 describe('nonFilterableMetadataKeys, merged with pageContentMetadataKey, must fit an index', () => {
   const NINE_KEYS = Array.from({ length: 9 }, (_, i) => `key_${i}`);
@@ -167,6 +171,7 @@ describe('nonFilterableMetadataKeys, merged with pageContentMetadataKey, must fi
       'config.nonFilterableMetadataKeys (merged with the page-content key "_page_content"): ' +
         'An index may have at most 10 non-filterable metadata keys; this configuration needs 11.',
     );
+    expect(contextOf(result)).toEqual({ operation: 'constructor', ...BASE_CONFIG });
     expect(mock.calls()).toHaveLength(0);
   });
 
@@ -180,6 +185,7 @@ describe('nonFilterableMetadataKeys, merged with pageContentMetadataKey, must fi
       'config.nonFilterableMetadataKeys: An index may have at most 10 non-filterable metadata keys; ' +
         'this configuration needs 11.',
     );
+    expect(contextOf(result)).toEqual({ operation: 'constructor', ...BASE_CONFIG });
     expect(mock.calls()).toHaveLength(0);
   });
 
@@ -190,6 +196,7 @@ describe('nonFilterableMetadataKeys, merged with pageContentMetadataKey, must fi
       'config.nonFilterableMetadataKeys (merged with the page-content key "_page_content"): ' +
         'Non-filterable metadata key "" must be 1-63 characters.',
     );
+    expect(contextOf(result)).toEqual({ operation: 'constructor', ...BASE_CONFIG });
     expect(mock.calls()).toHaveLength(0);
   });
 
@@ -201,6 +208,7 @@ describe('nonFilterableMetadataKeys, merged with pageContentMetadataKey, must fi
       'config.nonFilterableMetadataKeys (merged with the page-content key "_page_content"): ' +
         `Non-filterable metadata key "${key}" must be 1-63 characters.`,
     );
+    expect(contextOf(result)).toEqual({ operation: 'constructor', ...BASE_CONFIG });
     expect(mock.calls()).toHaveLength(0);
   });
 

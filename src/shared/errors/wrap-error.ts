@@ -7,6 +7,22 @@ import {
   type S3VectorsErrorContext,
 } from './s3-vectors-error.js';
 
+/**
+ * The S3 Vectors API operations this package issues: every value
+ * `context.awsCommand` can take. A parameter typed this way turns a misspelt
+ * command at a request site into a compile error. The public field stays
+ * `string`, as `S3VectorsErrorContext` documents it.
+ */
+export type AwsCommand =
+  | 'GetIndex'
+  | 'CreateIndex'
+  | 'DeleteIndex'
+  | 'PutVectors'
+  | 'DeleteVectors'
+  | 'QueryVectors'
+  | 'GetVectors'
+  | 'ListVectors';
+
 /** Detect an Error-like value by structure (cross-realm safe, avoids `instanceof`). */
 function isError(value: unknown): value is Error {
   if (typeof value !== 'object' || value === null) return false;
@@ -254,7 +270,7 @@ function buildWrappedError(
   cause: unknown,
   code: S3VectorsErrorCode,
   context: Omit<S3VectorsErrorContext, 'awsCommand'>,
-  awsCommand: string | undefined,
+  awsCommand: AwsCommand | undefined,
 ): S3VectorsError {
   if (isS3VectorsError(cause)) return cause;
   const full: S3VectorsErrorContext = {
@@ -299,7 +315,7 @@ function buildWrappedError(
 export function wrapAwsError(
   cause: unknown,
   code: S3VectorsErrorCode,
-  awsCommand: string,
+  awsCommand: AwsCommand,
   context: Omit<S3VectorsErrorContext, 'awsCommand'>,
 ): S3VectorsError {
   return buildWrappedError(cause, code, context, awsCommand);

@@ -4,7 +4,7 @@ import type { DocumentType as __DocumentType } from '@smithy/types';
 import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
 import { attachContext } from '../shared/errors/decorate.js';
-import { wrapAwsError } from '../shared/errors/wrap-error.js';
+import { wrapAwsError, type AwsCommand } from '../shared/errors/wrap-error.js';
 import type { AwsOperation, OperationScope } from './operation.js';
 import type { WriteRecord } from './records.js';
 import type { StoreScope } from './signals.js';
@@ -39,7 +39,7 @@ export interface PutBatchOptions extends AwsOperation {
  * already-aborted request without a network call.
  */
 export async function sendAws<T>(
-  awsCommand: string,
+  awsCommand: AwsCommand,
   context: OperationScope,
   send: () => Promise<T>,
 ): Promise<T> {
