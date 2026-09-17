@@ -1,6 +1,6 @@
 import type { DocumentInterface } from '@langchain/core/documents';
 
-import { buildPutMetadata } from '../shared/metadata.js';
+import { buildPutMetadata, type MetadataConfig } from '../shared/metadata.js';
 import type { OperationScope } from './operation.js';
 
 /** Everything a write needs about one document, taken once, before anything is spent. */
@@ -14,11 +14,9 @@ export interface WriteRecord {
 }
 
 /** The store configuration a record is built against. */
-export interface RecordConfig extends OperationScope {
-  /** Where page content is stored, or `null` to store none. */
-  readonly pageContentMetadataKey: string | null;
-  /** The index's non-filterable keys, already merged with the page-content key. */
-  readonly nonFilterableKeys: readonly string[];
+export interface RecordConfig extends MetadataConfig, OperationScope {
+  // No fields of its own: this is exactly {@link MetadataConfig} and
+  // {@link OperationScope} merged under one name.
 }
 
 /**

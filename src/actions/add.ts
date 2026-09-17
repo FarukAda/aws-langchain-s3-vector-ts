@@ -16,6 +16,7 @@ import { prepareRecords, type WriteRecord } from '../internal/records.js';
 import type { StoreScope } from '../internal/signals.js';
 import { chunk } from '../shared/batching.js';
 import { describeValue } from '../shared/describe.js';
+import type { MetadataConfig } from '../shared/metadata.js';
 import type { DistanceMetric } from '../types.js';
 
 /** "Vectors per PutVectors call: 500" (limits page, `s3-vectors-limitations.html`). */
@@ -27,13 +28,9 @@ const DOCUMENT_ID_SOURCE =
   "the documents' own `id` fields (a UUID is generated only for a document with no id at all)";
 
 /** The store configuration every write applies to its input. */
-export interface WriteConfig {
+export interface WriteConfig extends MetadataConfig {
   /** The index's metric; decides whether a zero vector is writable. */
   readonly distanceMetric: DistanceMetric;
-  /** Where page content is stored, or `null` to store none. */
-  readonly pageContentMetadataKey: string | null;
-  /** The index's non-filterable keys, already merged with the page-content key. */
-  readonly nonFilterableKeys: readonly string[];
 }
 
 /** Writes one validated batch; the store binds its client and index lifecycle to it. */
