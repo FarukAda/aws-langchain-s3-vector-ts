@@ -3,7 +3,7 @@ import { describe, it, expect } from '@jest/globals';
 
 import { fetchVectorsByIds } from '../../src/internal/get-vectors.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
-import { createMockClient, sendOptionsOf } from '../helpers.js';
+import { createMockClient, drainTasks, gate, sendOptionsOf } from '../helpers.js';
 
 /**
  * One test per domain cell of `fetchVectorsByIds`. A Map keyed by id, because
@@ -150,5 +150,54 @@ describe('fetchVectorsByIds', () => {
     expect((error as Error).message).toContain(
       'malformed, or come from an incompatible SDK version or a mocked/stubbed client',
     );
+  });
+});
+
+describe('how the read path fans out', () => {
+  it('starts the next batch as soon as a slot frees, not when the group ends', async () => {
+    // This path dispatched fixed groups — chunk(chunk(ids)) plus
+    // Promise.allSettled per group — so one slow GetVectors held back every
+    // request behind it until its whole group of `maxConcurrent` settled.
+    // getByIds over 10,000 ids crosses ten such boundaries, and MMR with a
+    // large fetchK takes the same route. concurrency.ts says the sliding
+    // window "is now the only one"; this was the third call site that claim
+    // was written about.
+    //
+    // With maxConcurrent 2 and four batches: hold batch 1 open, let 2 finish.
+    // A window starts batch 3 immediately; fixed groups wait for batch 1.
+    const { client, mock } = createMockClient();
+    const held = gate();
+    const started: number[] = [];
+    let call = 0;
+
+    mock.on(GetVectorsCommand).callsFake(async (input: { keys: string[] }) => {
+      const index = call++;
+      started.push(index);
+      if (index === 0) await held.promise;
+      return { vectors: input.keys.map((key) => ({ key, metadata: {} })) };
+    });
+
+    const ids = ['a', 'b', 'c', 'd'];
+    const pending = fetchVectorsByIds({
+      client,
+      ids,
+      batchSize: 1,
+      maxConcurrent: 2,
+      operation: 'getByIds',
+      returnData: false,
+      returnMetadata: true,
+      vectorBucketName: 'b',
+      indexName: 'i',
+    });
+
+    await drainTasks();
+    await drainTasks();
+
+    // Batch 0 is still held. Batch 1 has finished, so its slot is free and
+    // batch 2 should already have gone out.
+    expect(started).toContain(2);
+
+    held.open();
+    await pending;
   });
 });

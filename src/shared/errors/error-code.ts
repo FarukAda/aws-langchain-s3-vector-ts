@@ -66,7 +66,14 @@ export enum S3VectorsErrorCode {
   ACCESS_DENIED = 'ACCESS_DENIED',
   /** `ServiceQuotaExceededException` (402). Needs a quota increase, not a retry. */
   QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
-  /** `ConflictException` (409). The index name already exists. */
+  /**
+   * `ConflictException` (409): "a vector bucket name or a vector index name
+   * already exists" (`@aws-sdk/client-s3vectors` `models/errors.d.ts`).
+   *
+   * In practice always the index here, since this package never creates a
+   * bucket — but the exception is the service's, not this package's, so the
+   * wording is the service's too.
+   */
   CONFLICT = 'CONFLICT',
   /** One of the four KMS exceptions (400). Key state — an operator's problem. */
   KMS_ERROR = 'KMS_ERROR',

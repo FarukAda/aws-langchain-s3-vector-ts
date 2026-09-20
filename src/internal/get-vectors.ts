@@ -15,6 +15,7 @@ import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { awsFailure } from '../shared/errors/wrap-error.js';
 import type { StoreScope } from '../shared/scope.js';
 import type { S3OutputVector } from '../types.js';
+import { openWindow } from './concurrency.js';
 import { assertBatchSize } from './guards.js';
 import type { AwsOperation } from './operation.js';
 import { outputVectorsOf } from './output-vectors.js';
@@ -73,31 +74,6 @@ async function fetchOneBatch(
     );
   }
   return outputVectorsOf(response.vectors, 'GetVectors', opts.operation, scope);
-}
-
-/**
- * Record every vector a settled group returned, and report the first failure.
- *
- * @returns The first rejection reason, or `undefined` when the whole group
- * succeeded. Every fulfilled sibling is recorded first either way: one that
- * succeeded after another rejected still retrieved its vectors, and a caller
- * retrying should not re-fetch them.
- */
-function collectSettled(
-  settled: PromiseSettledResult<S3OutputVector[]>[],
-  found: Map<string, S3OutputVector>,
-): { failed: boolean; reason: unknown } {
-  let reason: unknown;
-  let failed = false;
-  for (const result of settled) {
-    if (result.status === 'fulfilled') {
-      for (const vector of result.value) found.set(vector.key, vector);
-    } else if (!failed) {
-      failed = true;
-      reason = result.reason;
-    }
-  }
-  return { failed, reason };
 }
 
 /**
@@ -179,18 +155,31 @@ export async function fetchVectorsByIds(
   const unique = [...new Set(opts.ids)];
   if (unique.length === 0) return found;
 
-  for (const group of chunk(
-    chunk(unique, batchSize),
-    opts.maxConcurrent ?? DEFAULT_MAX_CONCURRENT,
-  )) {
-    // allSettled, not all: a slower sibling that succeeds after another
-    // rejects must still appear in what gets reported.
-    const settled = await Promise.allSettled(
-      group.map((batch) => fetchOneBatch(opts, scope, batch)),
-    );
-    const { failed, reason } = collectSettled(settled, found);
-    if (failed) throw withFoundIds(reason, operation, scope, found);
+  // A sliding window, not fixed groups. This was the one call site still
+  // dispatching `chunk(chunk(…))` and awaiting each group with
+  // `Promise.allSettled`, so one slow `GetVectors` held back every request
+  // behind it until its whole group settled — `getByIds` over 10,000 ids
+  // crosses ten such boundaries, and MMR with a large `fetchK` takes the same
+  // route. `concurrency.ts` already said a window "is now the only one"; this
+  // is the site that claim was written about.
+  const window = openWindow<S3OutputVector[]>(opts.maxConcurrent ?? DEFAULT_MAX_CONCURRENT);
+  // Every batch is launched, even after one has failed — unlike the write
+  // path, which stops feeding its window. A read's contract is that
+  // `context.foundIds` names every id a sibling retrieved, so that a caller
+  // retrying does not re-fetch them; abandoning the rest would shrink that
+  // answer to whatever happened to be in flight when the failure landed.
+  for (const batch of chunk(unique, batchSize)) {
+    await window.launch(async () => await fetchOneBatch(opts, scope, batch));
   }
+
+  // Every launched batch is awaited before this resolves, so a success landing
+  // after the first failure is still in `found` — which is the whole point of
+  // reporting `foundIds` at all.
+  const { results, failed, error } = await window.settle();
+  for (const vectors of results) {
+    for (const vector of vectors ?? []) found.set(vector.key, vector);
+  }
+  if (failed) throw withFoundIds(error, operation, scope, found);
 
   return found;
 }

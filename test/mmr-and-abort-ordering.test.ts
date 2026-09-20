@@ -65,7 +65,12 @@ function scriptedStore(
       recorder.peakConcurrency = Math.max(recorder.peakConcurrency, inFlight);
       try {
         if (name === 'GetIndex' && options.holdGetIndex === true) await indexGate;
-        await Promise.resolve();
+        // A macrotask, not a microtask. A real request always outlives the
+        // microtask that dispatched the next one; a single `await
+        // Promise.resolve()` does not, so each call finished before its
+        // sibling started and `peakConcurrency` measured how the calls were
+        // dispatched rather than whether they overlapped.
+        await new Promise((resolve) => setImmediate(resolve));
         switch (name) {
           case 'GetIndex':
             return {

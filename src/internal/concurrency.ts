@@ -31,7 +31,11 @@ interface WindowOutcome<T> {
  * Three call sites used to decide this for themselves, and they did not agree:
  * two dispatched fixed groups, so one slow request held back every request
  * behind it until its whole group settled, while the third slid a window and
- * did not. A window is the better of the two and is now the only one.
+ * did not. A window is the better of the two and is now the only one — which
+ * became true later than this comment first claimed it: the `GetVectors`
+ * fan-out in `get-vectors.ts` kept its fixed groups for a further release,
+ * head-of-line blocking every ten batches on `getByIds` and on MMR's candidate
+ * fetch, while this paragraph said otherwise.
  */
 export interface ConcurrencyWindow<T> {
   /**

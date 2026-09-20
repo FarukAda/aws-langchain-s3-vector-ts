@@ -72,6 +72,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of one. The shapes are unchanged, so nothing breaks — but a name cannot be
   added to a frozen signature later without one, which is why it is now.
 
+- **An *Untrusted documents* section, and what an error carries for PII.** Two
+  things this store does are correct and worth deciding deliberately when
+  documents come from your users. A document's own `id` becomes the vector key
+  where `options.ids` is not given, and writing an existing key replaces that
+  vector — which is what makes re-ingestion idempotent, and also means anyone
+  who can influence `doc.id` can overwrite any vector in the index. And a
+  `__proto__` metadata key is stored and read back as an ordinary own property,
+  which is harmless here (`Object.prototype` is never polluted) but not in a
+  consumer that merges metadata with `Object.assign`, `for…in` or a deep-merge
+  helper. Separately, the error documentation now says plainly that ids — in
+  `context.recordId` and in the four id arrays — are carried verbatim into an
+  enumerable `context`, so a structured logger or a LangSmith trace serialises
+  them in full; document text, query text, embeddings, metadata values and
+  credentials never appear.
+
 - **The type-only exports and the store's public methods are pinned.** The
   runtime export set was asserted exactly; the type-only half was not, so
   removing one from `src/index.ts` failed nothing. Nor did *adding* a public
@@ -88,6 +103,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `default`.
 
 ### Fixed
+
+- **The read path dispatched fixed groups, and a load-bearing comment said it
+  did not.** `getByIds` and MMR's candidate fetch ran `chunk(chunk(ids))` with
+  a `Promise.allSettled` per group, so one slow `GetVectors` held back every
+  request behind it until its whole group of `maxConcurrentBatchCalls`
+  settled — ten such boundaries on a 10,000-id read. Meanwhile
+  `concurrency.ts` stated that the sliding window "is now the only one", and
+  this was the third call site that sentence was written about. It uses the
+  window now, and the sentence says when it became true. Partial-failure
+  reporting is unchanged on purpose: every batch is still launched even after
+  one fails, because `context.foundIds` is only useful if it names everything a
+  sibling retrieved.
+
+- **`ConflictException`'s description was narrower than the exception.** It read
+  "the index name already exists"; the service's own wording is "a vector
+  bucket name **or** a vector index name already exists". Always the index in
+  practice, since this package never creates a bucket — but the exception
+  belongs to the service, so the description should be the service's.
 
 - **Two doc comments cited a `@langchain/core` contract that does not exist.**
   `getByIds` said its `(Document | undefined)[]` was "the `@langchain/core`
