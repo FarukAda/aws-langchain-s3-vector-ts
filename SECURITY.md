@@ -4,10 +4,13 @@
 
 Security fixes are made against the **latest published release of the current major version**. Older releases — including any earlier major — are not separately patched; upgrade to the latest release to receive fixes.
 
-| Version                                   | Supported |
-| ----------------------------------------- | --------- |
-| Latest release of the current major | ✅ |
-| Older releases                            | ❌ |
+| Version | Supported |
+| --- | --- |
+| `1.x`, latest release | ✅ |
+| `1.x`, earlier releases | ❌ — upgrade within `1.x` |
+| `0.x` | ❌ — no longer maintained |
+
+There is no long-term-support branch and no backporting. That is a deliberate consequence of one maintainer: a fix that has to be prepared, tested and released two or three times is a fix that ships late. Upgrading within a major is designed to be safe — see the versioning rules in the [README](README.md#-versioning-and-support) for exactly what a minor and a patch may change.
 
 ## Reporting a Vulnerability
 

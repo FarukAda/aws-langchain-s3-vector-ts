@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.0-rc.3] - 2026-09-20
+## [1.0.0] - 2026-09-20
 
 ### Upgrading from 0.9.0
 
@@ -31,7 +31,7 @@ what it objected to.
 - The error codes `ThrottlingException`, `InternalServerError` and `RequestTimeout` never
   existed in the S3 Vectors service model and are gone. *(rc.2)*
 - `S3VectorsDeleteParams`, `S3VectorsDeleteIndexParams` and `S3VectorsListParams` are now
-  `…Options`. The shapes are unchanged, so this is a rename in your imports. *(1.0.0-rc.3)*
+  `…Options`. The shapes are unchanged, so this is a rename in your imports. *(1.0.0)*
 
 **Signatures and types**
 
@@ -55,37 +55,37 @@ All of these raise `VALIDATION` before anything billable is spent.
 - A non-object options bag, on every method that takes one. *(rc.2)*
 - `client` supplied together with `region`, `credentials`, `endpoint` or the timeouts. *(rc.2)*
 - `similaritySearchWithRelevanceScores` on a euclidean index with no `relevanceScoreFn`. *(rc.2)*
-- An `addVectors` call whose vectors disagree on dimension — the whole call, not one batch. *(1.0.0-rc.3)*
-- A filter holding `NaN`, `±Infinity` or a `Date`. *(1.0.0-rc.3)*
+- An `addVectors` call whose vectors disagree on dimension — the whole call, not one batch. *(1.0.0)*
+- A filter holding `NaN`, `±Infinity` or a `Date`. *(1.0.0)*
 - A `nonFilterableMetadataKeys` list no index could be created with — at construction, so a
-  store that only ever reads now fails to construct too. *(1.0.0-rc.3)*
-- A misspelled configuration option, where before it was ignored and the default applied. *(1.0.0-rc.3)*
-- An invalid retriever configuration, at `asRetriever()` rather than at the first `invoke()`. *(1.0.0-rc.3)*
+  store that only ever reads now fails to construct too. *(1.0.0)*
+- A misspelled configuration option, where before it was ignored and the default applied. *(1.0.0)*
+- An invalid retriever configuration, at `asRetriever()` rather than at the first `invoke()`. *(1.0.0)*
 
 **What your `catch` blocks see**
 
 - `context.operation` is the public method you called, on every error. Five paths used to
-  report the AWS command there instead. *(1.0.0-rc.3)*
+  report the AWS command there instead. *(1.0.0)*
 - A timed-out, reset, refused or unreachable connection is `SERVICE_UNAVAILABLE`, not
-  `AWS_REQUEST_FAILED`. Branch on the former. *(1.0.0-rc.3)*
+  `AWS_REQUEST_FAILED`. Branch on the former. *(1.0.0)*
 - `ResourceNotFoundException` is no longer read as an absent index. *(rc.2)*
 - `context.instance` is non-enumerable, so loggers stop serialising the whole store. *(rc.1)*
-- When several things are wrong at once, one order decides which is reported. *(1.0.0-rc.3)*
+- When several things are wrong at once, one order decides which is reported. *(1.0.0)*
 - `QUERY_PAGE_LIMIT_EXCEEDED` is now `PAGE_LIMIT_EXCEEDED`, and an enumeration raises it too;
-  `context.awsCommand` says which paginator ran out. *(1.0.0-rc.3)*
+  `context.awsCommand` says which paginator ran out. *(1.0.0)*
 - The id arrays on `context` — `writtenIds`, `attemptedIds`, `deletedIds`, `foundIds` — and
   `fieldList` are `readonly` and frozen. Assigning one to a mutable `string[]` no longer
-  compiles; read it, or copy it with `[...ids]`. *(1.0.0-rc.3)*
+  compiles; read it, or copy it with `[...ids]`. *(1.0.0)*
 
 **Two more, if you write to an existing index or read documents off a retriever**
 
 - A write to an index whose **distance metric** differs from the store's is refused with
   `INDEX_CONFIG_MISMATCH`, against the metric the index itself reports. It used to succeed,
   with the mismatch surfacing only on a later read — so a write-only workload never saw it.
-  The dimension is still left to AWS. *(1.0.0-rc.3)*
+  The dimension is still left to AWS. *(1.0.0)*
 - `retriever.invoke` now returns documents with `@langchain/core`'s default metadata type,
   matching `store.similaritySearch` and the retriever's own `batch`/`stream`, which disagreed
-  with it. This widens the type, so existing code keeps compiling. *(1.0.0-rc.3)*
+  with it. This widens the type, so existing code keeps compiling. *(1.0.0)*
 
 ### Breaking
 
@@ -2304,8 +2304,8 @@ never published, and 0.2.2 shipped without an entry here.
 
 - Initial release.
 
-[Unreleased]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.3...HEAD
-[1.0.0-rc.3]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.2...v1.0.0-rc.3
+[Unreleased]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.2...v1.0.0
 [1.0.0-rc.2]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.9.0...v1.0.0-rc.1
 [0.9.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.8.0...v0.9.0

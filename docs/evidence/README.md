@@ -8,11 +8,14 @@ file, and a named integration test asserting the same fact, so a live run fails
 if AWS changes it. The file alone goes stale silently; the test alone cannot be
 checked by a reviewer without AWS credentials.
 
-Nothing runs that live suite on a schedule. It is a local, on-demand tier
-(`npm run test:integration`, see the README's *Testing* section), so a claim
-here is only as fresh as the last time someone ran it — the date of each run is
-stated below for exactly this reason. Re-run the suite before relying on one of
-these claims in a decision that matters.
+Nothing runs that live suite on a schedule, deliberately. It runs on every `v*`
+tag — `release.yml` requires its check before publishing — and on demand,
+locally or by workflow dispatch (`npm run test:integration`, see the README's
+*Testing* section). So every published version has had these claims re-checked
+against the live service at the moment it was cut, and between releases a claim
+is only as fresh as the last run. The date of each run is stated below for
+exactly that reason; re-run the suite before relying on one of these claims in
+a decision that matters.
 
 ## Run conditions
 
@@ -36,7 +39,7 @@ from it.
 
 **Run 4 settled nothing new: it re-ran the whole live tier against a fresh
 ephemeral bucket and every claim below still held.** 114 tests across 8 suites,
-all passing, before tagging `1.0.0-rc.3` — so the facts frozen into that release
+all passing, before tagging `1.0.0` — so the facts frozen into that release
 are confirmed as of that date rather than inherited from runs 1–3. It is
 recorded here because a claim is only as fresh as the last run that checked it,
 and "still true" is the answer this table exists to give.
