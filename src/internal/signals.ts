@@ -66,7 +66,7 @@ export function isAbortSignalLike(value: unknown): value is AbortSignal {
  * dropping a cancellation is the one outcome this package refuses to do
  * quietly.
  */
-export function assertSignal(
+export function parseSignal(
   operation: string,
   signal: unknown,
   scope: StoreScope,
@@ -116,7 +116,7 @@ export function sendOptions(signal: AbortSignal | undefined): { abortSignal?: Ab
  * Returns: nothing.
  *
  * Throws: {@link S3VectorsError} with code `ABORTED`, or `VALIDATION` for a
- * value that is not a signal (see {@link assertSignal}). The abort cause is
+ * value that is not a signal (see {@link parseSignal}). The abort cause is
  * `signal.reason` normalised through `toError`, so it is always an `Error` —
  * `AbortController.abort()` defaults the reason to a `DOMException`, which
  * passes through unchanged, but `abort(anything)` may set it to a string or a
@@ -127,7 +127,7 @@ export function checkAborted(
   signal: AbortSignal | undefined,
   scope: StoreScope,
 ): void {
-  const validated = assertSignal(operation, signal, scope);
+  const validated = parseSignal(operation, signal, scope);
   if (validated?.aborted !== true) return;
   throw abortError(operation, validated, scope);
 }
@@ -173,7 +173,7 @@ export async function raceAbort<T>(
   operation: string,
   scope: StoreScope,
 ): Promise<T> {
-  const validated = assertSignal(operation, signal, scope);
+  const validated = parseSignal(operation, signal, scope);
   if (validated === undefined) return await factory();
   checkAborted(operation, validated, scope);
 

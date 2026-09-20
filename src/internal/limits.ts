@@ -94,7 +94,10 @@ export interface WriteVectorOptions extends OperationScope {
  * before its dimension is compared — so a `null` anywhere is `VALIDATION`, never
  * a `TypeError` on the vector after it.
  */
-export function assertWriteVectors(vectors: readonly unknown[], opts: WriteVectorOptions): void {
+export function assertWriteVectors(
+  vectors: readonly unknown[],
+  opts: WriteVectorOptions,
+): asserts vectors is readonly number[][] {
   const { distanceMetric, offset, ids, ...scope } = opts;
   const fail = (position: number, message: string, code: S3VectorsErrorCode): never => {
     const record: RecordRef = { recordIndex: offset + position, recordId: ids[position]! };

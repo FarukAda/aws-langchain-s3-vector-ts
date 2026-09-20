@@ -25,7 +25,7 @@ import {
 import { resolveMmrParameters } from './actions/mmr.js';
 import { parseFilter } from './internal/filter.js';
 import { parseK, assertOptionsBag, assertQueryText, validationError } from './internal/guards.js';
-import { assertSignal, raceAbort } from './internal/signals.js';
+import { parseSignal, raceAbort } from './internal/signals.js';
 import type { AmazonS3Vectors } from './s3-vectors.js';
 import { renderValue } from './shared/describe.js';
 import { attachOperation } from './shared/errors/decorate.js';
@@ -301,7 +301,7 @@ export class AmazonS3VectorsRetriever<
         `searchType must be 'similarity' or 'mmr' (received ${received}).`,
       );
     }
-    assertSignal(operation, this.signal, scope);
+    parseSignal(operation, this.signal, scope);
   }
 
   /**
@@ -347,7 +347,7 @@ export class AmazonS3VectorsRetriever<
       // Before core reads the config: combining a signal with a timeout's goes
       // through `AbortSignal.any`, which throws a raw `TypeError` for a value
       // that is not a signal.
-      assertSignal('retriever.invoke', options?.signal, this.#scope);
+      parseSignal('retriever.invoke', options?.signal, this.#scope);
       // Core's own first step (`@langchain/core@1.2.11`
       // `dist/retrievers/index.js:82`), taken here because it is what turns a
       // positive `timeout` into a signal (`dist/runnables/config.js:105-126`),

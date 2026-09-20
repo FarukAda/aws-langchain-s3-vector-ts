@@ -477,6 +477,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this?" for someone arriving later. A contract test checks the five sections,
   the numbering and the index.
 
+- **The embeddings model's output is narrowed by the check, not re-asserted
+  after it.** `assertWriteVectors` now carries an `asserts` signature, so the
+  `return vectors as number[][]` that followed it — a cast restating what the
+  check had just established — is gone.
+
+- **`assertSignal` is `parseSignal`.** It returns the signal it checked, which
+  makes it a parser whatever it is called; the name said otherwise.
+
 - **So does the query vector, and MMR's resolved `k` and `fetchK`.** Both
   search paths called the vector check and threw away what it returned, so
   `queryPages` still took any `number[]`; `resolveMmrParameters` resolved and

@@ -349,7 +349,9 @@ export async function addDocuments(opts: AddDocumentsOptions): Promise<string[]>
       offset,
       ids: batch.map((record) => record.key),
     });
-    return vectors as number[][];
+    // No cast: the check above narrows the array, which is the whole reason it
+    // is declared with an `asserts` signature rather than returning nothing.
+    return [...vectors];
   };
 
   await embedAndWrite({
