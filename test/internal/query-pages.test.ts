@@ -241,3 +241,60 @@ describe('queryPages', () => {
     );
   });
 });
+
+describe('a 403 on a search', () => {
+  it('names the second permission AWS requires but does not mention', async () => {
+    // Every search here sets returnMetadata: true, and AWS is explicit that
+    // QueryVectors then needs s3vectors:GetVectors as well as
+    // s3vectors:QueryVectors — failing with a bare 403 if it is missing. The
+    // listing path has carried this hint since it was written; the search path
+    // is where a first-run user actually meets it, and "Access Denied" is
+    // impossible to guess from.
+    const { client, mock } = createMockClient();
+    mock
+      .on(QueryVectorsCommand)
+      .rejects(
+        Object.assign(new Error('User is not authorized'), { name: 'AccessDeniedException' }),
+      );
+
+    const error = await queryPages({
+      client,
+      vectorBucketName: 'b',
+      indexName: 'i',
+      operation: 'similaritySearch',
+      distanceMetric: 'cosine',
+      k: 4 as never,
+      queryVector: [0.1, 0.2] as never,
+      returnMetadata: true,
+      returnDistance: true,
+    }).catch((e: unknown) => e);
+
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+    expect((error as Error).message).toContain('s3vectors:GetVectors');
+  });
+
+  it('adds no such hint when the search asked for no metadata', async () => {
+    // MMR's candidate query sets returnMetadata: false, so QueryVectors alone
+    // is sufficient and the hint would be a wrong guess.
+    const { client, mock } = createMockClient();
+    mock
+      .on(QueryVectorsCommand)
+      .rejects(
+        Object.assign(new Error('User is not authorized'), { name: 'AccessDeniedException' }),
+      );
+
+    const error = await queryPages({
+      client,
+      vectorBucketName: 'b',
+      indexName: 'i',
+      operation: 'maxMarginalRelevanceSearch',
+      distanceMetric: 'cosine',
+      k: 4 as never,
+      queryVector: [0.1, 0.2] as never,
+      returnMetadata: false,
+      returnDistance: false,
+    }).catch((e: unknown) => e);
+
+    expect((error as Error).message).not.toContain('s3vectors:GetVectors');
+  });
+});

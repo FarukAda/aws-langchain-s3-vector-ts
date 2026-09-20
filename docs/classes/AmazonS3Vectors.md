@@ -234,7 +234,7 @@ Defined in: [s3-vectors.ts:157](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **\_assertRelevanceScoresAvailable**(): (`distance`) => `number`
 
-Defined in: [s3-vectors.ts:1230](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1230)
+Defined in: [s3-vectors.ts:1241](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1241)
 
 **`Internal`**
 
@@ -433,7 +433,7 @@ impossible to find or reconcile again.
 
 > **asRetriever**(`kOrFields?`, `filter?`, `callbacks?`, `tags?`, `metadata?`, `verbose?`): [`AmazonS3VectorsRetriever`](AmazonS3VectorsRetriever.md)\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1059](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1059)
+Defined in: [s3-vectors.ts:1066](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1066)
 
 Build a retriever over this store.
 
@@ -626,7 +626,7 @@ the `DeleteIndex` failure maps to. A missing index is not a failure.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1166](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1166)
+Defined in: [s3-vectors.ts:1173](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1173)
 
 Create a store and add the given documents to it.
 
@@ -678,7 +678,7 @@ same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1086](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1086)
+Defined in: [s3-vectors.ts:1093](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1093)
 
 Create a store, embed the given texts and add them to it.
 
@@ -734,7 +734,7 @@ code, cause, `awsCommand`, stack and — once the store was constructed —
 
 > **getByIds**(`ids`, `options?`): `Promise`\<(`Document`\<`Record`\<`string`, `any`\>\> \| `undefined`)[]\>
 
-Defined in: [s3-vectors.ts:918](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L918)
+Defined in: [s3-vectors.ts:925](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L925)
 
 Retrieve documents by their vector IDs.
 
@@ -769,8 +769,15 @@ to prevent shared-reference mutations between returned documents.
 there (`docs/evidence/get-vectors-absent-keys.md`), so absence is an
 ordinary answer and the result stays aligned with the id list — the
 caller reads `result[i]` for `ids[i]` without tracking which ones
-survived. This is the `@langchain/core` `VectorStore.getByIds`
-contract's `(Document | undefined)[]` and not a stricter one.
+survived.
+
+This is **this package's** contract, not one inherited from
+`@langchain/core`: core `1.2.11` declares no `getByIds` on `VectorStore`
+or `VectorStoreInterface` at all. The `(Document | undefined)[]` shape is
+chosen to match what LangChain uses elsewhere for an id-keyed read, so a
+consumer who has seen one knows this one — but a consumer holding this
+store as a `VectorStoreInterface` cannot see the method, and nothing about
+it is promised by core.
 
 #### Throws
 
@@ -791,7 +798,7 @@ scratch.
 
 > **listDocuments**(`options?`): `AsyncGenerator`\<`Document`\<`Record`\<`string`, `any`\>\>\>
 
-Defined in: [s3-vectors.ts:963](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L963)
+Defined in: [s3-vectors.ts:970](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L970)
 
 Every document in the index, one at a time.
 
@@ -836,7 +843,7 @@ atomic and does not pretend to be.
 
 > **listVectors**(`options?`): `AsyncGenerator`\<[`S3VectorsRecord`](../interfaces/S3VectorsRecord.md)\>
 
-Defined in: [s3-vectors.ts:1003](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1003)
+Defined in: [s3-vectors.ts:1010](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1010)
 
 Every vector in the index with its embedding, one at a time.
 

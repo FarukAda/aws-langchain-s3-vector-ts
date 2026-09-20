@@ -424,6 +424,8 @@ Constructing a store issues no AWS request.
 
 Full generated API docs: see [`docs/`](docs/) (TypeDoc output).
 
+**A misspelled option is refused, not ignored.** An unknown key that differs from a real option only in case, or — from six characters up — is within two edits of one or is the start of one, raises `VALIDATION` naming both. `createIndexIfNotExists` (one letter out) used to construct a store that created the index with every default, and an index's configuration cannot be changed afterwards. Unknown keys that are *not* near misses are still accepted, deliberately: `@langchain/core`'s `SemanticSimilarityExampleSelector` passes its own `k`, `filter`, `exampleKeys` and `inputKeys` through the same object, and the closest any of those comes to an option here is four edits. So spreading an application config object into the constructor is fine, unless it happens to carry a near miss.
+
 Only the options listed above are read by this library. The constructor builds its `S3VectorsClient` from exactly `region`, `credentials`, `endpoint`, `maxAttempts`, `retryMode` and a `requestHandler` carrying the three timeouts — any other `S3VectorsClientConfig` field (a `logger`, a `customUserAgent`, a proxy, a fully custom `retryStrategy`, a `requestHandler` of your own, …) is **not** passed through. Build the client yourself and hand it in via `client` for anything beyond those; every operation then flows through your client unchanged, its own timeouts included, and this library imposes none of its own on it.
 
 ### Retries
@@ -482,7 +484,7 @@ exception the service declares — never a substring match on a message:
 | `AWS_REJECTED` | `ValidationException` (400): AWS itself refused the request. `context.fieldList` carries the field-level detail AWS returned, which is the actionable half of an otherwise opaque rejection. |
 | `THROTTLED` | `TooManyRequestsException` (429). Retry after a backoff; the SDK has already retried. |
 | `SERVICE_UNAVAILABLE` | `InternalServerException` (500), `ServiceUnavailableException` (503) or `RequestTimeoutException` (408), or the SDK's own `TimeoutError` — a connection, socket-idle or request timeout, or a connection reset or broken on the way. Also a refused, unreachable or DNS-failed connection, matched on the error's own Node.js system error `code` against the codes the SDK's retry strategy lists as transient (the SDK also finds such a code in the error's `cause`; this package does not). Transient — except that a 503 from `PutVectors` is also AWS's documented answer to a batch exceeding resource capacity, which backoff cannot fix. The two are indistinguishable by code, so a write failure carries `context.batchSize`: that is what tells you whether to back off or to split. |
-| `ACCESS_DENIED` | `AccessDeniedException` (403). An IAM problem, not a retryable one. Enumeration also raises this when `s3vectors:GetVectors` is missing, and says so. |
+| `ACCESS_DENIED` | `AccessDeniedException` (403). An IAM problem, not a retryable one. A missing `s3vectors:GetVectors` raises it on **any** search as well as on enumeration, because both request metadata; the message says so in each case. |
 | `QUOTA_EXCEEDED` | `ServiceQuotaExceededException` (402). Needs a quota increase, not a retry. |
 | `CONFLICT` | `ConflictException` (409) from `CreateIndex`: the index already exists. Two writers racing to create the same index is normal and handled internally — the loser re-reads the index and checks the winner's non-filterable metadata keys against its own, so a disagreement surfaces as `INDEX_CONFIG_MISMATCH` rather than as this code. `CONFLICT` surfaces only when it is not that race. |
 | `KMS_ERROR` | One of the four KMS exceptions (400). Key state — an operator's problem, not a caller's. |
@@ -614,7 +616,7 @@ The limits this library enforces locally (failing fast with a `VALIDATION` error
 | Results per `QueryVectors` page | up to 100 (paginated transparently, to a 1,000-page ceiling) | — |
 | Vectors per `ListVectors` page (`pageSize`) | 1 – 1,000 (service default 500; a 1 MB page cap may return fewer) | locally |
 | Vector ids | non-empty strings, unique within one write call | locally |
-| Vector dimension | consistent within a batch and with the index (1 – 4,096 per AWS) | within-batch and vs. index locally; absolute range by AWS |
+| Vector dimension | 1 – 4,096, and the same for every vector in the call | the range and within-call consistency locally; agreement with the index by AWS, on every write |
 | Metadata keys per vector | ≤ 50, page-content key included | locally |
 | Metadata value types | string, number, boolean, or an array of strings/numbers | locally |
 | Filterable metadata per vector | 2,048 bytes | locally, then AWS |
@@ -707,7 +709,9 @@ If a document's own metadata already uses the reserved `pageContentMetadataKey` 
 
 ### `getByIds` and missing ids
 
-`getByIds` returns **one slot per requested id, in order**, with `undefined` where an id is not there — the `(Document | undefined)[]` shape `@langchain/core` declares.
+`getByIds` returns **one slot per requested id, in order**, with `undefined` where an id is not there.
+
+`getByIds` is this package's own method, not an inherited one: `@langchain/core` 1.2.11 declares no `getByIds` on `VectorStore` or `VectorStoreInterface`. The `(Document | undefined)[]` shape is chosen to match what LangChain uses elsewhere for an id-keyed read, so it holds no surprises — but code that holds this store as a `VectorStoreInterface` will not see the method, and core promises nothing about it.
 
 Every id is checked before any request: it must be a string of 1–1,024 characters and well-formed UTF-16 — the bounds `GetVectors` itself enforces. A malformed id raises `VALIDATION` naming its position (`error.context.recordIndex`) instead of failing its whole `GetVectors` batch, and every valid id in it, at AWS. A repeated id is fine: it is fetched once and fills every slot that asked for it.
 
@@ -829,7 +833,7 @@ const confident = store.asRetriever({ k: 10, scoreThreshold: 0.75 });
 | `addDocuments(docs, options?)` | `Promise<string[]>` | Embed and store documents (per-batch) |
 | `addVectors(vectors, docs, options?)` | `Promise<string[]>` | Store pre-computed vectors |
 | `similaritySearch(query, k?, filter?, callbacks?, signal?)` | `Promise<Document[]>` | Text query → documents |
-| `similaritySearchWithScore(query, k?, filter?, callbacks?, signal?)` | `Promise<[Document, number][]>` | Text query → documents with distance |
+| `similaritySearchWithScore(query, k?, filter?, callbacks?, signal?)` | `Promise<[Document, number][]>` | Text query → documents with AWS's raw **distance**, where *lower* is better. Not a similarity score, despite core's wording: see the [warning](#custom-retriever-configuration) about `ScoreThresholdRetriever`. For higher-is-better use `similaritySearchWithRelevanceScores` or `asRetriever({ scoreThreshold })`. |
 | `similaritySearchWithRelevanceScores(query, k?, filter?, callbacks?, signal?)` | `Promise<[Document, number][]>` | Text query → documents with relevance score (higher is better) |
 | `similaritySearchVectorWithScore(vector, k, filter?, signal?)` | `Promise<[Document, number][]>` | Vector query → documents with distance |
 | `maxMarginalRelevanceSearch(query, options, callbacks?, signal?)` | `Promise<Document[]>` | Relevance traded against diversity (`k`, `fetchK`, `lambda`) |
@@ -930,7 +934,8 @@ The store uses the following S3 Vectors actions. The IAM policy below enumerates
 - `s3vectors:TagResource` is needed **only** when you set `tags` *and* this store creates the index: AWS requires it in addition to `s3vectors:CreateIndex` to create a tagged index, and refuses the call without it. Drop it if you set no `tags`. This store never calls `TagResource` itself — tags travel inside the `CreateIndex` request — so the permission is needed without the action ever appearing on its own.
 - If you never call `delete()`, remove `s3vectors:DeleteVectors`; if you never call `deleteIndex()`, remove `s3vectors:DeleteIndex`. They are separate methods and separate permissions.
 - If your application is read-only (`similaritySearch*`, `getByIds`), keep only the `S3VectorsRead` statement — the read path never touches the control plane.
-- If you never enumerate, remove `s3vectors:ListVectors`. If you *do* enumerate, keep `s3vectors:GetVectors` alongside it: `listDocuments` and `listVectors` both request metadata, and AWS answers a metadata or data request made without `s3vectors:GetVectors` with `403 Forbidden`.
+- **`s3vectors:GetVectors` is required for every search, not only for enumeration and MMR.** This store sets `returnMetadata: true` on every `QueryVectors` call, and AWS is explicit that it then needs both: "If you specify a metadata filter or set `returnMetadata` to true, you must have both `s3vectors:QueryVectors` and `s3vectors:GetVectors` permissions. The request fails with a `403 Forbidden error`…" ([`QueryVectors` API reference](https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_QueryVectors.html)). The policy above already grants both; do not drop `GetVectors` when trimming it.
+- If you never enumerate, remove `s3vectors:ListVectors` — but keep `s3vectors:GetVectors`, for the reason above. `listDocuments` and `listVectors` request metadata too, so they need it as well.
 - `maxMarginalRelevanceSearch` needs both `s3vectors:QueryVectors` and `s3vectors:GetVectors`: candidates come from the query, their embeddings from the fetch.
 
 **A missing *bucket* is not a missing index.** `GetIndex` against a vector bucket that doesn't exist returns `NotFoundException`, the same exception as for a missing index. With `createIndexIfNotExist: true` the store therefore proceeds to `CreateIndex`, which then fails with its own `NotFoundException` naming the bucket. There is no bucket-level pre-check (`GetVectorBucket` would be one more permission and one more round trip on every cold start); if you see a `CreateIndex … NotFoundException`, check the bucket name and region first.

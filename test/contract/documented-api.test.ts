@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 import { describe, it, expect } from '@jest/globals';
 
@@ -15,6 +15,29 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
  * it never was. Prose cannot be type-checked, but the *names* in it can be.
  */
 const DOCS = ['README.md', 'src/guide.md'] as const;
+
+/**
+ * The type-only exports of `src/index.ts`. They are invisible at runtime, so
+ * every check that compares documentation against the surface needs them
+ * spelled out. One list, used by both — a name added here and nowhere else
+ * fails the page-set check below.
+ */
+const EXPECTED_TYPE_EXPORTS = [
+  'AmazonS3VectorsConfig',
+  'AmazonS3VectorsRetrieverFields',
+  'AmazonS3VectorsRetrieverInput',
+  'DistanceMetric',
+  'VectorDataType',
+  'S3VectorsAddOptions',
+  'S3VectorsGetByIdsOptions',
+  'S3VectorsFactoryConfig',
+  'S3VectorsDeleteOptions',
+  'S3VectorsDeleteIndexOptions',
+  'S3VectorsListOptions',
+  'S3VectorsRecord',
+  'S3OutputVector',
+  'S3VectorsErrorContext',
+] as const;
 
 const read = (doc: string): string =>
   readFileSync(new URL(`../../${doc}`, import.meta.url), 'utf8');
@@ -86,22 +109,7 @@ describe.each(DOCS)('%s documents only names that exist', (doc) => {
     const exported = new Set<string>(Object.keys(publicApi));
     // Type-only exports are invisible at runtime; list them explicitly so the
     // check still fails on a name that is neither.
-    const typeExports = new Set([
-      'AmazonS3VectorsConfig',
-      'AmazonS3VectorsRetrieverFields',
-      'AmazonS3VectorsRetrieverInput',
-      'DistanceMetric',
-      'VectorDataType',
-      'S3VectorsAddOptions',
-      'S3VectorsGetByIdsOptions',
-      'S3VectorsFactoryConfig',
-      'S3VectorsDeleteOptions',
-      'S3VectorsDeleteIndexOptions',
-      'S3VectorsListOptions',
-      'S3VectorsRecord',
-      'S3OutputVector',
-      'S3VectorsErrorContext',
-    ]);
+    const typeExports = new Set<string>(EXPECTED_TYPE_EXPORTS);
     const imported = [
       ...text.matchAll(/import \{([^}]+)\} from ["']@farukada\/aws-langchain-s3-vector-ts["']/g),
     ]
@@ -109,5 +117,34 @@ describe.each(DOCS)('%s documents only names that exist', (doc) => {
       .map((name) => name.replace(/\/\/.*$/, '').trim())
       .filter((name) => name.length > 0 && /^[A-Za-z]/.test(name));
     expect(imported.filter((name) => !exported.has(name) && !typeExports.has(name))).toEqual([]);
+  });
+});
+
+describe('the generated reference has a page for each export and no others', () => {
+  /** The TypeDoc output directories, which hold one page per exported symbol. */
+  const GENERATED = ['classes', 'interfaces', 'functions', 'type-aliases', 'enumerations'] as const;
+
+  const pageNames = (): string[] =>
+    GENERATED.flatMap((dir) =>
+      readdirSync(new URL(`../../docs/${dir}`, import.meta.url))
+        .filter((file) => file.endsWith('.md'))
+        .map((file) => file.slice(0, -'.md'.length)),
+    ).sort();
+
+  it('has exactly one page per name src/index.ts exports', () => {
+    // `npm run docs` runs with `cleanOutputDir: false`, because docs/ also
+    // holds decisions/, evidence/ and coding-guidelines.md, which TypeDoc did
+    // not write and must not delete. The cost is that TypeDoc never removes a
+    // page for a symbol that is gone, so `git diff --exit-code -- docs` — the
+    // CI drift gate — stays green forever afterwards: regeneration adds
+    // nothing and removes nothing.
+    //
+    // That blind spot is exactly the drift a breaking rename produces, and it
+    // did: `S3VectorsDeleteParams`, `S3VectorsDeleteIndexParams` and
+    // `S3VectorsListParams` stayed in docs/interfaces/ after the types were
+    // renamed to `…Options`, still claiming to be "Defined in: types.ts:322" —
+    // the line that by then held the new name.
+    const exported = [...EXPECTED_TYPE_EXPORTS, ...Object.keys(publicApi)].sort();
+    expect(pageNames()).toEqual(exported);
   });
 });

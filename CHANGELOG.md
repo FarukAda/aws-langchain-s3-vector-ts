@@ -89,6 +89,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two doc comments cited a `@langchain/core` contract that does not exist.**
+  `getByIds` said its `(Document | undefined)[]` was "the `@langchain/core`
+  `VectorStore.getByIds` contract", and the README repeated it; core `1.2.11`
+  declares no `getByIds` on `VectorStore` or `VectorStoreInterface` at all. The
+  private `#selectRelevanceScoreFn` said it was "called by `@langchain/core`'s
+  `similaritySearchWithRelevanceScores`"; core has no such method either, and
+  nothing outside the class could call a `#private` one. Both are this
+  package's own, and now say so — which also makes the real risk visible: if
+  core adds a `getByIds` with a different shape in a *minor*, `noImplicitOverride`
+  turns that into a build failure here, and CI has a peer-floors job but no
+  peer-ceiling one.
+
+- **A 403 on a search did not name the permission AWS requires but omits.**
+  Every search here sets `returnMetadata: true`, and the `QueryVectors` API
+  reference is explicit that it then needs `s3vectors:GetVectors` as well as
+  `s3vectors:QueryVectors`, failing with a bare "Access Denied" when it is
+  missing. That is the likeliest first-run failure for anyone who granted the
+  obvious permission, and it is impossible to guess from the message. The
+  listing path has carried this hint since it was written; searches do now too
+  — except the one that genuinely does not need it, MMR's candidate query,
+  which asks for no metadata. The README's least-privilege guidance tied
+  `GetVectors` to enumeration and MMR alone, which would have led a reader
+  trimming the policy to break every search; it now says every search needs it.
+
+- **The README had the vector-dimension row backwards, twice.** It said the
+  1–4,096 range was enforced "by AWS" — it is enforced locally, before any
+  request — and that the dimension was compared against the index "locally",
+  which nothing does, as the error-code documentation says a few hundred lines
+  away. Both halves pointed a reader the wrong way about where a bad ingest
+  fails, which is the one thing that table is for.
+
+- **The near-miss option refusal was in the code and the changelog but not the
+  README.** The Configuration Reference read as the complete account of what
+  construction checks, and said unrecognised fields are "not passed through",
+  which reads as *ignored* — the opposite of what happens to a key one letter
+  from a real option. Both are now stated, including why unknown keys that are
+  not near misses stay accepted.
+
+- **`StubEmbeddings` threw a raw `Error`.** Nothing in this package reaches it —
+  every internal use is guarded and raises `EMBEDDINGS_MISSING` first — but
+  `VectorStore` types `store.embeddings` as a live `EmbeddingsInterface`, so
+  `store.embeddings.embedQuery(q)` compiles and is an ordinary thing for
+  framework code to do. That was the one path on which `isS3VectorsError`
+  reported `false` for a failure this package raised. It now raises
+  `EMBEDDINGS_MISSING` like every other route to the same problem.
+
+- **Three generated reference pages documented types that no longer exist, and
+  the gate could not see them.** `S3VectorsDeleteParams`,
+  `S3VectorsDeleteIndexParams` and `S3VectorsListParams` stayed in
+  `docs/interfaces/` after the rename, still claiming to be defined at the line
+  that by then held the new name. They survived because `typedoc.json` sets
+  `cleanOutputDir: false` — necessary, since `docs/` also holds the decision
+  records, the evidence files and the coding guidelines, which TypeDoc did not
+  write and must not delete — so regeneration never removed them and CI's
+  `git diff --exit-code -- docs` stayed green forever. The blind spot was
+  *deletions*, which is exactly the drift a breaking rename produces. The pages
+  are gone, and a test now asserts that the generated page names are exactly
+  the names `src/index.ts` exports.
+
+- **The delete-batching property test asserted only a call count.** `ceil(n /
+  batchSize)` is preserved by every partitioning bug worth catching — sending
+  one batch twice and dropping another, reordering, losing the last id — so the
+  property passed for all of them. It now asserts that the keys reaching AWS
+  are the caller's ids, once each, in order, that no request is empty, and that
+  only the last batch may be short. Verified against a deliberately reordering
+  mutant, which the old assertion passed and the new one fails.
+
 - **`listVectors` and `listDocuments` could enumerate forever.** The token loop
   was `do { … } while (nextToken)` with no bound and no check that the token had
   moved, while its sibling `queryPages` has had a runaway ceiling since it was

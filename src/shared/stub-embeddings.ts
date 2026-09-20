@@ -9,8 +9,31 @@
  */
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 
+import { S3VectorsErrorCode } from './errors/error-code.js';
+import { S3VectorsError } from './errors/s3-vectors-error.js';
+
 /** Symbol used to identify StubEmbeddings without instanceof. */
 const STUB_BRAND = Symbol.for('@farukada/aws-langchain-s3-vector-ts:StubEmbeddings');
+
+/**
+ * The refusal both stub methods raise.
+ *
+ * Coded rather than a bare `Error`, because this is reachable from outside this
+ * package even though nothing inside it gets here: `VectorStore` types
+ * `store.embeddings` as a live `EmbeddingsInterface`, so
+ * `store.embeddings.embedQuery(q)` compiles and is an ordinary thing for
+ * framework code to do. A raw `Error` there was the one path on which
+ * `isS3VectorsError` reported `false` for a failure this package raised.
+ */
+function noModel(method: string): never {
+  throw new S3VectorsError(
+    `This store was built with no embeddings model, so ${method} cannot run. Pass one as the ` +
+      "first argument to the constructor, or use the store's vector-taking methods " +
+      '(addVectors, getByIds, delete) which need none.',
+    S3VectorsErrorCode.EMBEDDINGS_MISSING,
+    { operation: method },
+  );
+}
 
 /**
  * The placeholder embedding model a raw-vector store holds.
@@ -28,10 +51,10 @@ export class StubEmbeddings implements EmbeddingsInterface {
   readonly [STUB_BRAND] = true;
 
   async embedDocuments(_documents: string[]): Promise<number[][]> {
-    throw new Error('No embedding model configured');
+    return noModel('embedDocuments');
   }
   async embedQuery(_query: string): Promise<number[]> {
-    throw new Error('No embedding model configured');
+    return noModel('embedQuery');
   }
 }
 

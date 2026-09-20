@@ -894,8 +894,15 @@ export class AmazonS3Vectors extends VectorStore {
    * there (`docs/evidence/get-vectors-absent-keys.md`), so absence is an
    * ordinary answer and the result stays aligned with the id list — the
    * caller reads `result[i]` for `ids[i]` without tracking which ones
-   * survived. This is the `@langchain/core` `VectorStore.getByIds`
-   * contract's `(Document | undefined)[]` and not a stricter one.
+   * survived.
+   *
+   * This is **this package's** contract, not one inherited from
+   * `@langchain/core`: core `1.2.11` declares no `getByIds` on `VectorStore`
+   * or `VectorStoreInterface` at all. The `(Document | undefined)[]` shape is
+   * chosen to match what LangChain uses elsewhere for an id-keyed read, so a
+   * consumer who has seen one knows this one — but a consumer holding this
+   * store as a `VectorStoreInterface` cannot see the method, and nothing about
+   * it is promised by core.
    *
    * @param ids - Array of vector IDs to retrieve
    * @param options - Optional settings
@@ -1200,8 +1207,12 @@ export class AmazonS3Vectors extends VectorStore {
   /**
    * The distance-to-relevance conversion this store uses.
    *
-   * @internal Called by `@langchain/core`'s
-   * `similaritySearchWithRelevanceScores`, not by application code.
+   * @internal Called by this class's own `similaritySearchWithRelevanceScores`
+   * and by `#assertRelevanceScoresAvailable`. Nothing outside the class can
+   * reach it — it is a `#private` method — and core does not drive it:
+   * `@langchain/core` `1.2.11` has no `similaritySearchWithRelevanceScores` and
+   * no `_selectRelevanceScoreFn` hook on `VectorStore`, so that method here is
+   * this package's own, and so is this.
    *
    * @returns The configured `relevanceScoreFn`, else `cosineRelevanceScoreFn`
    * for a cosine index

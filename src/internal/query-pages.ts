@@ -177,7 +177,10 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
       response = await requestPage(opts, nextToken);
     } catch (error: unknown) {
       throw explainPagination(
-        awsFailure(error, 'QueryVectors', { operation, ...scope }),
+        explainSearchDenial(
+          awsFailure(error, 'QueryVectors', { operation, ...scope }),
+          opts.returnMetadata || opts.filter !== undefined,
+        ),
         pageCount,
         results.length,
         k,
@@ -222,6 +225,31 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
 }
 
 /**
+ * Add the permission AWS requires for this search but does not name.
+ *
+ * A search that asks for metadata — every one this package issues except MMR's
+ * candidate query — needs `s3vectors:GetVectors` on top of
+ * `s3vectors:QueryVectors`: "If you specify a metadata filter or set
+ * `returnMetadata` to true, you must have both … The request fails with a
+ * `403 Forbidden error`" (`API_S3VectorBuckets_QueryVectors.html`). AWS answers
+ * with a bare "Access Denied", which is impossible to guess from, and this is
+ * the most likely first-run failure for anyone who granted only the obvious
+ * permission. `listPages` has carried the same hint since it was written.
+ *
+ * Not added when the search asked for neither metadata nor a filter, because
+ * then `QueryVectors` alone is sufficient and the hint would be a wrong guess.
+ */
+function explainSearchDenial(base: S3VectorsError, askedForMetadata: boolean): S3VectorsError {
+  if (base.code !== S3VectorsErrorCode.ACCESS_DENIED || !askedForMetadata) return base;
+  return rebuildWithContext(
+    base,
+    `${base.message} A search that requests metadata or applies a filter requires the ` +
+      's3vectors:GetVectors permission in addition to s3vectors:QueryVectors.',
+    base.context,
+  );
+}
+
+/**
  * Add pagination context to a failure on a continuation page. A continuation
  * request carries a `nextToken`, which AWS documents as valid for only several
  * minutes, with re-issuing the original query as the remedy — so a
@@ -232,6 +260,7 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
  * expired-token exception for this operation. The first page cannot have an
  * expired token, and an abort is the caller's own doing — both pass through.
  */
+
 function explainPagination(
   base: S3VectorsError,
   pageCount: number,
