@@ -5,6 +5,11 @@
   "out": "docs",
   "name": "AWS LangChain S3 Vector TypeScript",
   "includeVersion": false,
+  // The branch, not a tag: a released tag would freeze every `Defined in:`
+  // link at the release, which is right for a published docs site and wrong
+  // for a tree where these pages are regenerated and diffed on every commit.
+  // The cost is that a link resolves against whatever main holds now, so a
+  // page read from an older checkout can point at a line that has moved.
   "gitRevision": "main",
   "readme": "none",
   "exclude": [

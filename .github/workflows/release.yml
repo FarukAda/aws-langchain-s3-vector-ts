@@ -44,6 +44,7 @@ jobs:
     outputs:
       dist-tag: ${{ steps.version.outputs.dist-tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
+      version: ${{ steps.version.outputs.version }}
       tarball: ${{ steps.pack.outputs.tarball }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -68,6 +69,7 @@ jobs:
           fi
           TAG="${GITHUB_REF_NAME}"
           PKG_VERSION="$(node -p "require('./package.json').version")"
+          echo "version=${PKG_VERSION}" >> "$GITHUB_OUTPUT"
           if [ "${TAG}" != "v${PKG_VERSION}" ]; then
             echo "::error::Tag ${TAG} does not match package.json version ${PKG_VERSION} (expected v${PKG_VERSION})."
             exit 1
@@ -229,12 +231,46 @@ jobs:
           DIST_TAG: ${{ needs.verify.outputs.dist-tag }}
         run: npm publish "./${TARBALL}" --access public --provenance --tag "${DIST_TAG}"
 
+      # The release body is this version's CHANGELOG section, not a generated
+      # list of commit subjects. A reader following a release link wants the
+      # breaking changes and the migration notes, and those are written there.
+      - name: Build the release body from the CHANGELOG
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: npm run --silent changelog-section -- "${VERSION}" > release-body.md
+
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          generate_release_notes: true
+          body_path: release-body.md
           prerelease: ${{ needs.verify.outputs.prerelease == 'true' }}
           files: |
             sbom.runtime.cyclonedx.json
             sbom.build.cyclonedx.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Nothing here moves the `next` dist-tag after a stable release, so
+      # `npm install pkg@next` keeps resolving to the last release candidate
+      # indefinitely. It is not automated because npm documents the OIDC
+      # exchange for publishing and says nothing about whether the credential it
+      # mints also authenticates `npm dist-tag`; a step that fails *after* a
+      # successful publish would leave the release half-done and the job red.
+      # So it is a reminder in the run summary, where the person who tagged is
+      # already looking.
+      - name: Remind that the next dist-tag still points at the last prerelease
+        if: needs.verify.outputs.prerelease != 'true'
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### One manual step remains"
+            echo
+            echo "\`${VERSION}\` is now \`latest\`. The \`next\` dist-tag still points at the last"
+            echo "prerelease, so \`npm install @farukada/aws-langchain-s3-vector-ts@next\` resolves"
+            echo "to it. Move it:"
+            echo
+            echo '```bash'
+            echo "npm dist-tag add @farukada/aws-langchain-s3-vector-ts@${VERSION} next"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

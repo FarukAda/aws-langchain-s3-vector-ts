@@ -1,6 +1,17 @@
 /**
  * Type-check every TypeScript sample in the shipped documentation.
  *
+ * "The documentation" is exactly `README.md`, `src/guide.md` and
+ * `CHANGELOG.md`, and within them exactly the ```` ```ts ```` and
+ * ```` ```typescript ```` fences — see `DOCUMENTS` and the fence pattern
+ * below. Worth stating because it is narrower than the name suggests: a
+ * ```` ```js ```` block is skipped silently, the `bash` and `json` blocks are
+ * not checked at all (the IAM policy and the CLI commands are verified by eye
+ * against the AWS references they cite), nothing under `docs/` is covered —
+ * neither the decision records nor the evidence files nor the generated
+ * reference — and `examples/*.mjs` is plain JavaScript outside every
+ * TypeScript program, guarded instead by `examples-public-api.test.ts`.
+ *
  * `documented-api.test.ts` already checks that the docs name only methods,
  * codes and exports that exist. A name is not a signature: `delete` stayed a
  * real method when its parameters changed, so every README snippet calling it

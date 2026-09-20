@@ -61,6 +61,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The documentation an enterprise evaluator actually needs.** The reference
+  material was accurate and complete about *behaviour*; what was missing was
+  everything someone asks before adopting it. Now present:
+  - **A `Versioning and Support` section**, high in the README rather than
+    inferred from a contributor doc: semver as rules instead of a link, the
+    supported Node window with the date Node 22 leaves maintenance
+    (2027-04-30) and the statement that raising the floor is a major, the peer
+    support window and what happens at `@langchain/core` 2.x, the TypeScript
+    5.x guarantee and how it is verified, the deprecation window, who
+    maintains this and what "best effort" means, and a production-readiness
+    statement that names the missing second maintainer rather than eliding it.
+  - **`Region availability`**, because S3 Vectors is not in every Region and
+    the endpoint is `s3vectors.<region>.api.aws` rather than the S3 shape.
+  - **`Private connectivity (VPC endpoints)`** — the service name to create an
+    interface endpoint for, and the fact that with private DNS enabled this
+    package needs no configuration at all.
+  - **`Encryption with a customer managed key`** — the three things that must
+    be right, two of which are not guessable from the error: the key must be a
+    full ARN, the `indexing.s3vectors.amazonaws.com` service principal needs
+    `kms:Decrypt` on the key, and your own principals need `kms:Decrypt` plus
+    `kms:GenerateDataKey` scoped by `kms:ViaService`. With a complete key
+    policy, and a note that the `s3vectors:sseType`/`s3vectors:kmsKeyArn`
+    condition keys constrain *bucket* creation, which this package never does.
+  - **A cost model with figures** and the date they were read, replacing a
+    paragraph of request arithmetic with the dimensions AWS actually bills —
+    including the 128 KB minimum per write, which is why batching matters for
+    small ingests, and the free 512 KB of returned data per query, which is
+    when keeping page content out of metadata starts to pay.
+  - **`Query performance and recall`** — AWS's published sub-second cold, ~100
+    ms warm and 90%+ average recall, with what moves recall, and an explicit
+    statement that this package publishes no query benchmark of its own and
+    why a single-machine number would be worse than AWS's range.
+  - **`Observability and tracing`** — that LangSmith works with nothing from
+    this package because the run manager is forwarded as core forwards it,
+    with a traced-retriever example, an SDK middleware example for per-command
+    latency, and a pointer to CloudTrail data events for audit.
+  - **`Known limitations`**, collecting in one place what was true but spread
+    across nine sections — including the ones that should send a reader
+    elsewhere, such as needing sub-100 ms p99 on every query.
+  - **`Migrating from another vector store`**, with a restartable batched
+    migration that compiles, and the three steps migrations actually fail on:
+    reshaping metadata before the first write, deciding where page content
+    lives before anything is written, and using ids you control.
+  - **An end-to-end RAG example** that is compiled on every CI run. There was
+    no compilable one anywhere; the only RAG sample in the repository was
+    skip-marked pseudo-code in a file linked from nowhere.
+  - **`Design decisions and evidence`**, which finally links `docs/decisions/`
+    and `docs/evidence/` from somewhere a reader will find them, and
+    `src/guide.md`, which was CI-maintained and reachable from nothing.
+  - **A two-level table of contents**, and an *At a glance* table answering the
+    five questions an evaluator asks in the first minute.
+
+- **The GitHub Release body is this version's CHANGELOG section.** It was
+  `generate_release_notes: true`, a list of commit subjects — the wrong
+  artefact for a release carrying breaking changes and an upgrade guide, which
+  are written here. Extraction is a script with tests, and it fails rather than
+  shipping an empty body, because an empty release body is the kind of failure
+  nobody notices until somebody needs it. Nothing moves the `next` dist-tag
+  after a stable release, so a reminder is written to the run summary instead:
+  npm documents the OIDC exchange for publishing and says nothing about whether
+  the credential it mints also authenticates `npm dist-tag`, and a step that
+  failed *after* a successful publish would leave the release half-done.
+
+
 - **`S3VectorsAddOptions`, `S3VectorsGetByIdsOptions` and
   `S3VectorsFactoryConfig` are exported.** Five public methods took an anonymous
   inline options bag — `addVectors`, `addDocuments`, `getByIds`, `fromTexts` and
