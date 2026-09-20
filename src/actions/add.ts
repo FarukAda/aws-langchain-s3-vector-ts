@@ -10,13 +10,14 @@ import {
   assertIsArray,
   validationError,
 } from '../internal/guards.js';
-import { assertIdsWellFormed, resolveWriteIds } from '../internal/ids.js';
+import { assertIdsUnique, assertIdsWellFormed, resolveWriteIds } from '../internal/ids.js';
 import { assertWriteVectors } from '../internal/limits.js';
 import { prepareRecords, type WriteRecord } from '../internal/records.js';
 import { requestRuns } from '../internal/request-size.js';
-import { checkAborted, type StoreScope } from '../internal/signals.js';
+import { checkAborted } from '../internal/signals.js';
 import { describeValue } from '../shared/describe.js';
 import type { MetadataConfig } from '../shared/metadata.js';
+import type { StoreScope } from '../shared/scope.js';
 import type { DistanceMetric } from '../types.js';
 
 /** "Vectors per PutVectors call: 500" (limits page, `s3-vectors-limitations.html`). */
@@ -120,11 +121,13 @@ function resolveIds(
       `Number of IDs (${resolved.length}) must match number of ${countLabel} (${count})`,
     );
   }
-  assertIdsWellFormed(resolved, {
+  const idCheck = {
     operation,
     ...scope,
     source: ids === undefined ? DOCUMENT_ID_SOURCE : 'options.ids',
-  });
+  };
+  assertIdsWellFormed(resolved, idCheck);
+  assertIdsUnique(resolved, idCheck);
   return resolved;
 }
 

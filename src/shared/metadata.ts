@@ -1,10 +1,10 @@
 import { Document, type DocumentInterface } from '@langchain/core/documents';
 
-import type { OperationScope } from '../internal/operation.js';
 import type { S3OutputVector } from '../types.js';
 import { describeRecord, type RecordRef } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
+import type { OperationScope } from './scope.js';
 import { unpairedSurrogateReason } from './utf16.js';
 
 /** The store configuration a write of metadata is built against. */
@@ -12,7 +12,7 @@ export interface MetadataConfig {
   /** Where page content is stored, or `null` to store none. */
   readonly pageContentMetadataKey: string | null;
   /** The index's non-filterable keys, already merged with the page-content key. */
-  readonly nonFilterableKeys: readonly string[];
+  readonly nonFilterableMetadataKeys: readonly string[];
 }
 
 /** Options for {@link buildPutMetadata}. */
@@ -167,10 +167,10 @@ function serialisedBytes(value: Record<string, unknown>): number {
  * A byte count alone cannot be acted on: the caller has to know which keys were
  * counted, and that the index — not this store — is what AWS measures against.
  */
-function describeBudgetedKeys(nonFilterableKeys: readonly string[]): string {
-  return nonFilterableKeys.length === 0
+function describeBudgetedMetadataKeys(nonFilterableMetadataKeys: readonly string[]): string {
+  return nonFilterableMetadataKeys.length === 0
     ? 'This store declares no non-filterable keys, so every metadata key counts toward it.'
-    : `This store treats [${[...nonFilterableKeys]
+    : `This store treats [${[...nonFilterableMetadataKeys]
         .map((key) => JSON.stringify(key))
         .join(', ')}] as non-filterable, so every other key counts toward it.`;
 }
@@ -181,7 +181,7 @@ function describeBudgetedKeys(nonFilterableKeys: readonly string[]): string {
  * Accepts:
  * - `doc` — its `metadata` is copied and its `pageContent` stored under
  *   `pageContentMetadataKey` when that is not `null`.
- * - `opts.nonFilterableKeys` — the index's non-filterable keys, already merged
+ * - `opts.nonFilterableMetadataKeys` — the index's non-filterable keys, already merged
  *   with the page-content key. Keys named here are exempt from the filterable
  *   budget and still count toward the total.
  * - `opts.record` — the document's position in the caller's input, and its id.
@@ -210,7 +210,7 @@ export function buildPutMetadata(
   doc: DocumentInterface,
   opts: PutMetadataOptions,
 ): { metadata: Record<string, unknown>; metadataBytes: number } {
-  const { pageContentMetadataKey, nonFilterableKeys, operation, record } = opts;
+  const { pageContentMetadataKey, nonFilterableMetadataKeys, operation, record } = opts;
   const scope = { vectorBucketName: opts.vectorBucketName, indexName: opts.indexName };
   const subject = describeRecord('Document', record);
   const fail = (message: string): never => {
@@ -252,7 +252,7 @@ export function buildPutMetadata(
     );
   }
 
-  const nonFilterable = new Set(nonFilterableKeys);
+  const nonFilterable = new Set(nonFilterableMetadataKeys);
   const filterable = Object.fromEntries(
     Object.entries(metadata).filter(([key]) => !nonFilterable.has(key)),
   );
@@ -260,7 +260,7 @@ export function buildPutMetadata(
   if (filterableBytes > FILTERABLE_BYTE_LIMIT) {
     fail(
       `Filterable metadata is ${filterableBytes} bytes, over the ${FILTERABLE_BYTE_LIMIT}-byte ` +
-        `limit. ${describeBudgetedKeys(nonFilterableKeys)} If the index declares a different ` +
+        `limit. ${describeBudgetedMetadataKeys(nonFilterableMetadataKeys)} If the index declares a different ` +
         "set, the index's set is the one AWS measures against and this rejection is local " +
         'only: align `nonFilterableMetadataKeys` and `pageContentMetadataKey` with the index. ' +
         'Otherwise, declare large fields as non-filterable metadata keys on the index — a ' +

@@ -1,8 +1,8 @@
 import { chunk, offsetBatches } from '../shared/batching.js';
 import { attachPartialIds } from '../shared/errors/decorate.js';
-import type { OperationScope } from './operation.js';
+import type { OperationScope, StoreScope } from '../shared/scope.js';
 import { requestRuns, type RecordSize } from './request-size.js';
-import { checkAborted, type StoreScope } from './signals.js';
+import { checkAborted } from './signals.js';
 
 export interface EmbedPipelineOptions<T> extends OperationScope {
   /** The items to embed and write, in caller order. */

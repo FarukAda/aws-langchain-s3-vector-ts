@@ -10,7 +10,7 @@ import { buildPutMetadata } from '../../src/shared/metadata.js';
  */
 const BASE = {
   pageContentMetadataKey: '_page_content',
-  nonFilterableKeys: ['_page_content'] as readonly string[],
+  nonFilterableMetadataKeys: ['_page_content'] as readonly string[],
   operation: 'addVectors',
   vectorBucketName: 'b',
   indexName: 'i',
@@ -91,7 +91,7 @@ describe('buildPutMetadata — key count', () => {
   });
 
   it('rejects 51 caller keys even when no page-content key is added', () => {
-    const error = build(keys(51), { pageContentMetadataKey: null, nonFilterableKeys: [] });
+    const error = build(keys(51), { pageContentMetadataKey: null, nonFilterableMetadataKeys: [] });
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).not.toContain('page-content key this package adds');
   });
@@ -99,7 +99,7 @@ describe('buildPutMetadata — key count', () => {
   it('accepts 50 caller keys when no page-content key is added', () => {
     expect(
       Object.keys(
-        build(keys(50), { pageContentMetadataKey: null, nonFilterableKeys: [] }) as object,
+        build(keys(50), { pageContentMetadataKey: null, nonFilterableMetadataKeys: [] }) as object,
       ),
     ).toHaveLength(50);
   });
@@ -110,14 +110,14 @@ describe('buildPutMetadata — byte limits (docs/evidence/metadata-limits.md)', 
     // {"f":"x…"} plus the 5-byte overhead must not exceed 2048.
     const value = 'x'.repeat(2035);
     expect(
-      build({ f: value }, { pageContentMetadataKey: null, nonFilterableKeys: [] }),
+      build({ f: value }, { pageContentMetadataKey: null, nonFilterableMetadataKeys: [] }),
     ).toMatchObject({ f: value });
   });
 
   it('rejects filterable metadata one byte over', () => {
     const error = build(
       { f: 'x'.repeat(2036) },
-      { pageContentMetadataKey: null, nonFilterableKeys: [] },
+      { pageContentMetadataKey: null, nonFilterableMetadataKeys: [] },
     );
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).toContain('2048');
@@ -135,14 +135,22 @@ describe('buildPutMetadata — byte limits (docs/evidence/metadata-limits.md)', 
     // The same value that fits under a 1-character key does not under a longer one.
     const value = 'x'.repeat(2035);
     expect(
-      codeOf(build({ ffffffffff: value }, { pageContentMetadataKey: null, nonFilterableKeys: [] })),
+      codeOf(
+        build(
+          { ffffffffff: value },
+          { pageContentMetadataKey: null, nonFilterableMetadataKeys: [] },
+        ),
+      ),
     ).toBe(S3VectorsErrorCode.VALIDATION);
   });
 
   it('counts UTF-8 bytes, so a two-byte character costs two', () => {
     expect(
       codeOf(
-        build({ f: 'é'.repeat(1018) }, { pageContentMetadataKey: null, nonFilterableKeys: [] }),
+        build(
+          { f: 'é'.repeat(1018) },
+          { pageContentMetadataKey: null, nonFilterableMetadataKeys: [] },
+        ),
       ),
     ).toBe(S3VectorsErrorCode.VALIDATION);
   });
@@ -151,14 +159,14 @@ describe('buildPutMetadata — byte limits (docs/evidence/metadata-limits.md)', 
     // Far over 2 KB, but declared non-filterable, so only the 40 KB rule applies.
     const big = 'x'.repeat(5000);
     expect(
-      build({ bulk: big }, { pageContentMetadataKey: null, nonFilterableKeys: ['bulk'] }),
+      build({ bulk: big }, { pageContentMetadataKey: null, nonFilterableMetadataKeys: ['bulk'] }),
     ).toMatchObject({ bulk: big });
   });
 
   it('rejects total metadata over the measured 40 KB ceiling', () => {
     const error = build(
       { bulk: 'x'.repeat(41000) },
-      { pageContentMetadataKey: null, nonFilterableKeys: ['bulk'] },
+      { pageContentMetadataKey: null, nonFilterableMetadataKeys: ['bulk'] },
     );
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).toContain('40960');
@@ -175,7 +183,10 @@ describe('buildPutMetadata — page content, unchanged', () => {
   });
 
   it('stores nothing extra when the key is null', () => {
-    const out = build({ a: 1 }, { pageContentMetadataKey: null, nonFilterableKeys: [] }) as object;
+    const out = build(
+      { a: 1 },
+      { pageContentMetadataKey: null, nonFilterableMetadataKeys: [] },
+    ) as object;
     expect(Object.keys(out)).toEqual(['a']);
   });
 });

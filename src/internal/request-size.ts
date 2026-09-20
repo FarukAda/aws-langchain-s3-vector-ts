@@ -1,4 +1,4 @@
-import type { StoreScope } from './signals.js';
+import type { StoreScope } from '../shared/scope.js';
 
 /**
  * The largest request body S3 Vectors accepts, in bytes.

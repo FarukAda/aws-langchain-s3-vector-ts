@@ -20,9 +20,9 @@ import {
   validationError,
 } from './internal/guards.js';
 import {
-  assertKeysCreatable,
+  assertMetadataKeysCreatable,
   createIndexLifecycle,
-  nonFilterableKeys,
+  resolveNonFilterableMetadataKeys,
   type IndexLifecycle,
 } from './internal/index-lifecycle.js';
 import { putBatch } from './internal/put-batch.js';
@@ -178,7 +178,7 @@ export class AmazonS3Vectors extends VectorStore {
    * as index creation merges them, so the filterable-byte budget is measured
    * against the same set the index was built with.
    */
-  readonly #nonFilterableKeys: readonly string[];
+  readonly #nonFilterableMetadataKeys: readonly string[];
 
   /** The bucket and index every error names. */
   get #scope(): { vectorBucketName: string; indexName: string } {
@@ -190,7 +190,7 @@ export class AmazonS3Vectors extends VectorStore {
     return {
       distanceMetric: this.distanceMetric,
       pageContentMetadataKey: this.pageContentMetadataKey,
-      nonFilterableKeys: this.#nonFilterableKeys,
+      nonFilterableMetadataKeys: this.#nonFilterableMetadataKeys,
     };
   }
 
@@ -292,18 +292,18 @@ export class AmazonS3Vectors extends VectorStore {
     // different AWS account or region than they intended.
     this.#client = resolveClient(config, this.#scope);
 
-    this.#nonFilterableKeys = nonFilterableKeys({
+    this.#nonFilterableMetadataKeys = resolveNonFilterableMetadataKeys({
       dataType: this.dataType,
       distanceMetric: this.distanceMetric,
       pageContentMetadataKey: this.pageContentMetadataKey,
       nonFilterableMetadataKeys: this.nonFilterableMetadataKeys,
     });
 
-    // A key list no index could ever be created with can never be written to
+    // A metadata-key list no index could ever be created with can never be written to
     // any index either, so it is refused here — for every store, including one
     // that only ever reads — rather than only once a write first creates the
     // index. `CreateIndex` re-checks the same rule as defence.
-    assertKeysCreatable(this.#nonFilterableKeys, (message) =>
+    assertMetadataKeysCreatable(this.#nonFilterableMetadataKeys, (message) =>
       failNonFilterableKeys(this.pageContentMetadataKey, this.#scope, message),
     );
 
@@ -813,7 +813,7 @@ export class AmazonS3Vectors extends VectorStore {
    * partial one reports what it managed via `context.deletedIds`.
    * @throws {S3VectorsError} `VALIDATION` when `ids` is missing or not an
    * array, when an id is not a string of 1–1024 characters or not well-formed
-   * UTF-16, when an id is repeated (`DeleteVectors` refuses a repeated key), when
+   * UTF-16, when an id is repeated (`DeleteVectors` refuses a repeated id), when
    * the legacy `deleteAll` flag is passed, or for a batch size outside 1–500 —
    * a per-id refusal carrying `recordIndex` and, for a string, `recordId`;
    * `ABORTED` for a fired signal; otherwise the class the `DeleteVectors` failure
@@ -881,7 +881,7 @@ export class AmazonS3Vectors extends VectorStore {
    * to prevent shared-reference mutations between returned documents.
    *
    * **A missing id yields `undefined` in its slot**, never a shorter array.
-   * `GetVectors` returns neither an entry nor an error for a key that is not
+   * `GetVectors` returns neither an entry nor an error for an id that is not
    * there (`docs/evidence/get-vectors-absent-keys.md`), so absence is an
    * ordinary answer and the result stays aligned with the id list — the
    * caller reads `result[i]` for `ids[i]` without tracking which ones

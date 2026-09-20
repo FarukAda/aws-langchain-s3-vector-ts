@@ -1,4 +1,5 @@
-import { checkAborted, type StoreScope } from './signals.js';
+import type { StoreScope } from '../shared/scope.js';
+import { checkAborted } from './signals.js';
 
 /**
  * The write rate AWS documents per vector index.

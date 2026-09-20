@@ -10,7 +10,7 @@ const CONFIG = {
   vectorBucketName: 'b',
   indexName: 'i',
   pageContentMetadataKey: '_page_content',
-  nonFilterableKeys: ['_page_content'],
+  nonFilterableMetadataKeys: ['_page_content'],
 } as const;
 
 describe('prepareRecords', () => {

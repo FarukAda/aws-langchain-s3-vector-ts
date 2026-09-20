@@ -1,11 +1,11 @@
 import type { Document } from '@langchain/core/documents';
 
-import { fetchVectorsByKey } from '../internal/get-vectors.js';
+import { fetchVectorsByIds } from '../internal/get-vectors.js';
 import { assertIsArray } from '../internal/guards.js';
-import { assertKeysWellFormed } from '../internal/ids.js';
+import { assertIdsWellFormed } from '../internal/ids.js';
 import type { BatchedOperation } from '../internal/operation.js';
-import type { StoreScope } from '../internal/signals.js';
 import { createDocument } from '../shared/metadata.js';
+import type { StoreScope } from '../shared/scope.js';
 
 export interface GetByIdsOptions extends Omit<BatchedOperation, 'operation'> {
   /** The ids to fetch, in the order the result should hold them. */
@@ -21,7 +21,7 @@ export interface GetByIdsOptions extends Omit<BatchedOperation, 'operation'> {
  *
  * Returns: **one slot per requested id, in request order**, holding the
  * document or `undefined`. Absence is an ordinary answer: `GetVectors` returns
- * neither an entry nor an error for a key that is not stored
+ * neither an entry nor an error for an id that is not stored
  * (`docs/evidence/get-vectors-absent-keys.md`). Keeping the slot is what makes
  * `result[i]` always the answer for `ids[i]`, so a caller can never misalign a
  * shorter result against its id list.
@@ -42,7 +42,7 @@ export interface GetByIdsOptions extends Omit<BatchedOperation, 'operation'> {
  * - One order, on every call: `ids` and `batchSize` are checked before an
  *   already-fired signal gets to raise `ABORTED`, and only once both pass does
  *   an empty `ids` return `[]` — still without a request, since that
- *   short-circuit lives in {@link fetchVectorsByKey}, which this delegates to
+ *   short-circuit lives in {@link fetchVectorsByIds}, which this delegates to
  *   unconditionally rather than returning early itself.
  */
 export async function getByIds(opts: GetByIdsOptions): Promise<(Document | undefined)[]> {
@@ -53,19 +53,19 @@ export async function getByIds(opts: GetByIdsOptions): Promise<(Document | undef
   };
 
   assertIsArray('getByIds', scope, 'ids', ids);
-  // `GetVectors` holds a key to the bounds a write does, and fails the whole
+  // `GetVectors` holds ids to the bounds a write does, and fails the whole
   // batch — every valid id in it — on one it refuses. A repeated id is fine: it
-  // collapses into one request key and fills every slot that asked for it.
-  assertKeysWellFormed(ids, { operation: 'getByIds', ...scope, source: 'the ids argument' });
+  // collapses into one request entry and fills every slot that asked for it.
+  assertIdsWellFormed(ids, { operation: 'getByIds', ...scope, source: 'the ids argument' });
 
   // No early return on an empty `ids` here: batchSize and the signal still
-  // need checking even then, and fetchVectorsByKey already checks both ahead
+  // need checking even then, and fetchVectorsByIds already checks both ahead
   // of its own empty-keys short-circuit — running it unconditionally reuses
   // that order instead of restating it.
-  const found = await fetchVectorsByKey({
+  const found = await fetchVectorsByIds({
     client: opts.client,
     operation: 'getByIds',
-    keys: ids,
+    ids,
     returnData: false,
     returnMetadata: true,
     batchSize: opts.batchSize,

@@ -2,8 +2,8 @@ import { describeValue, renderValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { isPlainObject } from '../shared/objects.js';
+import type { StoreScope } from '../shared/scope.js';
 import { unpairedSurrogateReason } from '../shared/utf16.js';
-import type { StoreScope } from './signals.js';
 
 /** Why an operand cannot be used as written, or `undefined` if it can. */
 type OperandRule = (operand: unknown) => string | undefined;

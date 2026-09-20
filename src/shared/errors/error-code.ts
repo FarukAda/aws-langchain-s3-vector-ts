@@ -19,7 +19,7 @@ export enum S3VectorsErrorCode {
    *
    * **Not** a missing vector id. `getByIds` reports that as `undefined` in the
    * id's slot, because `GetVectors` returns neither an entry nor an error for a
-   * key that is not stored — absence is an ordinary answer, not a failure.
+   * id that is not stored — absence is an ordinary answer, not a failure.
    */
   NOT_FOUND = 'NOT_FOUND',
   /** An operation needed an embedding model but none was configured. */

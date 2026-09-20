@@ -3,7 +3,7 @@ import { describe, it, expect } from '@jest/globals';
 
 import {
   createIndexLifecycle,
-  nonFilterableKeys,
+  resolveNonFilterableMetadataKeys,
   type IndexLifecycleConfig,
 } from '../../src/internal/index-lifecycle.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
@@ -208,10 +208,10 @@ describe('createIndexLifecycle — index creation rules', () => {
     });
   });
 
-  describe('nonFilterableKeys', () => {
+  describe('nonFilterableMetadataKeys', () => {
     it('does not mutate the array the caller configured the store with', () => {
       const configured = ['bulk'];
-      const keys = nonFilterableKeys({
+      const keys = resolveNonFilterableMetadataKeys({
         dataType: 'float32',
         distanceMetric: 'cosine',
         pageContentMetadataKey: '_page_content',
@@ -225,7 +225,7 @@ describe('createIndexLifecycle — index creation rules', () => {
 
     it('adds nothing when page content is not stored at all', () => {
       expect(
-        nonFilterableKeys({
+        resolveNonFilterableMetadataKeys({
           dataType: 'float32',
           distanceMetric: 'cosine',
           pageContentMetadataKey: null,

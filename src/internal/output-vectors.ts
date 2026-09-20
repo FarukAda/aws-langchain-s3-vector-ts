@@ -1,8 +1,8 @@
 import { describeValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
+import type { StoreScope } from '../shared/scope.js';
 import type { S3OutputVector } from '../types.js';
-import type { StoreScope } from './signals.js';
 
 /**
  * The vectors a response carried, checked to actually be vectors.

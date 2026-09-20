@@ -36,7 +36,7 @@ import { BASE_CONFIG, createMockClient, createMockEmbeddings } from '../helpers.
 
 const OPTIONS = {
   pageContentMetadataKey: '_page_content',
-  nonFilterableKeys: ['_page_content'],
+  nonFilterableMetadataKeys: ['_page_content'],
   operation: 'addDocuments',
   vectorBucketName: 'test-bucket',
   indexName: 'test-index',
@@ -158,7 +158,7 @@ describe('page content cannot be silently discarded', () => {
     const { metadata } = buildPutMetadata(new Document({ pageContent: 'IMPORTANT TEXT' }), {
       ...OPTIONS,
       pageContentMetadataKey: '__proto__',
-      nonFilterableKeys: ['__proto__'],
+      nonFilterableMetadataKeys: ['__proto__'],
     });
     expect(Object.hasOwn(metadata, '__proto__')).toBe(true);
     expect(JSON.stringify(metadata)).toContain('IMPORTANT TEXT');

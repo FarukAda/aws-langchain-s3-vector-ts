@@ -25,8 +25,9 @@ import { attachOperation } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
+import type { StoreScope } from '../shared/scope.js';
 import type { DistanceMetric, VectorDataType } from '../types.js';
-import { checkAborted, raceAbort, sendOptions, type StoreScope } from './signals.js';
+import { checkAborted, raceAbort, sendOptions } from './signals.js';
 
 /** The client and the index a lifecycle call acts on. */
 export interface IndexContext {
@@ -47,7 +48,7 @@ export interface IndexDescription {
    * recognisable list. `undefined` means "not stated", never "none" — a body
    * this package cannot read must not be reported as a configuration.
    */
-  readonly nonFilterableKeys?: readonly string[];
+  readonly nonFilterableMetadataKeys?: readonly string[];
 }
 
 /**
@@ -81,7 +82,7 @@ export interface IndexDescription {
  * to turn a live index into a failure: existence is the answer that matters, and
  * it is settled before this is consulted.
  */
-function nonFilterableKeysOf(response: unknown): readonly string[] | undefined {
+function nonFilterableMetadataKeysOf(response: unknown): readonly string[] | undefined {
   if (typeof response !== 'object' || response === null) return undefined;
   const index: unknown = (response as { index?: unknown }).index;
   if (typeof index !== 'object' || index === null) return undefined;
@@ -143,8 +144,10 @@ export async function describeIndex(
       }),
       sendOptions(signal),
     );
-    const keys = nonFilterableKeysOf(response);
-    return keys === undefined ? { exists: true } : { exists: true, nonFilterableKeys: keys };
+    const keys = nonFilterableMetadataKeysOf(response);
+    return keys === undefined
+      ? { exists: true }
+      : { exists: true, nonFilterableMetadataKeys: keys };
   } catch (error: unknown) {
     if (isAwsNotFoundException(error)) return { exists: false };
     throw wrapAwsError(error, classifyAwsError(error), 'GetIndex', {
@@ -185,7 +188,7 @@ export async function describeIndex(
  * for the same reason, that an index configured out of band should be caught
  * rather than silently written to under the wrong assumptions.
  */
-function assertKeysAgree(
+function assertMetadataKeysAgree(
   reported: readonly string[] | undefined,
   expected: readonly string[],
   ctx: IndexContext,
@@ -333,10 +336,10 @@ export interface IndexLifecycle {
  *
  * Throws: nothing. The 10-key ceiling and each key's own length are enforced
  * on this exact result — by the {@link AmazonS3Vectors} constructor at
- * construction, and again, as defence, by {@link assertKeysCreatable} at
+ * construction, and again, as defence, by {@link assertMetadataKeysCreatable} at
  * index creation, where the error can name the index being created.
  */
-export function nonFilterableKeys(config: IndexLifecycleConfig): string[] {
+export function resolveNonFilterableMetadataKeys(config: IndexLifecycleConfig): string[] {
   const configured = config.nonFilterableMetadataKeys ?? [];
   return config.pageContentMetadataKey === null
     ? [...configured]
@@ -357,7 +360,7 @@ export function nonFilterableKeys(config: IndexLifecycleConfig): string[] {
  * outside 1–63 characters (limits page). Checked before `CreateIndex` so the
  * failure names the configuration rather than arriving as an opaque rejection.
  */
-export function assertKeysCreatable(
+export function assertMetadataKeysCreatable(
   keys: readonly string[],
   fail: (message: string) => never,
 ): void {
@@ -429,7 +432,7 @@ function assertCreatable(
       `dimension must be an integer between ${MIN_DIMENSION} and ${MAX_DIMENSION} (received ${renderValue(dimension)}).`,
     );
   }
-  assertKeysCreatable(keys, fail);
+  assertMetadataKeysCreatable(keys, fail);
   assertTagsCreatable(tags, fail);
 }
 
@@ -460,7 +463,7 @@ async function createIndex(
   dimension: number,
   operation: string,
 ): Promise<'created' | 'raced'> {
-  const keys = nonFilterableKeys(config);
+  const keys = resolveNonFilterableMetadataKeys(config);
   assertCreatable(ctx, dimension, keys, config.tags, operation);
   try {
     await ctx.client.send(
@@ -543,9 +546,9 @@ export function createIndexLifecycle(
           if (description.exists) {
             // Only for an index this store did not create. One it creates is
             // configured from this very list, so it agrees by construction.
-            assertKeysAgree(
-              description.nonFilterableKeys,
-              nonFilterableKeys(config),
+            assertMetadataKeysAgree(
+              description.nonFilterableMetadataKeys,
+              resolveNonFilterableMetadataKeys(config),
               ctx,
               operation,
             );
@@ -558,7 +561,12 @@ export function createIndexLifecycle(
             // configuration is readable straight after the conflict
             // (docs/evidence/index-create-race.md).
             const winner = await describeIndex(ctx, undefined, operation);
-            assertKeysAgree(winner.nonFilterableKeys, nonFilterableKeys(config), ctx, operation);
+            assertMetadataKeysAgree(
+              winner.nonFilterableMetadataKeys,
+              resolveNonFilterableMetadataKeys(config),
+              ctx,
+              operation,
+            );
           }
           knownToExist = true;
         } finally {

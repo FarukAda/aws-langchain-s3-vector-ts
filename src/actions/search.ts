@@ -5,11 +5,11 @@ import { assertK, validationError } from '../internal/guards.js';
 import { assertQueryVector } from '../internal/limits.js';
 import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
-import type { StoreScope } from '../internal/signals.js';
 import { cosineRelevanceScoreFn } from '../relevance-scores.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { createDocument } from '../shared/metadata.js';
+import type { StoreScope } from '../shared/scope.js';
 import type { DistanceMetric } from '../types.js';
 
 export interface VectorSearchOptions extends AwsOperation {

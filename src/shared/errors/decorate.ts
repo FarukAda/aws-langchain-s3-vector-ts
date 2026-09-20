@@ -1,4 +1,4 @@
-import type { StoreScope } from '../../internal/signals.js';
+import type { StoreScope } from '../scope.js';
 import {
   isS3VectorsError,
   S3VectorsError,
@@ -141,7 +141,7 @@ export function attachOperation(
  * `deletedIds`), the ids confirmed before the failure, and optionally every id
  * the call resolved.
  *
- * Returns: the normalised error with `context[key]` set, and — when any id was
+ * Returns: the normalised error with `context[contextField]` set, and — when any id was
  * committed — a message saying how many, so a log line alone says whether the
  * operation was partial.
  *
@@ -156,20 +156,20 @@ export function attachPartialIds(
   error: unknown,
   operation: string,
   scope: StoreScope,
-  key: 'writtenIds' | 'deletedIds',
+  contextField: 'writtenIds' | 'deletedIds',
   ids: string[],
   attemptedIds?: readonly string[],
 ): S3VectorsError {
   const base = normalizeToS3VectorsError(error, operation, scope);
   const phrase =
-    key === 'writtenIds' ? 'were already durably written' : 'were already durably deleted';
+    contextField === 'writtenIds' ? 'were already durably written' : 'were already durably deleted';
   const message =
     ids.length > 0
-      ? `${base.message} ${ids.length} vector(s) ${phrase} before this failure — see error.context.${key}.`
+      ? `${base.message} ${ids.length} vector(s) ${phrase} before this failure — see error.context.${contextField}.`
       : base.message;
   return rebuildWithContext(base, message, {
     ...base.context,
-    [key]: ids,
+    [contextField]: ids,
     ...(attemptedIds === undefined ? {} : { attemptedIds: [...attemptedIds] }),
   });
 }

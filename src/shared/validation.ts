@@ -1,6 +1,5 @@
 import { DataType, DistanceMetric, S3VectorsClient, SseType } from '@aws-sdk/client-s3vectors';
 
-import type { StoreScope } from '../internal/signals.js';
 import type { AmazonS3VectorsConfig } from '../types.js';
 import {
   METADATA_KEY_MAX_LENGTH,
@@ -13,6 +12,7 @@ import { describeValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
 import { isObjectLike } from './objects.js';
+import type { StoreScope } from './scope.js';
 import { unpairedSurrogateReason } from './utf16.js';
 
 const BUCKET_NAME_MIN_LENGTH = 3;
@@ -320,7 +320,7 @@ function assertNonFilterableKeys(value: unknown): void {
  *
  * Accepts: `pageContentMetadataKey` as resolved (never `undefined`); the
  * bucket and index, already validated by the time this rule runs; and
- * `message`, the text {@link assertKeysCreatable} raised. It is passed as that
+ * `message`, the text {@link assertMetadataKeysCreatable} raised. It is passed as that
  * rule's `fail`, over the list merged with the page-content key, so the
  * decision stays in one place and this only says where the list came from.
  *

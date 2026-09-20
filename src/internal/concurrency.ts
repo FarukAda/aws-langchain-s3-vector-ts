@@ -1,16 +1,16 @@
 import { chunk, offsetBatches } from '../shared/batching.js';
 import { attachPartialIds } from '../shared/errors/decorate.js';
-import type { StoreScope } from './signals.js';
+import type { StoreScope } from '../shared/scope.js';
 
 /** Which list of already-committed ids a failure should carry. */
-type CommittedIdsKey = 'writtenIds' | 'deletedIds';
+type CommittedIdsField = 'writtenIds' | 'deletedIds';
 
 /** What every batched operation needs to report a partial failure. */
 export interface BatchReporting extends StoreScope {
   /** The public method this batch belongs to; named in the error it raises. */
   readonly operation: string;
   /** Which list the ids belong under on a thrown error. */
-  readonly key: CommittedIdsKey;
+  readonly contextField: CommittedIdsField;
   /** Every id this call resolved, whether or not it committed. */
   readonly attemptedIds?: readonly string[] | undefined;
 }
@@ -50,8 +50,8 @@ export async function settleGroup(
     }
   }
   if (hasError) {
-    const { operation, key, attemptedIds, ...scope } = reporting;
-    throw attachPartialIds(firstError, operation, scope, key, collectedIds, attemptedIds);
+    const { operation, contextField, attemptedIds, ...scope } = reporting;
+    throw attachPartialIds(firstError, operation, scope, contextField, collectedIds, attemptedIds);
   }
 }
 
@@ -116,7 +116,7 @@ export async function runBatchesConcurrently<T>(
   batches: T[][],
   ids: string[],
   maxConcurrent: number,
-  reporting: Omit<BatchReporting, 'key' | 'attemptedIds'>,
+  reporting: Omit<BatchReporting, 'contextField' | 'attemptedIds'>,
   action: (batch: T[], offset: number) => Promise<void>,
 ): Promise<void> {
   const { operation, ...scope } = reporting;
@@ -136,7 +136,7 @@ export async function runBatchesConcurrently<T>(
               ids.slice(batchOffset, batchOffset + batch.length),
             ),
       ),
-      { ...reporting, key: 'writtenIds', attemptedIds: ids },
+      { ...reporting, contextField: 'writtenIds', attemptedIds: ids },
       writtenIds,
     );
   }

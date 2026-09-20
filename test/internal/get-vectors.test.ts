@@ -1,12 +1,12 @@
 import { GetVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
-import { fetchVectorsByKey } from '../../src/internal/get-vectors.js';
+import { fetchVectorsByIds } from '../../src/internal/get-vectors.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { createMockClient, sendOptionsOf } from '../helpers.js';
 
 /**
- * One test per domain cell of `fetchVectorsByKey`. A Map keyed by id, because
+ * One test per domain cell of `fetchVectorsByIds`. A Map keyed by id, because
  * GetVectors does not return results in request order
  * (docs/evidence/get-vectors-absent-keys.md).
  */
@@ -15,13 +15,13 @@ const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code
 
 function setup() {
   const { client, mock } = createMockClient();
-  const run = (keys: readonly string[], overrides: Record<string, unknown> = {}) =>
-    fetchVectorsByKey({
+  const run = (ids: readonly string[], overrides: Record<string, unknown> = {}) =>
+    fetchVectorsByIds({
       client,
       vectorBucketName: 'b',
       indexName: 'i',
       operation: 'getByIds',
-      keys,
+      ids,
       returnData: false,
       returnMetadata: true,
       ...overrides,
@@ -38,7 +38,7 @@ const echo =
       .map((k) => ({ key: k, metadata: { id: k } })),
   });
 
-describe('fetchVectorsByKey', () => {
+describe('fetchVectorsByIds', () => {
   it('returns an empty map and issues no request for no keys', async () => {
     const { mock, run } = setup();
     expect((await run([])).size).toBe(0);

@@ -3,7 +3,8 @@ import { describeRecord, describeValue, type RecordRef } from '../shared/describ
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { isObjectLike } from '../shared/objects.js';
-import { isAbortSignalLike, type StoreScope } from './signals.js';
+import type { StoreScope } from '../shared/scope.js';
+import { isAbortSignalLike } from './signals.js';
 
 /**
  * Build a `VALIDATION` error for a caller-input failure.
@@ -167,7 +168,7 @@ export function assertOptionsBag(
  * Guarantees: shared by the write paths rather than inlined in each, because
  * the failure it prevents is silent. A string of the right length (`'abc'`
  * alongside three vectors) passes the count check, is then sliced and indexed
- * exactly like an array, and writes each *character* as a vector key — wrong
+ * exactly like an array, and writes each *character* as a vector id — wrong
  * ids committed to AWS with no error at all.
  */
 export function assertIdsOption(

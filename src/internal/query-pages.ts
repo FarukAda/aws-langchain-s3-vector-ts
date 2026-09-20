@@ -6,10 +6,11 @@ import { rebuildWithContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
+import type { StoreScope } from '../shared/scope.js';
 import type { DistanceMetric, S3OutputVector } from '../types.js';
 import type { AwsOperation } from './operation.js';
 import { outputVectorsOf } from './output-vectors.js';
-import { checkAborted, type StoreScope, sendOptions } from './signals.js';
+import { checkAborted, sendOptions } from './signals.js';
 
 /**
  * Absolute ceiling on `QueryVectors` pages per search: a runaway backstop with

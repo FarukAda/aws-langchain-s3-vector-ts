@@ -100,7 +100,7 @@ const MESSAGE_ID_MAX_LENGTH = 64;
  *
  * Returns: `Document at index 400 (id "ticket-400")`, or `Vector id at index 3`
  * when the reference carries no id. The id is JSON-quoted, so an empty or blank
- * one is visible, and cut to 64 characters with `…` so a 1,024-character key
+ * one is visible, and cut to 64 characters with `…` so a 1,024-character id
  * does not swamp the message.
  *
  * Throws: nothing.

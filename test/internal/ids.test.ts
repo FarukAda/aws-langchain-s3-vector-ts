@@ -2,15 +2,16 @@ import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
 import {
+  assertIdsUnique,
   assertIdsWellFormed,
-  assertKeysWellFormed,
-  type KeyCheckOptions,
+  type IdCheckOptions,
   resolveWriteIds,
 } from '../../src/internal/ids.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 
 /**
- * One test per domain cell of `resolveWriteIds` and `assertIdsWellFormed`.
+ * One test per domain cell of `resolveWriteIds`, `assertIdsWellFormed` and
+ * `assertIdsUnique`.
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
@@ -69,12 +70,12 @@ describe('resolveWriteIds', () => {
   });
 });
 
-const OPTS: KeyCheckOptions = { operation: 'addVectors', ...SCOPE, source: 'options.ids' };
+const OPTS: IdCheckOptions = { operation: 'addVectors', ...SCOPE, source: 'options.ids' };
 const contextOf = (e: unknown): Record<string, unknown> =>
   (e as { context: Record<string, unknown> }).context;
 
 describe('assertIdsWellFormed', () => {
-  const check = (ids: readonly unknown[], opts: KeyCheckOptions = OPTS): unknown =>
+  const check = (ids: readonly unknown[], opts: IdCheckOptions = OPTS): unknown =>
     thrownBy(() => {
       assertIdsWellFormed(ids, opts);
     });
@@ -91,11 +92,11 @@ describe('assertIdsWellFormed', () => {
     expect(check(['k😀'])).toBeUndefined();
   });
 
-  it('rejects an id over 1024 characters, the documented key maximum', () => {
+  it('rejects an id over 1024 characters, the documented maximum', () => {
     const error = check(['x'.repeat(1025)]);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
     expect((error as Error).message).toContain('1025 characters');
-    expect((error as Error).message).toContain('1024-character maximum for a vector key');
+    expect((error as Error).message).toContain('1024-character maximum for a vector id');
   });
 
   it('rejects an empty-string id', () => {
@@ -123,17 +124,8 @@ describe('assertIdsWellFormed', () => {
     );
   });
 
-  it('rejects a duplicate within one call, which the two paths punish differently', () => {
-    const error = check(['a', 'b', 'a']);
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('Vector id at index 2 repeats the id at index 0');
-    expect((error as Error).message).toMatch(/duplicate/i);
-    // The message says what each path would have done and what to do instead. On
-    // a write the failure is silent, so it has to be spelled out; on a delete
-    // `DeleteVectors` refuses the request outright.
-    expect((error as Error).message).toContain('silently overwrites the');
-    expect((error as Error).message).toContain('must not contain duplicate keys');
-    expect((error as Error).message).toContain('write it in a separate call');
+  it('allows a repeated id, which is a separate question and a separate check', () => {
+    expect(check(['a', 'a'])).toBeUndefined();
   });
 
   it('carries the position, and — for a string — the id itself (R3)', () => {
@@ -150,7 +142,6 @@ describe('assertIdsWellFormed', () => {
       indexName: 'i',
       recordIndex: 1,
     });
-    expect(contextOf(check(['a', 'b', 'a']))).toMatchObject({ recordIndex: 2, recordId: 'a' });
   });
 
   it('names the source it was given', () => {
@@ -159,13 +150,7 @@ describe('assertIdsWellFormed', () => {
   });
 });
 
-describe('assertKeysWellFormed', () => {
-  it('allows a repeated id, which GetVectors accepts', () => {
-    expect(() => {
-      assertKeysWellFormed(['a', 'a'], OPTS);
-    }).not.toThrow();
-  });
-
+describe('assertIdsWellFormed, on the shapes the service refuses', () => {
   it.each([
     ['not a string', [7]],
     ['empty', ['']],
@@ -175,7 +160,7 @@ describe('assertKeysWellFormed', () => {
     expect(
       codeOf(
         thrownBy(() => {
-          assertKeysWellFormed(ids, OPTS);
+          assertIdsWellFormed(ids, OPTS);
         }),
       ),
     ).toBe(S3VectorsErrorCode.VALIDATION);
@@ -185,10 +170,42 @@ describe('assertKeysWellFormed', () => {
     const holed: unknown[] = [];
     holed[1] = 'a';
     const error = thrownBy(() => {
-      assertKeysWellFormed(holed, OPTS);
+      assertIdsWellFormed(holed, OPTS);
     });
     expect((error as Error).message).toContain(
       'Vector id at index 0 is not a string (received undefined)',
     );
+  });
+});
+
+describe('assertIdsUnique', () => {
+  const check = (ids: readonly unknown[], opts: IdCheckOptions = OPTS): unknown =>
+    thrownBy(() => {
+      assertIdsUnique(ids, opts);
+    });
+
+  it('accepts ids that are each used once', () => {
+    expect(check(['a', 'b', 'c'])).toBeUndefined();
+  });
+
+  it('rejects a duplicate within one call, which the two paths punish differently', () => {
+    const error = check(['a', 'b', 'a']);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain('Vector id at index 2 repeats the id at index 0');
+    expect((error as Error).message).toMatch(/duplicate/i);
+    // The message says what each path would have done and what to do instead. On
+    // a write the failure is silent, so it has to be spelled out; on a delete
+    // `DeleteVectors` refuses the request outright.
+    expect((error as Error).message).toContain('silently overwrites the');
+    expect((error as Error).message).toContain('must not contain duplicate keys');
+    expect((error as Error).message).toContain('write it in a separate call');
+  });
+
+  it('carries the position and the id of the repeat, not of the original', () => {
+    expect(contextOf(check(['a', 'b', 'a']))).toMatchObject({ recordIndex: 2, recordId: 'a' });
+  });
+
+  it('does not examine shape, which assertIdsWellFormed has already settled', () => {
+    expect(check([7, 8])).toBeUndefined();
   });
 });

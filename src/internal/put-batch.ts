@@ -5,10 +5,10 @@ import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
 import { attachContext } from '../shared/errors/decorate.js';
 import { wrapAwsError, type AwsCommand } from '../shared/errors/wrap-error.js';
-import type { AwsOperation, OperationScope } from './operation.js';
+import type { OperationScope, StoreScope } from '../shared/scope.js';
+import type { AwsOperation } from './operation.js';
 import type { WriteRateLimiter } from './rate-limit.js';
 import type { WriteRecord } from './records.js';
-import type { StoreScope } from './signals.js';
 import { sendOptions } from './signals.js';
 
 export interface PutBatchOptions extends AwsOperation {

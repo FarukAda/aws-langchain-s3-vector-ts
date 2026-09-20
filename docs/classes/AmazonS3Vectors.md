@@ -614,7 +614,7 @@ after an ambiguous network failure is safe.
 
 `VALIDATION` when `ids` is missing or not an
 array, when an id is not a string of 1–1024 characters or not well-formed
-UTF-16, when an id is repeated (`DeleteVectors` refuses a repeated key), when
+UTF-16, when an id is repeated (`DeleteVectors` refuses a repeated id), when
 the legacy `deleteAll` flag is passed, or for a batch size outside 1–500 —
 a per-id refusal carrying `recordIndex` and, for a string, `recordId`;
 `ABORTED` for a fired signal; otherwise the class the `DeleteVectors` failure
@@ -828,7 +828,7 @@ When duplicate IDs are present, metadata is deep-copied (via `structuredClone`)
 to prevent shared-reference mutations between returned documents.
 
 **A missing id yields `undefined` in its slot**, never a shorter array.
-`GetVectors` returns neither an entry nor an error for a key that is not
+`GetVectors` returns neither an entry nor an error for an id that is not
 there (`docs/evidence/get-vectors-absent-keys.md`), so absence is an
 ordinary answer and the result stays aligned with the id list — the
 caller reads `result[i]` for `ids[i]` without tracking which ones

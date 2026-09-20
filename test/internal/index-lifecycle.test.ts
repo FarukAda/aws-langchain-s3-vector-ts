@@ -132,7 +132,7 @@ describe('describeIndex reports the index configuration it can actually read', (
   const keysFor = async (index: unknown): Promise<readonly string[] | undefined> => {
     const { mock, ctx } = ctxWith();
     mock.on(GetIndexCommand).resolves({ index } as { index?: never });
-    return (await describeIndex(ctx, undefined, 'addDocuments')).nonFilterableKeys;
+    return (await describeIndex(ctx, undefined, 'addDocuments')).nonFilterableMetadataKeys;
   };
 
   it('reports the keys an index declares', async () => {
@@ -173,6 +173,6 @@ describe('describeIndex reports the index configuration it can actually read', (
     mock.on(GetIndexCommand).resolves(undefined as unknown as { index?: never });
     const description = await describeIndex(ctx, undefined, 'addDocuments');
     expect(description.exists).toBe(true);
-    expect(description.nonFilterableKeys).toBeUndefined();
+    expect(description.nonFilterableMetadataKeys).toBeUndefined();
   });
 });

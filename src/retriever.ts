@@ -15,13 +15,14 @@ import {
 import { resolveMmrParameters } from './actions/mmr.js';
 import { validateFilter } from './internal/filter.js';
 import { assertK, assertOptionsBag, assertQueryText, validationError } from './internal/guards.js';
-import { assertSignal, raceAbort, type StoreScope } from './internal/signals.js';
+import { assertSignal, raceAbort } from './internal/signals.js';
 import type { AmazonS3Vectors } from './s3-vectors.js';
 import { renderValue } from './shared/describe.js';
 import { attachOperation } from './shared/errors/decorate.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
 import { isObjectLike } from './shared/objects.js';
+import type { StoreScope } from './shared/scope.js';
 
 /**
  * The longest `timeout` that works: Node's timers run a longer delay after

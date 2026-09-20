@@ -124,7 +124,7 @@ The bucket or index is not there (`NotFoundException`, 404).
 
 **Not** a missing vector id. `getByIds` reports that as `undefined` in the
 id's slot, because `GetVectors` returns neither an entry nor an error for a
-key that is not stored — absence is an ordinary answer, not a failure.
+id that is not stored — absence is an ordinary answer, not a failure.
 
 ***
 

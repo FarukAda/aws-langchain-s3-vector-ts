@@ -1,8 +1,9 @@
 import type { Document } from '@langchain/core/documents';
 
 import { listPages } from '../internal/list-pages.js';
-import type { AwsOperation, OperationScope } from '../internal/operation.js';
+import type { AwsOperation } from '../internal/operation.js';
 import { createDocument } from '../shared/metadata.js';
+import type { OperationScope } from '../shared/scope.js';
 import type { S3VectorsRecord } from '../types.js';
 
 export interface EnumerateOptions extends AwsOperation {

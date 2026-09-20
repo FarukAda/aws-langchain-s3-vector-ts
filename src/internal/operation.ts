@@ -1,25 +1,6 @@
 import type { S3VectorsClient } from '@aws-sdk/client-s3vectors';
 
-import type { StoreScope } from './signals.js';
-
-/**
- * What any operation needs in order to name itself in an error.
- *
- * Every error this package raises carries `operation` plus the bucket and
- * index, so a failure says which call, against which index, without the caller
- * correlating a stack trace.
- */
-export interface OperationScope extends StoreScope {
-  /**
-   * The public method this call belongs to — `'addDocuments'`,
-   * `'similaritySearch'`, `'listVectors'`. It is the caller's name for the
-   * operation, never an AWS command's, so an error names something the caller
-   * actually wrote — on every error, one raised by a failed request included.
-   * That request is named separately, as `awsCommand` (`'PutVectors'`), by the
-   * site that issued it.
-   */
-  readonly operation: string;
-}
+import type { OperationScope } from '../shared/scope.js';
 
 /**
  * What any operation that issues an AWS request needs on top of that.

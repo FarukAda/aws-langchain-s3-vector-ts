@@ -1,7 +1,7 @@
 import type { DocumentInterface } from '@langchain/core/documents';
 
 import { buildPutMetadata, type MetadataConfig } from '../shared/metadata.js';
-import type { OperationScope } from './operation.js';
+import type { OperationScope } from '../shared/scope.js';
 
 /** Everything a write needs about one document, taken once, before anything is spent. */
 export interface WriteRecord {

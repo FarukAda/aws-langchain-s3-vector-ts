@@ -6,34 +6,35 @@ import { rebuildWithContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
+import type { StoreScope } from '../shared/scope.js';
 import type { S3OutputVector } from '../types.js';
 import { assertBatchSize } from './guards.js';
 import type { AwsOperation } from './operation.js';
 import { outputVectorsOf } from './output-vectors.js';
-import { checkAborted, type StoreScope, sendOptions } from './signals.js';
+import { checkAborted, sendOptions } from './signals.js';
 
 /**
  * "Vectors per GetVectors API call: Up to 100"
  * (https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html).
  */
-const MAX_KEYS_PER_CALL = 100;
+const MAX_IDS_PER_CALL = 100;
 const DEFAULT_MAX_CONCURRENT = 10;
 
 export interface FetchVectorsOptions extends AwsOperation {
-  /** The keys to fetch. Duplicates collapse; an empty list issues no request. */
-  readonly keys: readonly string[];
+  /** The ids to fetch. Duplicates collapse; an empty list issues no request. */
+  readonly ids: readonly string[];
   /** Whether to ask for the embedding. `false` is the cheaper page. */
   readonly returnData: boolean;
   /** Whether to ask for the metadata, which is where page content lives. */
   readonly returnMetadata: boolean;
-  /** Keys per request; 1–100, defaulting to the documented maximum. */
+  /** Ids per request; 1–100, defaulting to the documented maximum. */
   readonly batchSize?: number | undefined;
   /** Requests in flight at once. Defaults to 10 when the caller says nothing. */
   readonly maxConcurrent?: number | undefined;
 }
 
 /**
- * Fetch one batch of keys.
+ * Fetch one batch of ids.
  *
  * @throws {S3VectorsError} `AWS_INVALID_RESPONSE` for a nullish response —
  * raised inside the batch so it travels the same path as any other batch
@@ -42,13 +43,14 @@ export interface FetchVectorsOptions extends AwsOperation {
 async function fetchOneBatch(
   opts: FetchVectorsOptions,
   scope: StoreScope,
-  keys: string[],
+  ids: string[],
 ): Promise<S3OutputVector[]> {
   const response = await opts.client.send(
     new GetVectorsCommand({
       vectorBucketName: opts.vectorBucketName,
       indexName: opts.indexName,
-      keys,
+      // The wire field is `keys`; this package calls them ids everywhere else.
+      keys: ids,
       returnData: opts.returnData,
       returnMetadata: opts.returnMetadata,
     }),
@@ -123,20 +125,20 @@ function withFoundIds(
 }
 
 /**
- * Fetch vectors by key, in batches, and return them keyed by id.
+ * Fetch vectors by id, in batches, and return them keyed by id.
  *
  * Accepts:
- * - `keys` — any number. Empty issues no request. Duplicates collapse.
+ * - `ids` — any number. Empty issues no request. Duplicates collapse.
  * - `returnData` — `true` when the caller needs the vectors themselves, as MMR
  *   does; `false` when metadata alone will do.
  * - `batchSize` — 1–100, checked before anything else: a caller sharing this
- *   helper (`getByIds`) may rely on the check running even when `keys` turns
+ *   helper (`getByIds`) may rely on the check running even when `ids` turns
  *   out empty, rather than validating it separately.
  * - `signal` — already fired rejects before any request, checked only once
  *   `batchSize` has passed.
  *
- * Returns: a `Map` from id to vector, holding only the keys the service
- * returned. A key that does not exist is simply absent — the service omits it
+ * Returns: a `Map` from id to vector, holding only the ids the service
+ * returned. An id that does not exist is simply absent — the service omits it
  * and responds 200 (docs/evidence/get-vectors-absent-keys.md), which is what
  * lets a caller tell "not there" from "the request failed".
  *
@@ -146,14 +148,14 @@ function withFoundIds(
  * every result.
  *
  * Throws: `VALIDATION` for `batchSize`, before anything else; `ABORTED` for
- * `signal`, checked next — so an empty `keys` list with a fired signal is
+ * `signal`, checked next — so an empty `ids` list with a fired signal is
  * `ABORTED`, before the empty list gets to return for free; `AWS_INVALID_RESPONSE`
  * for a nullish response; otherwise the class {@link classifyAwsError} assigns,
  * carrying `awsCommand: "GetVectors"` and `context.foundIds` — every id a
  * sibling batch retrieved before the failure, so a caller need not refetch from
  * scratch.
  */
-export async function fetchVectorsByKey(
+export async function fetchVectorsByIds(
   opts: FetchVectorsOptions,
 ): Promise<Map<string, S3OutputVector>> {
   const { operation, signal } = opts;
@@ -162,12 +164,12 @@ export async function fetchVectorsByKey(
     indexName: opts.indexName,
   };
 
-  const batchSize = opts.batchSize ?? MAX_KEYS_PER_CALL;
-  assertBatchSize(operation, scope, batchSize, MAX_KEYS_PER_CALL);
+  const batchSize = opts.batchSize ?? MAX_IDS_PER_CALL;
+  assertBatchSize(operation, scope, batchSize, MAX_IDS_PER_CALL);
   checkAborted(operation, signal, scope);
 
   const found = new Map<string, S3OutputVector>();
-  const unique = [...new Set(opts.keys)];
+  const unique = [...new Set(opts.ids)];
   if (unique.length === 0) return found;
 
   for (const group of chunk(
@@ -176,7 +178,9 @@ export async function fetchVectorsByKey(
   )) {
     // allSettled, not all: a slower sibling that succeeds after another
     // rejects must still appear in what gets reported.
-    const settled = await Promise.allSettled(group.map((keys) => fetchOneBatch(opts, scope, keys)));
+    const settled = await Promise.allSettled(
+      group.map((batch) => fetchOneBatch(opts, scope, batch)),
+    );
     const { failed, reason } = collectSettled(settled, found);
     if (failed) throw withFoundIds(reason, operation, scope, found);
   }

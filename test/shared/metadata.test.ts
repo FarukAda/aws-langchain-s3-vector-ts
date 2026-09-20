@@ -16,7 +16,7 @@ describe('buildPutMetadata', () => {
     expect(
       buildPutMetadata(doc, {
         pageContentMetadataKey: PAGE_CONTENT_KEY,
-        nonFilterableKeys: [PAGE_CONTENT_KEY],
+        nonFilterableMetadataKeys: [PAGE_CONTENT_KEY],
         operation: 'addDocuments',
         vectorBucketName: 'b',
         indexName: 'i',
@@ -33,7 +33,7 @@ describe('buildPutMetadata', () => {
     expect(
       buildPutMetadata(doc, {
         pageContentMetadataKey: null,
-        nonFilterableKeys: [],
+        nonFilterableMetadataKeys: [],
         operation: 'addDocuments',
         vectorBucketName: 'b',
         indexName: 'i',
@@ -50,7 +50,7 @@ describe('buildPutMetadata', () => {
     expect(() =>
       buildPutMetadata(doc, {
         pageContentMetadataKey: PAGE_CONTENT_KEY,
-        nonFilterableKeys: [PAGE_CONTENT_KEY],
+        nonFilterableMetadataKeys: [PAGE_CONTENT_KEY],
         operation: 'addDocuments',
         vectorBucketName: 'b',
         indexName: 'i',
@@ -62,7 +62,7 @@ describe('buildPutMetadata', () => {
     expect(() =>
       buildPutMetadata(new Document({ pageContent: 'x', metadata: { [PAGE_CONTENT_KEY]: 'y' } }), {
         pageContentMetadataKey: PAGE_CONTENT_KEY,
-        nonFilterableKeys: [],
+        nonFilterableMetadataKeys: [],
         operation: 'addVectors',
         vectorBucketName: 'b',
         indexName: 'i',
@@ -132,7 +132,7 @@ describe('buildPutMetadata / createDocument — prototype-chain safety', () => {
     expect(() =>
       buildPutMetadata(doc, {
         pageContentMetadataKey: 'constructor',
-        nonFilterableKeys: ['constructor'],
+        nonFilterableMetadataKeys: ['constructor'],
         operation: 'addDocuments',
         vectorBucketName: 'b',
         indexName: 'i',
@@ -141,7 +141,7 @@ describe('buildPutMetadata / createDocument — prototype-chain safety', () => {
     ).not.toThrow();
     const { metadata: result } = buildPutMetadata(doc, {
       pageContentMetadataKey: 'constructor',
-      nonFilterableKeys: ['constructor'],
+      nonFilterableMetadataKeys: ['constructor'],
       operation: 'addDocuments',
       vectorBucketName: 'b',
       indexName: 'i',
@@ -260,7 +260,7 @@ describe('createDocument — a non-string value under the reserved key', () => {
 
 const RECORD_OPTIONS = {
   pageContentMetadataKey: PAGE_CONTENT_KEY,
-  nonFilterableKeys: [PAGE_CONTENT_KEY],
+  nonFilterableMetadataKeys: [PAGE_CONTENT_KEY],
   operation: 'addDocuments',
   vectorBucketName: 'b',
   indexName: 'i',
@@ -361,7 +361,7 @@ describe('buildPutMetadata — strings AWS cannot decode (docs/evidence/string-e
       buildPutMetadata(new Document({ pageContent: 'cut \ud83d' }), {
         ...RECORD_OPTIONS,
         pageContentMetadataKey: null,
-        nonFilterableKeys: [],
+        nonFilterableMetadataKeys: [],
       }).metadata,
     ).toEqual({});
   });
@@ -393,7 +393,7 @@ describe('buildPutMetadata — the size the write path budgets with', () => {
     const doc = new Document({ pageContent: 'hello', metadata: { genre: 'scifi' } });
     const { metadata, metadataBytes } = buildPutMetadata(doc, {
       pageContentMetadataKey: PAGE_CONTENT_KEY,
-      nonFilterableKeys: [PAGE_CONTENT_KEY],
+      nonFilterableMetadataKeys: [PAGE_CONTENT_KEY],
       operation: 'addDocuments',
       vectorBucketName: 'b',
       indexName: 'i',

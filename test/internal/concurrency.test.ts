@@ -35,7 +35,7 @@ describe('settleGroup', () => {
           return ['fast'];
         },
       ],
-      { operation: 'addVectors', key: 'writtenIds', ...SCOPE },
+      { operation: 'addVectors', contextField: 'writtenIds', ...SCOPE },
       collected,
     );
     // The second thunk settles first; the report still reads in input order,
@@ -59,7 +59,7 @@ describe('settleGroup', () => {
           return ['late-success'];
         },
       ],
-      { operation: 'addVectors', key: 'writtenIds', ...SCOPE },
+      { operation: 'addVectors', contextField: 'writtenIds', ...SCOPE },
       collected,
     ).catch((e: unknown) => e);
 
@@ -77,7 +77,7 @@ describe('settleGroup', () => {
           throw new Error('second');
         },
       ],
-      { operation: 'delete', key: 'deletedIds', ...SCOPE },
+      { operation: 'delete', contextField: 'deletedIds', ...SCOPE },
       [],
     ).catch((e: unknown) => e);
     expect((error as Error).message).toContain('first');
@@ -91,7 +91,7 @@ describe('settleGroup', () => {
           throw new Error('boom');
         },
       ],
-      { operation: 'delete', key: 'deletedIds', ...SCOPE },
+      { operation: 'delete', contextField: 'deletedIds', ...SCOPE },
       [],
     ).catch((e: unknown) => e);
     expect(contextOf(error)['deletedIds']).toEqual(['gone']);
@@ -105,7 +105,7 @@ describe('settleGroup', () => {
           throw new Error('boom');
         },
       ],
-      { operation: 'addVectors', key: 'writtenIds', attemptedIds: ['a', 'b'], ...SCOPE },
+      { operation: 'addVectors', contextField: 'writtenIds', attemptedIds: ['a', 'b'], ...SCOPE },
       [],
     ).catch((e: unknown) => e);
     expect(contextOf(error)['attemptedIds']).toEqual(['a', 'b']);

@@ -2,16 +2,16 @@ import type { Document } from '@langchain/core/documents';
 import { maximalMarginalRelevance } from '@langchain/core/utils/math';
 
 import { validateFilter } from '../internal/filter.js';
-import { fetchVectorsByKey } from '../internal/get-vectors.js';
+import { fetchVectorsByIds } from '../internal/get-vectors.js';
 import { assertQueryVector } from '../internal/limits.js';
 import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
-import type { StoreScope } from '../internal/signals.js';
 import { MAX_TOP_K } from '../shared/aws-limits.js';
 import { renderValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { createDocument } from '../shared/metadata.js';
+import type { StoreScope } from '../shared/scope.js';
 import type { DistanceMetric } from '../types.js';
 
 export interface MmrSearchOptions extends AwsOperation {
@@ -178,7 +178,7 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
   // could not change any observable outcome — a statement that cannot be
   // observed is one more thing to keep true for no reason.
   //
-  // Candidates: keys only. MMR ranks by vector, and the documents it returns
+  // Candidates: ids only. MMR ranks by vector, and the documents it returns
   // are built from the `GetVectors` response, which carries the metadata —
   // asking `QueryVectors` for it as well quadrupled that response for nothing.
   const candidates = await queryPages({
@@ -195,10 +195,10 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
   });
   if (candidates.length === 0) return [];
 
-  const withVectors = await fetchVectorsByKey({
+  const withVectors = await fetchVectorsByIds({
     client: opts.client,
     operation,
-    keys: candidates.map((candidate) => candidate.key),
+    ids: candidates.map((candidate) => candidate.key),
     returnData: true,
     returnMetadata: true,
     maxConcurrent: opts.maxConcurrent,

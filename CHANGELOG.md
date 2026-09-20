@@ -427,6 +427,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Each write now receives the failure under its own method, with the same
   code, cause, `awsCommand` and stack.
 
+### Internal
+
+- **One word per concept, where three words named two concepts.** `key` meant
+  a vector's identifier in `internal/ids.ts` and `internal/get-vectors.ts`, a
+  metadata field name in `internal/index-lifecycle.ts` and `shared/metadata.ts`,
+  and an error-context property in `internal/concurrency.ts` — while the same
+  vector identifier was called `id` in every error message, in the published
+  surface (`getByIds`, `writtenIds`, `recordId`) and in half of the same files.
+  A vector's identifier is now `id` everywhere between the caller and the
+  command; `key` survives only where a request is built or a response read,
+  which is where the service's own word belongs and where the translation is
+  now visible. A metadata field name is `nonFilterableMetadataKeys` in all
+  three places that previously spelled it three ways, and the property selector
+  is `contextField`. Nothing published changed: `S3OutputVector.key` and
+  `S3VectorsRecord.key` are the wire shape and keep AWS's word.
+
+- **`assertIdsWellFormed` asked two questions and now asks one.** It checked
+  both whether the service could store an id at all and whether one call
+  repeated it — one name for two rules, which is why the name was hard to pick.
+  Shape stays with `assertIdsWellFormed`; repetition is `assertIdsUnique`, and
+  the two write paths call both. `getByIds` calls only the first, which is what
+  it always meant: `GetVectors` accepts a repeated id.
+
+- **The import direction between the layers of `src/` is a gate, not a
+  convention.** `test/contract/layer-direction.test.ts` places every module in
+  one of six layers — `leaf`, `shared`, `internal`, `actions`, `store`,
+  `entry` — and fails on an import that reaches a later one. Four upward
+  imports had already accumulated, every one of them `import type`, which
+  erases at run time and so left no cycle, no failing test and nothing for a
+  reviewer to notice; they were found by drawing the graph by hand. A module
+  added to `src/` without a place in the table fails too, so nothing escapes
+  the rule by being unlisted.
+
+- **`StoreScope` and `OperationScope` moved to `shared/scope.ts`.** Three of
+  those four imports were `shared/errors/decorate.ts`, `shared/metadata.ts` and
+  `shared/validation.ts` reaching up into `internal/` for a plain data type.
+  Both types carry no behaviour and no client, and the modules that name an
+  index and an operation in every message they build are the ones lowest down,
+  so the types belong there. The fourth is
+  `shared/errors/s3-vectors-error.ts` naming `AmazonS3Vectors` for
+  `S3VectorsErrorContext.instance`, which is published API — it is recorded in
+  the test as the single permitted exception, with the reason and what removing
+  it would cost.
+
 ## [1.0.0-rc.2] - 2026-09-16
 
 A contract-first rework of the whole package. Every function was specified

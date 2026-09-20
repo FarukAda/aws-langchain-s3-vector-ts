@@ -19,7 +19,7 @@ describe('metadata round-trip property', () => {
         (pageContent, metadata) => {
           const { metadata: put } = buildPutMetadata(new Document({ pageContent, metadata }), {
             pageContentMetadataKey: KEY,
-            nonFilterableKeys: [KEY],
+            nonFilterableMetadataKeys: [KEY],
             ...SCOPE,
             record: { recordIndex: 0 },
           });

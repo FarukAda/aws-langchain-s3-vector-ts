@@ -2,8 +2,8 @@ import { MAX_DIMENSION, MIN_DIMENSION } from '../shared/aws-limits.js';
 import { describeRecord, type RecordRef, renderValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
+import type { OperationScope } from '../shared/scope.js';
 import type { DistanceMetric } from '../types.js';
-import type { OperationScope } from './operation.js';
 
 /**
  * Why S3 Vectors cannot store, or search with, this vector — or `undefined` if
