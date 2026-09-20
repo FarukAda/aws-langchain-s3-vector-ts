@@ -14,7 +14,7 @@ Structured context attached to every [S3VectorsError](../classes/S3VectorsError.
 
 ### attemptedIds?
 
-> `readonly` `optional` **attemptedIds?**: `string`[]
+> `readonly` `optional` **attemptedIds?**: readonly `string`[]
 
 Defined in: [shared/errors/s3-vectors-error.ts:55](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L55)
 
@@ -102,7 +102,7 @@ splitting.
 
 ### deletedIds?
 
-> `readonly` `optional` **deletedIds?**: `string`[]
+> `readonly` `optional` **deletedIds?**: readonly `string`[]
 
 Defined in: [shared/errors/s3-vectors-error.ts:82](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L82)
 
@@ -112,7 +112,7 @@ Ids confirmed durably deleted before a partial `delete({ ids })` failure.
 
 ### fieldList?
 
-> `readonly` `optional` **fieldList?**: `object`[]
+> `readonly` `optional` **fieldList?**: readonly `Readonly`\<\{ `message?`: `string`; `path?`: `string`; \}\>[]
 
 Defined in: [shared/errors/s3-vectors-error.ts:80](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L80)
 
@@ -121,19 +121,11 @@ failed and why. A `ValidationException` carries these
 (`@aws-sdk/client-s3vectors@3.1133.0` `dist-types/models/models_0.d.ts:94`)
 and they are the actionable half of an otherwise opaque rejection.
 
-#### message?
-
-> `optional` **message?**: `string`
-
-#### path?
-
-> `optional` **path?**: `string`
-
 ***
 
 ### foundIds?
 
-> `readonly` `optional` **foundIds?**: `string`[]
+> `readonly` `optional` **foundIds?**: readonly `string`[]
 
 Defined in: [shared/errors/s3-vectors-error.ts:196](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L196)
 
@@ -330,7 +322,7 @@ The bucket the failed operation named. Absent only on a failure raised before on
 
 ### writtenIds?
 
-> `readonly` `optional` **writtenIds?**: `string`[]
+> `readonly` `optional` **writtenIds?**: readonly `string`[]
 
 Defined in: [shared/errors/s3-vectors-error.ts:49](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L49)
 

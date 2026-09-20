@@ -8,19 +8,28 @@
 
 > **AmazonS3VectorsRetrieverInput**\<`V`\> = `VectorStoreRetrieverInput`\<`V`\> & `object`
 
-Defined in: [retriever.ts:155](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L155)
+Defined in: [retriever.ts:171](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/retriever.ts#L171)
 
-What [AmazonS3VectorsRetriever](../classes/AmazonS3VectorsRetriever.md)'s constructor takes.
+What [AmazonS3VectorsRetriever](../classes/AmazonS3VectorsRetriever.md)'s **constructor** takes — core's own
+`VectorStoreRetrieverInput` plus the two fields this package adds.
+
+Distinct from [AmazonS3VectorsRetrieverFields](../interfaces/AmazonS3VectorsRetrieverFields.md), which is what
+[AmazonS3Vectors.asRetriever](../classes/AmazonS3Vectors.md#asretriever) takes. The two overlap but are not the
+same: this one carries core's `vectorStore`, because a constructor is handed
+the store it reads from, and `asRetriever` already knows it.
+
+The two added fields are `readonly` to match every other published option
+type here; core's own fields are as core declares them.
 
 ## Type Declaration
 
 ### scoreThreshold?
 
-> `optional` **scoreThreshold?**: `number`
+> `readonly` `optional` **scoreThreshold?**: `number`
 
 ### signal?
 
-> `optional` **signal?**: `AbortSignal`
+> `readonly` `optional` **signal?**: `AbortSignal`
 
 ## Type Parameters
 

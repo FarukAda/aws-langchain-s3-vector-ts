@@ -62,6 +62,9 @@ import {
 import type {
   AmazonS3VectorsConfig,
   DistanceMetric,
+  S3VectorsAddOptions,
+  S3VectorsFactoryConfig,
+  S3VectorsGetByIdsOptions,
   S3VectorsDeleteIndexOptions,
   S3VectorsDeleteOptions,
   S3VectorsListOptions,
@@ -383,7 +386,7 @@ export class AmazonS3Vectors extends VectorStore {
   async addVectors(
     vectors: number[][],
     documents: DocumentInterface[],
-    options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
+    options?: S3VectorsAddOptions,
   ): Promise<string[]> {
     assertOptionsBag('addVectors', this.#scope, options);
     // No signal check here: it belongs after `addVectors()`'s own input
@@ -467,7 +470,7 @@ export class AmazonS3Vectors extends VectorStore {
    */
   async addDocuments(
     documents: DocumentInterface[],
-    options?: { ids?: string[]; batchSize?: number; signal?: AbortSignal },
+    options?: S3VectorsAddOptions,
   ): Promise<string[]> {
     assertOptionsBag('addDocuments', this.#scope, options);
     return await addDocuments({
@@ -914,7 +917,7 @@ export class AmazonS3Vectors extends VectorStore {
    */
   async getByIds(
     ids: string[],
-    options?: { batchSize?: number; signal?: AbortSignal },
+    options?: S3VectorsGetByIdsOptions,
   ): Promise<(Document | undefined)[]> {
     assertOptionsBag('getByIds', this.#scope, options);
     return await getByIds({
@@ -1084,7 +1087,7 @@ export class AmazonS3Vectors extends VectorStore {
     texts: string[],
     metadatas: Record<string, unknown>[] | Record<string, unknown>,
     embeddings: EmbeddingsInterface,
-    config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number; signal?: AbortSignal },
+    config: S3VectorsFactoryConfig,
   ): Promise<AmazonS3Vectors> {
     if (!Array.isArray(texts)) {
       throw new S3VectorsError('texts must be an array.', S3VectorsErrorCode.VALIDATION, {
@@ -1163,7 +1166,7 @@ export class AmazonS3Vectors extends VectorStore {
   static override async fromDocuments(
     docs: DocumentInterface[],
     embeddings: EmbeddingsInterface,
-    config: AmazonS3VectorsConfig & { ids?: string[]; batchSize?: number; signal?: AbortSignal },
+    config: S3VectorsFactoryConfig,
   ): Promise<AmazonS3Vectors> {
     // The write options travel in the same object as the store configuration,
     // and `Serializable` keeps that object on the instance as `lc_kwargs` — so

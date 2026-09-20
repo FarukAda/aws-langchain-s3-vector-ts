@@ -492,7 +492,7 @@ exception the service declares — never a substring match on a message:
 | `INDEX_CONFIG_MISMATCH` | An existing index disagrees with this store's configuration: its distance metric, checked against the `QueryVectors` response on every read so it cannot go stale, or its non-filterable metadata keys, checked against the `GetIndex` that precedes a first write. Also raised when the vectors a write is given disagree on dimension — anywhere in an `addVectors` call, before any request; within one embedded batch for `addDocuments`, before that batch is written. |
 | `ABORTED` | The supplied `AbortSignal` fired before or during the operation. `error.cause` is the signal's `reason`, always normalised to an `Error`. |
 | `AWS_INVALID_RESPONSE` | An AWS response was missing, or carried an unusable value for, something this library requires — a non-numeric `distance`, an unrecognised `distanceMetric`, a vector returned without data despite `returnData: true`, or a response that was not an object at all. Reachable only from a mocked, stubbed or otherwise non-conforming client. |
-| `QUERY_PAGE_LIMIT_EXCEEDED` | A paginated search reached this library's 1,000-page runaway ceiling with pages still outstanding and fewer than `k` results collected. `context.pagesScanned` and `context.resultsCollected` say how far short it fell — narrow the filter or lower `k`. A search that legitimately runs out of matches returns what it found, without error; that ambiguity is exactly what this code removes. |
+| `PAGE_LIMIT_EXCEEDED` | A paginated search reached this library's 1,000-page runaway ceiling with pages still outstanding and fewer than `k` results collected. `context.pagesScanned` and `context.resultsCollected` say how far short it fell — narrow the filter or lower `k`. A search that legitimately runs out of matches returns what it found, without error; that ambiguity is exactly what this code removes. |
 | `UNEXPECTED_ERROR` | A failure that never touched AWS — a raw throw from a caller-supplied embeddings model, or input malformed enough to bypass validation. |
 
 **The codes are append-only for `1.x`.** A value is never removed, never renamed, and never reassigned to a different condition, so a code you stored or logged means the same thing for all of `1.x`; `S3VectorsErrorContext` only gains fields, and `operation` is always present. A *new* code may arrive in a minor — the set grows, it does not change underneath you. That is safe for a `switch` with a `default` and for an `if` on a single code, and it is the reason to write them that way: `Record<S3VectorsErrorCode, T>` and a `never`-typed exhaustiveness assertion are the two shapes a new member breaks, and they are explicitly **not** covered by this promise. Error *messages* are not covered either — branch on `code`, on `context` and on `cause`, never on text. `isS3VectorsError` is the supported way to recognise these errors: it checks a brand, `Symbol.for('@farukada/aws-langchain-s3-vector-ts:S3VectorsError')`, rather than `instanceof`, so it works across realms and across the ESM and CommonJS copies of the module, and that brand string is stable for `1.x` too.
@@ -865,6 +865,9 @@ import {
   AmazonS3VectorsRetrieverInput,
   DistanceMetric,
   VectorDataType,
+  S3VectorsAddOptions,
+  S3VectorsGetByIdsOptions,
+  S3VectorsFactoryConfig,
   S3VectorsDeleteOptions,
   S3VectorsDeleteIndexOptions,
   S3VectorsListOptions,
@@ -873,6 +876,8 @@ import {
   S3VectorsErrorContext,
 } from "@farukada/aws-langchain-s3-vector-ts";
 ```
+
+**Versioning of the enumerated types.** `DistanceMetric` and `VectorDataType` appear on both sides of the surface: you pass them in `AmazonS3VectorsConfig`, and you read them back off `store.distanceMetric` and `store.dataType`. They are unions of exactly what S3 Vectors supports today, so the day AWS adds a third metric or a second data type, widening one is a **major** here — a `switch` over `store.distanceMetric` with no `default` stops compiling. Write one with a `default`, as with [error codes](#errors). The set only grows, and no member is ever removed, renamed, or given a different meaning.
 
 ## 🔐 IAM Permissions
 

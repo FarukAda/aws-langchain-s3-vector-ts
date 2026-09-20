@@ -29,6 +29,43 @@ describe('public exports', () => {
     ]);
   });
 
+  it('exposes exactly the documented public methods on the store', () => {
+    // The suite already checked that every name it knows about exists. Nothing
+    // checked the other direction: a new public method on the class was
+    // outside every ledger — not pinned here, not in the conformance
+    // registry's entry points, and caught by no gate. An allowlist is what
+    // makes adding one a decision.
+    const isInternal = (name: string): boolean => name === 'constructor' || name.startsWith('_');
+    const onPrototype = Object.getOwnPropertyNames(AmazonS3Vectors.prototype)
+      .filter((name) => !isInternal(name))
+      .sort();
+
+    expect(onPrototype).toEqual([
+      'addDocuments',
+      'addVectors',
+      'asRetriever',
+      'delete',
+      'deleteIndex',
+      'getByIds',
+      'listDocuments',
+      'listVectors',
+      'maxMarginalRelevanceSearch',
+      'similaritySearch',
+      'similaritySearchVectorWithScore',
+      'similaritySearchWithRelevanceScores',
+      'similaritySearchWithScore',
+    ]);
+  });
+
+  it('exposes exactly the documented static factories', () => {
+    const statics = Object.getOwnPropertyNames(AmazonS3Vectors)
+      .filter((name) => !['length', 'name', 'prototype'].includes(name))
+      .sort();
+    // Two, not three: `fromExistingIndex` was removed and the store is built
+    // with its constructor instead. Both of these are core's own factories.
+    expect(statics).toEqual(['fromDocuments', 'fromTexts']);
+  });
+
   it('exposes each one as the kind of thing it is documented to be', () => {
     expect(typeof AmazonS3Vectors).toBe('function');
     expect(typeof AmazonS3VectorsRetriever).toBe('function');

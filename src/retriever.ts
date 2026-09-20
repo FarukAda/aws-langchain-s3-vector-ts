@@ -33,6 +33,7 @@ import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
 import { isObjectLike } from './shared/objects.js';
 import type { StoreScope } from './shared/scope.js';
+import type { S3VectorsAddOptions } from './types.js';
 
 /**
  * The longest `timeout` that works: Node's timers run a longer delay after
@@ -105,7 +106,11 @@ function requireRetrieverInput<T>(fields: T): T {
 
 /**
  * Fields {@link AmazonS3Vectors.asRetriever} accepts: everything
- * `@langchain/core` documents, plus `signal`.
+ * `@langchain/core` documents, plus `signal` and `scoreThreshold`.
+ *
+ * Distinct from {@link AmazonS3VectorsRetrieverInput}, which is what the
+ * retriever's **constructor** takes and which additionally carries core's
+ * `vectorStore` — `asRetriever` already has the store.
  */
 export interface AmazonS3VectorsRetrieverFields<V extends AmazonS3Vectors = AmazonS3Vectors> {
   /** Documents to retrieve per query, 1–10,000. @defaultValue `4` */
@@ -151,9 +156,23 @@ export interface AmazonS3VectorsRetrieverFields<V extends AmazonS3Vectors = Amaz
   readonly callbacks?: Callbacks;
 }
 
-/** What {@link AmazonS3VectorsRetriever}'s constructor takes. */
+/**
+ * What {@link AmazonS3VectorsRetriever}'s **constructor** takes — core's own
+ * `VectorStoreRetrieverInput` plus the two fields this package adds.
+ *
+ * Distinct from {@link AmazonS3VectorsRetrieverFields}, which is what
+ * {@link AmazonS3Vectors.asRetriever} takes. The two overlap but are not the
+ * same: this one carries core's `vectorStore`, because a constructor is handed
+ * the store it reads from, and `asRetriever` already knows it.
+ *
+ * The two added fields are `readonly` to match every other published option
+ * type here; core's own fields are as core declares them.
+ */
 export type AmazonS3VectorsRetrieverInput<V extends AmazonS3Vectors = AmazonS3Vectors> =
-  VectorStoreRetrieverInput<V> & { signal?: AbortSignal; scoreThreshold?: number };
+  VectorStoreRetrieverInput<V> & {
+    readonly signal?: AbortSignal;
+    readonly scoreThreshold?: number;
+  };
 
 /**
  * The retriever {@link AmazonS3Vectors.asRetriever} returns.
@@ -337,10 +356,7 @@ export class AmazonS3VectorsRetriever<
    * signal and timeout itself, rejecting with the signal's reason rather than
    * `ABORTED`.
    */
-  override async invoke(
-    input: string,
-    options?: RunnableConfig,
-  ): Promise<DocumentInterface<Record<string, unknown>>[]> {
+  override async invoke(input: string, options?: RunnableConfig): Promise<DocumentInterface[]> {
     try {
       assertQueryText('retriever.invoke', this.#scope, input);
       assertTimeout('retriever.invoke', this.#scope, options?.timeout);
@@ -378,7 +394,7 @@ export class AmazonS3VectorsRetriever<
    */
   override async addDocuments(
     documents: DocumentInterface[],
-    options?: Parameters<AmazonS3Vectors['addDocuments']>[1],
+    options?: S3VectorsAddOptions,
   ): Promise<string[]> {
     try {
       return await this.vectorStore.addDocuments(documents, options);
@@ -405,7 +421,7 @@ export class AmazonS3VectorsRetriever<
   override async _getRelevantDocuments(
     query: string,
     runManager?: CallbackManagerForRetrieverRun,
-  ): Promise<DocumentInterface<Record<string, unknown>>[]> {
+  ): Promise<DocumentInterface[]> {
     const child = runManager?.getChild('vectorstore');
     if (this.scoreThreshold !== undefined) {
       // The relevance score, not the distance: higher is better, and the

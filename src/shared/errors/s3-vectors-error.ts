@@ -46,13 +46,13 @@ export interface S3VectorsErrorContext {
    * on auto-generated ids, which are otherwise lost entirely on failure)
    * can find and clean up or reconcile vectors that already landed.
    */
-  readonly writtenIds?: string[];
+  readonly writtenIds?: readonly string[];
   /**
    * Every id the failed write resolved, whether or not it landed. Retrying with
    * `{ ids: attemptedIds }` overwrites in place instead of minting fresh UUIDs
    * for the documents that already committed.
    */
-  readonly attemptedIds?: string[];
+  readonly attemptedIds?: readonly string[];
   /**
    * Position, in the caller's own input and counted from 0 over the whole call
    * — never over a batch — of the one element this error is about.
@@ -77,9 +77,9 @@ export interface S3VectorsErrorContext {
    * (`@aws-sdk/client-s3vectors@3.1133.0` `dist-types/models/models_0.d.ts:94`)
    * and they are the actionable half of an otherwise opaque rejection.
    */
-  readonly fieldList?: { path?: string; message?: string }[];
+  readonly fieldList?: readonly Readonly<{ path?: string; message?: string }>[];
   /** Ids confirmed durably deleted before a partial `delete({ ids })` failure. */
-  readonly deletedIds?: string[];
+  readonly deletedIds?: readonly string[];
   /**
    * Pages scanned before a paginated operation stopped.
    *
@@ -193,7 +193,7 @@ export interface S3VectorsErrorContext {
    *
    * Set by `getByIds` **and** by MMR, which fetches its candidates the same way.
    */
-  readonly foundIds?: string[];
+  readonly foundIds?: readonly string[];
   /**
    * The store constructed by a `fromDocuments`/`fromTexts` factory call that
    * failed partway through writing. Only ever set on an error thrown by
@@ -268,9 +268,25 @@ export class S3VectorsError extends Error {
     // so it stays out of logs, and spreading would drop it. `?? {}` guards only
     // against a nullish context, which would make `getOwnPropertyDescriptors`
     // throw from inside a constructor that is itself reporting a failure.
-    const frozen = Object.freeze(
-      Object.defineProperties({}, Object.getOwnPropertyDescriptors(context ?? {})),
-    ) as S3VectorsErrorContext;
+    const descriptors = Object.getOwnPropertyDescriptors(context ?? {});
+    // Object.freeze is shallow, and the fields that matter most here are
+    // arrays: `writtenIds` is the record of what was durably written, and
+    // `error.context.writtenIds.push(…)` used to compile *and* succeed. Each
+    // array is copied before being frozen, so the caller's own array — which
+    // they may still be using — is left alone, and so a later mutation of
+    // theirs cannot rewrite what the error reported.
+    for (const [key, descriptor] of Object.entries(descriptors)) {
+      if (!Array.isArray(descriptor.value)) continue;
+      descriptors[key] = {
+        ...descriptor,
+        value: Object.freeze(
+          (descriptor.value as readonly unknown[]).map((entry) =>
+            entry !== null && typeof entry === 'object' ? Object.freeze({ ...entry }) : entry,
+          ),
+        ),
+      };
+    }
+    const frozen = Object.freeze(Object.defineProperties({}, descriptors)) as S3VectorsErrorContext;
 
     // Enumerable, as class fields were, so `{ ...error }` and a structured
     // logger still see them — but not writable, which is what the contract above

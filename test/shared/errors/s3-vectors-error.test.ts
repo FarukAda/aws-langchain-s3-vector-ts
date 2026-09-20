@@ -118,3 +118,49 @@ describe('S3VectorsErrorContext.instance — serialization safety', () => {
     expect(JSON.parse(serialized)).toMatchObject({ type: 'not_implemented' });
   });
 });
+
+describe('the context is immutable all the way down', () => {
+  it('freezes the id arrays, not just the properties holding them', () => {
+    // Object.freeze is shallow, and the property was `readonly writtenIds?:
+    // string[]` — the property readonly, the array not. So
+    // `error.context.writtenIds!.push('x')` compiled *and succeeded*, silently
+    // rewriting the record of what was durably written, which is the one field
+    // this class exists to make trustworthy. The class doc says `code` and
+    // `context` are "readonly at runtime, not only to TypeScript"; that has to
+    // be true of what they hold.
+    const error = new S3VectorsError('x', S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+      operation: 'addVectors',
+      writtenIds: ['a', 'b'],
+      attemptedIds: ['a', 'b', 'c'],
+      deletedIds: ['d'],
+      foundIds: ['f'],
+      fieldList: [{ path: 'p', message: 'm' }],
+    });
+
+    expect(Object.isFrozen(error.context.writtenIds)).toBe(true);
+    expect(Object.isFrozen(error.context.attemptedIds)).toBe(true);
+    expect(Object.isFrozen(error.context.deletedIds)).toBe(true);
+    expect(Object.isFrozen(error.context.foundIds)).toBe(true);
+    expect(Object.isFrozen(error.context.fieldList)).toBe(true);
+  });
+
+  it('keeps the values readable after freezing', () => {
+    const error = new S3VectorsError('x', S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+      operation: 'addVectors',
+      writtenIds: ['a', 'b'],
+    });
+    expect(error.context.writtenIds).toEqual(['a', 'b']);
+  });
+
+  it('leaves the caller their own array', () => {
+    // The context is built from the caller's object; freezing must copy rather
+    // than reach back and freeze an array the caller still holds.
+    const mine = ['a'];
+    const error = new S3VectorsError('x', S3VectorsErrorCode.AWS_REQUEST_FAILED, {
+      operation: 'addVectors',
+      writtenIds: mine,
+    });
+    expect(Object.isFrozen(mine)).toBe(false);
+    expect(Object.isFrozen(error.context.writtenIds)).toBe(true);
+  });
+});

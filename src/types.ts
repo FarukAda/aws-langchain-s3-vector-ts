@@ -318,6 +318,57 @@ export interface S3OutputVector {
   readonly data?: { float32?: number[] };
 }
 
+/**
+ * Options accepted by {@link AmazonS3Vectors.addVectors} and
+ * {@link AmazonS3Vectors.addDocuments}.
+ *
+ * Named and exported rather than written inline at each signature, because a
+ * caller wrapping either method needs to name the type — without one, the only
+ * way to say it was `Parameters<AmazonS3Vectors['addDocuments']>[1]`, which is
+ * what this package's own retriever had to publish in its declarations.
+ */
+export interface S3VectorsAddOptions {
+  /**
+   * An id per document, in the same order.
+   *
+   * Omitted, each document's own `id` is used where it has one and a UUID is
+   * minted where it does not. Supplying them is how a re-run overwrites in
+   * place instead of writing a second copy under a fresh id — which is also
+   * what `error.context.attemptedIds` is for after a partial failure.
+   */
+  readonly ids?: string[];
+  /**
+   * Records per `PutVectors` request, 1–500.
+   * @defaultValue `200`
+   */
+  readonly batchSize?: number;
+  /** Cancels the write. Batches already written stay written; see `error.context.writtenIds`. */
+  readonly signal?: AbortSignal;
+}
+
+/** Options accepted by {@link AmazonS3Vectors.getByIds}. */
+export interface S3VectorsGetByIdsOptions {
+  /**
+   * Ids per `GetVectors` request, 1–100.
+   * @defaultValue `100`
+   */
+  readonly batchSize?: number;
+  /** Cancels the read. Ids already fetched are reported in `error.context.foundIds`. */
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * The argument {@link AmazonS3Vectors.fromTexts} and
+ * {@link AmazonS3Vectors.fromDocuments} take: a store configuration and the
+ * write options for the one write the factory performs, in one object.
+ *
+ * They travel together because a factory both builds the store and writes with
+ * it. The store keeps only the configuration half — the ids and the signal are
+ * stripped before construction, so a million-id list does not stay on the
+ * instance for its lifetime through `lc_kwargs`.
+ */
+export type S3VectorsFactoryConfig = AmazonS3VectorsConfig & S3VectorsAddOptions;
+
 /** Options accepted by {@link AmazonS3Vectors.delete}. */
 export interface S3VectorsDeleteOptions {
   /**

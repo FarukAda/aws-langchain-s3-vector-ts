@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- **The id arrays on `error.context` are `readonly` arrays, and frozen.** They
+  were declared `readonly writtenIds?: string[]` — the *property* readonly, the
+  array not — and `Object.freeze` is shallow, so
+  `error.context.writtenIds.push('x')` compiled **and succeeded**, silently
+  rewriting the record of what was durably written, which is the one field the
+  class exists to make trustworthy. `writtenIds`, `attemptedIds`, `deletedIds`,
+  `foundIds` and `fieldList` are now `readonly` in the type and frozen at
+  runtime, so the class doc's claim that `code` and `context` are "readonly at
+  runtime, not only to TypeScript" is true of what they hold as well. Each is
+  copied before freezing, so an array a caller passed in is left alone.
+  Assigning one to a mutable `string[]` no longer compiles; read it, or copy it
+  with `[...ids]`. Narrowing this after 1.0 would not have been possible.
+
+- **`retriever.invoke` returns documents typed like everything else.** It
+  declared `DocumentInterface<Record<string, unknown>>[]` while
+  `store.similaritySearch` and the *inherited* `retriever.batch` and
+  `retriever.stream` use `@langchain/core`'s default `Record<string, any>`. So
+  `(await store.similaritySearch(q))[0].metadata.genre` compiled and
+  `(await retriever.invoke(q))[0].metadata.genre` did not — the same documents,
+  from the same class, with `invoke` disagreeing with `batch`. It now inherits
+  core's default, like its siblings. This widens the type, so existing code
+  keeps compiling; it is filed here because the alternative — narrowing the
+  other three to match — was the choice that had to be made before the surface
+  froze, and this is the one that does not break callers.
+
+
 - **`S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED` is now `PAGE_LIMIT_EXCEEDED`.**
   It is no longer a search-only condition: `listVectors` and `listDocuments`
   raise it too, and `context.awsCommand` says which paginator ran out —
@@ -32,6 +58,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every write and says so clearly, and the vectors' dimension is only known once
   the embedding has been paid for, so checking it locally buys a round trip and
   nothing else.
+
+### Added
+
+- **`S3VectorsAddOptions`, `S3VectorsGetByIdsOptions` and
+  `S3VectorsFactoryConfig` are exported.** Five public methods took an anonymous
+  inline options bag — `addVectors`, `addDocuments`, `getByIds`, `fromTexts` and
+  `fromDocuments` — while three siblings had named, exported, fully `readonly`
+  interfaces. Without a name there was nothing for a caller wrapping one of
+  those methods to write, and nothing for TypeDoc to generate a page from; this
+  package's own retriever had to publish `options?:
+  Parameters<AmazonS3Vectors['addDocuments']>[1]` in its declarations for want
+  of one. The shapes are unchanged, so nothing breaks — but a name cannot be
+  added to a frozen signature later without one, which is why it is now.
+
+- **The type-only exports and the store's public methods are pinned.** The
+  runtime export set was asserted exactly; the type-only half was not, so
+  removing one from `src/index.ts` failed nothing. Nor did *adding* a public
+  method to `AmazonS3Vectors`: every ledger checked that the names it knew about
+  existed, and none checked the other direction. Both directions are now
+  asserted, which is what "a minor may add but only a major may remove" needs in
+  order to mean anything.
+
+- **What `DistanceMetric` and `VectorDataType` promise is written down.** They
+  sit on both sides of the surface — passed in through the configuration, read
+  back off `store.distanceMetric` and `store.dataType` — so the day AWS adds a
+  third metric, widening one is a major here. The README now says so next to
+  the export list, with the same advice as for error codes: `switch` with a
+  `default`.
 
 ### Fixed
 
