@@ -83,7 +83,7 @@ export interface S3VectorsErrorContext {
   /**
    * Pages scanned before a paginated operation stopped.
    *
-   * On a search: set on `QUERY_PAGE_LIMIT_EXCEEDED`, and on a failure partway
+   * On a search: set on `PAGE_LIMIT_EXCEEDED`, and on a failure partway
    * through pagination (page 2 or later), where the code is whatever the
    * underlying call failed with.
    *

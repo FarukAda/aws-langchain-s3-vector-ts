@@ -7,7 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **`S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED` is now `PAGE_LIMIT_EXCEEDED`.**
+  It is no longer a search-only condition: `listVectors` and `listDocuments`
+  raise it too, and `context.awsCommand` says which paginator ran out —
+  `QueryVectors` or `ListVectors`. Renaming rather than adding a second code
+  keeps one name for one condition, and this is the last release in which the
+  enum can be corrected rather than lived with.
+
+- **A write to an index whose distance metric is not the store's is refused.**
+  `GetIndexOutput.index` carries `distanceMetric` as a required member, and the
+  first write already issues that `GetIndex` — the answer was read for its
+  metadata keys and the rest discarded. Every other metric check lived on the
+  read path, against a `QueryVectors` response, so a **write-only workload never
+  caught the mismatch at all**; and the cosine-only zero-vector rule is applied
+  from the *store's* configured metric, which on a mismatch is not the index's,
+  so a store configured `cosine` against a euclidean index refused vectors AWS
+  would have taken, while one configured `euclidean` against a cosine index sent
+  a zero vector and got back the exact `ValidationException` that rule exists to
+  pre-empt. An index's metric is fixed at creation, so the mismatch is permanent
+  rather than transient. It now raises `INDEX_CONFIG_MISMATCH` before the write.
+  The **dimension** is deliberately still not pre-validated: AWS enforces it on
+  every write and says so clearly, and the vectors' dimension is only known once
+  the embedding has been paid for, so checking it locally buys a round trip and
+  nothing else.
+
 ### Fixed
+
+- **`listVectors` and `listDocuments` could enumerate forever.** The token loop
+  was `do { … } while (nextToken)` with no bound and no check that the token had
+  moved, while its sibling `queryPages` has had a runaway ceiling since it was
+  written. A service or proxy that answers with the token it was given — a
+  custom `endpoint`, a corporate proxy, LocalStack, a stubbed client replaying
+  one response — is the same page again, so the generator issued billable
+  `ListVectors` calls forever and yielded nothing, and a caller who passed no
+  `AbortSignal` had no way out of a `for await` that never ends. In a test this
+  exhausted the heap and killed the process. A token that does not advance now
+  raises `PAGE_LIMIT_EXCEEDED` carrying `pagesScanned` and `yielded`. There is
+  deliberately no page-*count* ceiling here as there is for a search: a search
+  is collecting at most `k` results, so a count far above that is a runaway by
+  definition, while an enumeration runs over however many vectors the index
+  holds, and any count picked would refuse a legitimate listing of a large index
+  rather than catch a fault.
+
+- **The write rate limiter charged a budget for work the other budget made it
+  wait for.** `Math.max(requests(1), vectors(count))` evaluates both arms, and
+  each bucket *committed* its deduction whenever it could afford it — so
+  whenever one axis had to wait, the other had already paid, and paid again on
+  every retry after the sleep. Across 4,000 randomly generated configurations
+  60% over-consumed tokens this way; the reviewer's reported case
+  (`requestsPerSecond: 2`, `vectorsPerSecond: 2500`, six writes of 100) spent
+  1,000 vector tokens for 600 vectors of real demand. It changes observed pacing
+  in about 1.5% of configurations rather than the "up to half the throughput"
+  first supposed — the effect is always conservative, so it could only ever slow
+  a sender — but a caller who sets `writeRateLimit` from a measured number
+  should get that number. Both budgets are now asked without being charged, and
+  charged only once both can be satisfied.
+
+- **The write rate limiter paced against a clock that can go backwards.** It
+  read `Date.now()`, and refills from `(now - last)`. An NTP step correction, a
+  VM snapshot restore, or a container whose clock is fixed shortly after start
+  makes that negative, driving a bucket's balance far below zero and producing a
+  wait the size of the step: an hour's correction blocked every writer on the
+  store for an hour, with a timer holding the event loop open meanwhile. It now
+  reads `performance.now()`, which cannot step backwards, and the elapsed time a
+  bucket credits itself is clamped at zero so that no clock can do this again.
 
 - **`flattenMetadata` silently dropped a `__proto__` key, and could hand back an
   object whose prototype was the caller's own data.** It wrote each flattened

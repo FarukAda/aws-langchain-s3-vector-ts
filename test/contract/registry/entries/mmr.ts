@@ -169,7 +169,7 @@ export const mmrContract: EntryPointContract<MmrInput> = {
     S3VectorsErrorCode.UNEXPECTED_ERROR,
     S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
     S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-    S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED,
+    S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED,
     S3VectorsErrorCode.THROTTLED,
     S3VectorsErrorCode.ACCESS_DENIED,
     S3VectorsErrorCode.AWS_REJECTED,

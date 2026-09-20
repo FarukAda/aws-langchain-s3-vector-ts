@@ -128,20 +128,27 @@ id that is not stored — absence is an ordinary answer, not a failure.
 
 ***
 
-### QUERY\_PAGE\_LIMIT\_EXCEEDED
+### PAGE\_LIMIT\_EXCEEDED
 
-> **QUERY\_PAGE\_LIMIT\_EXCEEDED**: `"QUERY_PAGE_LIMIT_EXCEEDED"`
+> **PAGE\_LIMIT\_EXCEEDED**: `"PAGE_LIMIT_EXCEEDED"`
 
-Defined in: [shared/errors/error-code.ts:105](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L105)
+Defined in: [shared/errors/error-code.ts:112](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L112)
 
-A paginated `QueryVectors` search stopped with pages still outstanding and
-fewer than `k` results collected, because this library's runaway page
-ceiling was reached.
+A paginated read stopped with pages still outstanding, because this
+library's runaway page ceiling was reached. Both paginators raise it, and
+`context.awsCommand` says which: a `QueryVectors` search that had not yet
+collected `k` results, or a `ListVectors` enumeration still being asked for
+more.
 
-Distinct from a search that legitimately ran out of matches, which returns
-however many it found without error — that ambiguity is exactly what this
-code exists to remove. A filtered query returning fewer than `k` is normal
-and is not this.
+Distinct from a read that legitimately ran out — a search returns however
+many it found and an enumeration simply ends, both without error. Removing
+that ambiguity is what this code is for: a filtered query returning fewer
+than `k` is normal and is not this, and neither is a listing reaching the
+end of a small index.
+
+On a listing it almost always means the token stopped advancing rather than
+that the index is enormous — an endpoint override, a proxy, or a
+non-conforming client replaying one response.
 
 ***
 
@@ -187,7 +194,7 @@ Defined in: [shared/errors/error-code.ts:52](https://github.com/FarukAda/aws-lan
 
 > **UNEXPECTED\_ERROR**: `"UNEXPECTED_ERROR"`
 
-Defined in: [shared/errors/error-code.ts:113](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L113)
+Defined in: [shared/errors/error-code.ts:120](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L120)
 
 A failure that didn't come from an AWS request — a raw throw from
 caller-supplied code (e.g. an embeddings model) or caller input that

@@ -185,3 +185,35 @@ describe('listPages', () => {
     );
   });
 });
+
+describe('the runaway ceiling', () => {
+  it('stops and reports when the token never stops advancing', async () => {
+    // query-pages has had MAX_QUERY_PAGES for this since it was written;
+    // listPages was `do { … } while (nextToken)` with no bound and no check
+    // that the token moved. An endpoint override, a corporate proxy,
+    // LocalStack or a service regression that returns an unchanged token makes
+    // this issue billable ListVectors calls forever and yield nothing. A
+    // caller without an AbortSignal has no way out.
+    const { client, mock } = createMockClient();
+    mock.on(ListVectorsCommand).resolves({ vectors: [], nextToken: 'same-token-forever' });
+
+    const run = async (): Promise<void> => {
+      for await (const _ of listPages({
+        client,
+        vectorBucketName: 'b',
+        indexName: 'i',
+        operation: 'listDocuments',
+        returnData: false,
+        returnMetadata: true,
+      })) {
+        throw new Error('this listing yields nothing; the loop body must never run');
+      }
+    };
+
+    const error = await run().catch((e: unknown) => e);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED);
+    expect(
+      (error as { context?: { pagesScanned?: number } }).context?.pagesScanned,
+    ).toBeGreaterThan(0);
+  }, 30_000);
+});

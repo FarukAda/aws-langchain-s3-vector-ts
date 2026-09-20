@@ -89,7 +89,7 @@ describe('queryPages', () => {
     const { mock, run } = setup();
     mock.on(QueryVectorsCommand).callsFake(() => page(0, 'always-more'));
     const error = await run().catch((e: unknown) => e);
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED);
     // Says how short it fell and why it stopped, so the caller can tell this
     // from a search that simply ran out of matches.
     expect((error as Error).message).toContain('requested result(s), with more pages still');

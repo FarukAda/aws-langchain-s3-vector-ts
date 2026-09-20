@@ -203,6 +203,29 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
       yielded++;
       yield vector;
     }
+    // A conforming service never answers with the token it was handed: that is
+    // the same page again, and following it is a loop that issues billable
+    // requests forever and yields nothing. A caller who passed no AbortSignal
+    // has no way out of a `for await` that never ends.
+    //
+    // There is no page-*count* ceiling here, unlike `queryPages`, and that is
+    // deliberate rather than an omission: a search knows it is collecting at
+    // most `k` results, so a count far above what `k` can need is a runaway by
+    // definition, while an enumeration runs over however many vectors the
+    // index holds — up to two billion — so any count picked here would refuse
+    // a legitimate listing of a large index rather than catch a fault. What
+    // runs away is the token, so the token is what is checked.
+    if (response.nextToken !== undefined && response.nextToken === nextToken) {
+      throw new S3VectorsError(
+        `ListVectors for index "${opts.indexName}" returned the same pagination token it was ` +
+          `given, after ${pagesScanned} page(s) and ${yielded} vector(s). That is the same page ` +
+          'again, so following it would never end. The index is not at fault: a replayed or ' +
+          'cached response — from a custom endpoint, a proxy, or a stubbed client — looks like ' +
+          'this.',
+        S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED,
+        { operation, ...scope, awsCommand: 'ListVectors', pagesScanned, yielded },
+      );
+    }
     nextToken = response.nextToken;
   } while (nextToken);
 }

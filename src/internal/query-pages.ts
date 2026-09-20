@@ -143,7 +143,7 @@ async function requestPage(
  *
  * Throws: `ABORTED` for `signal`; `INDEX_CONFIG_MISMATCH` when the index's
  * metric disagrees with the store's; `AWS_INVALID_RESPONSE` for a nullish or
- * unrecognisable response; `QUERY_PAGE_LIMIT_EXCEEDED` when the page ceiling is
+ * unrecognisable response; `PAGE_LIMIT_EXCEEDED` when the page ceiling is
  * reached with pages still outstanding; otherwise the class
  * {@link classifyAwsError} assigns, carrying `awsCommand: "QueryVectors"` — an
  * `ABORTED` that cancelled a page in flight included.
@@ -211,7 +211,7 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
         `collected ${results.length} of the ${k} requested result(s), with more pages still ` +
         `available: this library's ${MAX_QUERY_PAGES}-page ceiling was reached. Narrow the ` +
         'metadata filter or lower k.',
-      S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED,
+      S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED,
       // How far it got, so a caller can judge whether to narrow the filter or
       // lower k rather than guess.
       { operation, ...scope, pagesScanned: pageCount, resultsCollected: results.length },

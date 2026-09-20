@@ -500,7 +500,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
       .catch((e: unknown) => e);
 
     expect((error as { code: S3VectorsErrorCode }).code).toBe(
-      S3VectorsErrorCode.QUERY_PAGE_LIMIT_EXCEEDED,
+      S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED,
     );
     expect((error as Error).message).toContain('1000-page ceiling');
     expect(

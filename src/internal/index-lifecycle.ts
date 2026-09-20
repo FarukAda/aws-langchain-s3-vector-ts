@@ -57,6 +57,8 @@ export interface IndexDescription {
    * this package cannot read must not be reported as a configuration.
    */
   readonly nonFilterableMetadataKeys?: readonly string[];
+  /** The index's own distance metric, when the response stated a recognisable one. */
+  readonly distanceMetric?: DistanceMetric;
 }
 
 /**
@@ -115,6 +117,31 @@ function nonFilterableMetadataKeysOf(response: unknown): readonly string[] | und
 }
 
 /**
+ * The index's own distance metric, if the response stated a recognisable one.
+ *
+ * Accepts: a `GetIndex` response, in whatever shape it arrived.
+ *
+ * Returns: whichever of the two the body recognisably carried. A field is
+ * omitted rather than guessed, so a body this package cannot parse states
+ * nothing — the same rule {@link nonFilterableMetadataKeysOf} follows, and for
+ * the same reason: a mocked client or an incompatible SDK version must not be
+ * able to manufacture a configuration mismatch out of what it failed to say.
+ *
+ * Throws: nothing. Existence is the answer that matters and is already settled
+ * before this is consulted.
+ */
+function indexShapeOf(response: unknown): { distanceMetric?: DistanceMetric } {
+  if (typeof response !== 'object' || response === null) return {};
+  const index: unknown = (response as { index?: unknown }).index;
+  if (typeof index !== 'object' || index === null) return {};
+
+  const metric: unknown = (index as { distanceMetric?: unknown }).distanceMetric;
+  return {
+    ...(metric === 'cosine' || metric === 'euclidean' ? { distanceMetric: metric } : {}),
+  };
+}
+
+/**
  * Whether the configured index exists, and how it is configured.
  *
  * Accepts:
@@ -153,9 +180,12 @@ export async function describeIndex(
       sendOptions(signal),
     );
     const keys = nonFilterableMetadataKeysOf(response);
-    return keys === undefined
-      ? { exists: true }
-      : { exists: true, nonFilterableMetadataKeys: keys };
+    const shape = indexShapeOf(response);
+    return {
+      exists: true,
+      ...(keys === undefined ? {} : { nonFilterableMetadataKeys: keys }),
+      ...shape,
+    };
   } catch (error: unknown) {
     if (isAwsNotFoundException(error)) return { exists: false };
     throw wrapAwsError(error, classifyAwsError(error), 'GetIndex', {
@@ -164,6 +194,67 @@ export async function describeIndex(
       indexName: ctx.indexName,
     });
   }
+}
+
+/**
+ * Check the index's own distance metric against the one this store assumes.
+ *
+ * Accepts: the description `GetIndex` returned, the metric the store is
+ * configured for, and the scope.
+ *
+ * Returns: nothing.
+ *
+ * Throws: `INDEX_CONFIG_MISMATCH` when the index disagrees.
+ *
+ * Guarantees, and why this is here rather than left to AWS:
+ * - The metric is **already in the response** this package asks for on the
+ *   first write. It was read for the metadata keys and the rest discarded, so
+ *   the check costs no extra request.
+ * - It cannot be changed after creation (userguide `s3-vectors-indexes.html`:
+ *   "you can't update the vector index name, dimension, distance metric, or
+ *   non-filterable metadata keys"), so a mismatch is permanent, not transient.
+ * - Every other metric check lives on the read path, against a `QueryVectors`
+ *   response, so a **write-only workload never caught the mismatch at all** —
+ *   and the cosine-only zero-vector rule in `limits.ts` is applied from the
+ *   *store's* configured metric, which on a mismatch is not the index's. A
+ *   store configured `cosine` against a euclidean index refused vectors AWS
+ *   would have taken; configured `euclidean` against a cosine index it sent a
+ *   zero vector and got back the very `ValidationException` that rule exists to
+ *   pre-empt.
+ *
+ * The **dimension** is deliberately not checked here, although the same
+ * response carries it. AWS enforces it on every write and says so clearly, the
+ * vectors' dimension is only known after the embedding has been paid for
+ * anyway, and not pre-validating it is a standing decision of this package
+ * (`store-index-lifecycle.test.ts`) taken when an index-configuration cache
+ * went stale against an index re-created out of band. This check is narrower
+ * than that cache was: one fresh response, read once, for the one field whose
+ * mismatch silently changes what this package itself does.
+ *
+ * A metric the response did not state is not checked, for the same reason
+ * {@link assertMetadataKeysAgree} skips an unreadable key list.
+ */
+function assertIndexMetricAgrees(
+  description: IndexDescription,
+  configuredMetric: DistanceMetric,
+  ctx: IndexContext,
+  operation: string,
+): void {
+  if (description.distanceMetric === undefined || description.distanceMetric === configuredMetric) {
+    return;
+  }
+  throw new S3VectorsError(
+    `Index "${ctx.indexName}" uses distance metric "${description.distanceMetric}", but this ` +
+      `store is configured for "${configuredMetric}". An index's metric is fixed when it is ` +
+      'created, so this cannot be corrected on the index: configure the store for the ' +
+      "index's metric, or write to an index created with this store's.",
+    S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+    {
+      operation,
+      vectorBucketName: ctx.vectorBucketName,
+      indexName: ctx.indexName,
+    },
+  );
 }
 
 /**
@@ -196,6 +287,7 @@ export async function describeIndex(
  * for the same reason, that an index configured out of band should be caught
  * rather than silently written to under the wrong assumptions.
  */
+
 function assertMetadataKeysAgree(
   reported: readonly string[] | undefined,
   expected: readonly string[],
@@ -560,6 +652,7 @@ export function createIndexLifecycle(
               ctx,
               operation,
             );
+            assertIndexMetricAgrees(description, config.distanceMetric, ctx, operation);
           } else if ((await createIndex(ctx, config, dimension, operation)) === 'raced') {
             // Another writer created it first, so the index has *their*
             // configuration, not this one's. Reading it back is what keeps this
@@ -575,6 +668,7 @@ export function createIndexLifecycle(
               ctx,
               operation,
             );
+            assertIndexMetricAgrees(winner, config.distanceMetric, ctx, operation);
           }
           knownToExist = true;
         } finally {

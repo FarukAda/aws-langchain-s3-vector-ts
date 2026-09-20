@@ -162,7 +162,7 @@ if (!env) {
       // 150 vectors is more than AWS's documented maximum page size (100),
       // so satisfying k = 150 genuinely requires following nextToken. The
       // old flat page cap made this class of search fragile; it must simply
-      // work, and must never surface QUERY_PAGE_LIMIT_EXCEEDED.
+      // work, and must never surface PAGE_LIMIT_EXCEEDED.
       const docs = Array.from(
         { length: 150 },
         (_, i) => new Document({ pageContent: `page-${i}`, metadata: { n: i } }),

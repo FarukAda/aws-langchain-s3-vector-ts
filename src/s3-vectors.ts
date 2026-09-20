@@ -510,7 +510,7 @@ export class AmazonS3Vectors extends VectorStore {
    * not a list of objects, or holds a result without a usable numeric
    * `distance` — this always requests `returnDistance: true`, so a missing
    * value means a malformed response, and it fails closed instead of defaulting
-   * to the best possible score; `QUERY_PAGE_LIMIT_EXCEEDED` when the 1,000-page
+   * to the best possible score; `PAGE_LIMIT_EXCEEDED` when the 1,000-page
    * ceiling is reached with pages outstanding and fewer than `k` results;
    * `VALIDATION` for result metadata `structuredClone` cannot copy, reachable
    * only from a non-conforming client; otherwise the class the `QueryVectors`

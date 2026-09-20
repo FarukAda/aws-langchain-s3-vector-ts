@@ -184,7 +184,7 @@ Every failure this library surfaces — caller mistake, not-found, malformed AWS
 | `INDEX_CONFIG_MISMATCH` | An existing index disagrees with this store's configuration: its distance metric, checked against the `QueryVectors` response on every read, or its non-filterable metadata keys, checked against the `GetIndex` that precedes a first write. Also raised when the vectors a write is given disagree on dimension — anywhere in an `addVectors` call, before any request; within one embedded batch for `addDocuments`, before that batch is written. |
 | `ABORTED` | The supplied `AbortSignal` fired before or during the operation. |
 | `AWS_INVALID_RESPONSE` | An AWS response was missing, carried an unusable value for, or wasn't an object at all where this library requires one. Reachable only from a mocked, stubbed or otherwise non-conforming client. |
-| `QUERY_PAGE_LIMIT_EXCEEDED` | A paginated search hit the 1,000-page runaway ceiling with pages still outstanding and fewer than `k` results collected. |
+| `PAGE_LIMIT_EXCEEDED` | A paginated search hit the 1,000-page runaway ceiling with pages still outstanding and fewer than `k` results collected. |
 | `UNEXPECTED_ERROR` | A failure that never touched AWS — a raw throw from a caller-supplied embeddings model, or input malformed enough to bypass validation. |
 
 `NotFoundException` is still caught and treated as an expected outcome in the places where absence is the normal case: index detection during a write, and `deleteIndex()` against an index that is already gone.

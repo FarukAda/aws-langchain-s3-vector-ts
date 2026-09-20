@@ -77,7 +77,7 @@ describe('S3VectorsErrorCode — the value is the contract, not the key', () => 
       'INDEX_CONFIG_MISMATCH',
       'KMS_ERROR',
       'NOT_FOUND',
-      'QUERY_PAGE_LIMIT_EXCEEDED',
+      'PAGE_LIMIT_EXCEEDED',
       'QUOTA_EXCEEDED',
       'SERVICE_UNAVAILABLE',
       'THROTTLED',

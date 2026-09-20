@@ -243,3 +243,56 @@ describe('createIndexLifecycle().ensureExists — losing the creation race', () 
     ).resolves.toBeUndefined();
   });
 });
+
+describe('what the first write checks against the existing index', () => {
+  /** A lifecycle configured the way a caller's store would be. */
+  const lifecycleFor = (config: { distanceMetric: 'cosine' | 'euclidean' }) => {
+    const { client, mock } = createMockClient();
+    const lifecycle = createIndexLifecycle(
+      { client, vectorBucketName: 'test-bucket', indexName: 'test-index' },
+      { dataType: 'float32', pageContentMetadataKey: null, ...config },
+    );
+    return { mock, lifecycle };
+  };
+
+  it("refuses an index whose distance metric is not the store's", async () => {
+    // GetIndexOutput.index carries `distanceMetric` as a required member, and
+    // the first write already issues that GetIndex — the answer was read for
+    // its metadata keys and thrown away. Until now the only metric check was on
+    // a QueryVectors response, so a write-only workload never caught the
+    // mismatch at all, and the cosine-only zero-vector rule was applied from
+    // the store's configured metric rather than the index's. An index's metric
+    // cannot be changed after creation, so the mismatch is permanent.
+    const { mock, lifecycle } = lifecycleFor({ distanceMetric: 'cosine' });
+    mock.on(GetIndexCommand).resolves({
+      index: indexFixture({
+        distanceMetric: 'euclidean',
+        metadataConfiguration: { nonFilterableMetadataKeys: [] },
+      }),
+    });
+
+    const error = await lifecycle.ensureExists(3, undefined, 'addVectors').catch((e: unknown) => e);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
+    expect((error as Error).message).toContain('euclidean');
+  });
+
+  it('accepts an index whose metric agrees', async () => {
+    const { mock, lifecycle } = lifecycleFor({ distanceMetric: 'cosine' });
+    mock.on(GetIndexCommand).resolves({
+      index: indexFixture({
+        dimension: 3,
+        distanceMetric: 'cosine',
+        metadataConfiguration: { nonFilterableMetadataKeys: [] },
+      }),
+    });
+    await expect(lifecycle.ensureExists(3, undefined, 'addVectors')).resolves.toBeUndefined();
+  });
+
+  it('says nothing about an index whose response cannot be read', async () => {
+    // Same rule the metadata-key check already follows: a body this package
+    // cannot parse must not be able to manufacture a mismatch.
+    const { mock, lifecycle } = lifecycleFor({ distanceMetric: 'cosine' });
+    mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } as never });
+    await expect(lifecycle.ensureExists(3, undefined, 'addVectors')).resolves.toBeUndefined();
+  });
+});

@@ -12,9 +12,18 @@ import { createTestStore, indexFixture, malformedIndexFixture } from './helpers.
 
 /**
  * How the store uses the index lifecycle. These assert the behaviour that
- * replaced the index-configuration cache, and each is the negation of a test
- * the cache required — a write no longer pre-validates dimension or metric,
- * because AWS enforces the first and the read path verifies the second.
+ * replaced the index-configuration cache, which went stale against an index
+ * re-created out of band.
+ *
+ * The two halves of what that cache used to pre-validate are now decided
+ * separately, and the difference is what each mismatch costs. A **dimension**
+ * is still not pre-validated: AWS enforces it on every write and says so
+ * plainly, and the vectors' dimension is only known once the embedding has
+ * been paid for, so checking locally buys a round trip and nothing else. A
+ * **metric** is, because it changes what this package itself does — the
+ * cosine-only zero-norm rule in `limits.ts` reads the store's configured
+ * metric — and because every other metric check lives on the read path, so a
+ * write-only workload never saw the mismatch at all.
  */
 const awsError = (name: string): Error => Object.assign(new Error(`synthetic ${name}`), { name });
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
@@ -37,12 +46,24 @@ describe('store — index lifecycle', () => {
     expect(codeOf(error)).toBe(S3VectorsErrorCode.AWS_REJECTED);
   });
 
-  it('does not pre-validate a distance metric on the write path', async () => {
+  it('refuses a write to an index whose distance metric is not the store’s', async () => {
+    // This one *is* pre-validated, unlike the dimension below, and the reason
+    // is that the metric changes what this package itself does rather than only
+    // what AWS accepts: the cosine-only zero-norm rule in limits.ts is applied
+    // from the store's configured metric. Every other metric check lives on the
+    // read path, against a QueryVectors response, so before this a write-only
+    // workload never caught the mismatch at all. The response is the one the
+    // first write already makes, so it costs no extra request.
     const { store, mock } = createTestStore({ distanceMetric: 'cosine' });
     mock.on(GetIndexCommand).resolves({ index: indexFixture({ distanceMetric: 'euclidean' }) });
     mock.on(PutVectorsCommand).resolves({});
 
-    await expect(store.addVectors([[1, 2, 3]], [doc('x')], { ids: ['a'] })).resolves.toEqual(['a']);
+    const error = await store
+      .addVectors([[1, 2, 3]], [doc('x')], { ids: ['a'] })
+      .catch((e: unknown) => e);
+
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(0);
   });
 
   it('writes against a malformed GetIndex body, because existence is proven by the 200', async () => {
