@@ -12,7 +12,6 @@ import type { Callbacks } from '@langchain/core/callbacks/manager';
 import { Document, type DocumentInterface } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 import { VectorStore, type MaxMarginalRelevanceSearchOptions } from '@langchain/core/vectorstores';
-import type { DocumentType as __DocumentType } from '@smithy/types';
 
 import { addDocuments, addVectors, type WriteConfig } from './actions/add.js';
 import { deleteVectors } from './actions/delete.js';

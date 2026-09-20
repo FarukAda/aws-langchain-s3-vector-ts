@@ -11,9 +11,8 @@ import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
 import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
-import { classifyAwsError } from '../shared/errors/classify.js';
 import { attachContext } from '../shared/errors/decorate.js';
-import { wrapAwsError, type AwsCommand } from '../shared/errors/wrap-error.js';
+import { awsFailure, type AwsCommand } from '../shared/errors/wrap-error.js';
 import type { OperationScope, StoreScope } from '../shared/scope.js';
 import type { AwsOperation } from './operation.js';
 import type { WriteRateLimiter } from './rate-limit.js';
@@ -58,7 +57,7 @@ export async function sendAws<T>(
   try {
     return await send();
   } catch (error: unknown) {
-    throw wrapAwsError(error, classifyAwsError(error), awsCommand, context);
+    throw awsFailure(error, awsCommand, context);
   }
 }
 

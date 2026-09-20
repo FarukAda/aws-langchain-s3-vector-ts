@@ -9,11 +9,10 @@
 import { ListVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { renderValue } from '../shared/describe.js';
-import { classifyAwsError } from '../shared/errors/classify.js';
 import { rebuildWithContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
-import { wrapAwsError } from '../shared/errors/wrap-error.js';
+import { awsFailure } from '../shared/errors/wrap-error.js';
 import type { StoreScope } from '../shared/scope.js';
 import type { S3OutputVector } from '../types.js';
 import type { AwsOperation } from './operation.js';
@@ -110,7 +109,7 @@ function explainListing(
   pagesScanned: number,
   yielded: number,
 ): S3VectorsError {
-  const base = wrapAwsError(error, classifyAwsError(error), 'ListVectors', context);
+  const base = awsFailure(error, 'ListVectors', context);
   const hint =
     base.code === S3VectorsErrorCode.ACCESS_DENIED
       ? ' Listing with metadata or data requires the s3vectors:GetVectors permission in ' +

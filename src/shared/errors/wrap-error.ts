@@ -8,7 +8,7 @@
  * caused and one a caller's own code did.
  */
 import { renderValue } from '../describe.js';
-import { isTransientNetworkFailure, SDK_TIMEOUT_ERROR_NAME } from './classify.js';
+import { classifyAwsError, isTransientNetworkFailure, SDK_TIMEOUT_ERROR_NAME } from './classify.js';
 import { S3VectorsErrorCode } from './error-code.js';
 import {
   isS3VectorsError,
@@ -328,6 +328,30 @@ export function wrapAwsError(
   context: Omit<S3VectorsErrorContext, 'awsCommand'>,
 ): S3VectorsError {
   return buildWrappedError(cause, code, context, awsCommand);
+}
+
+/**
+ * The error a failed AWS request becomes: classified, then wrapped.
+ *
+ * Accepts: whatever the SDK threw, the command that was issued, and the
+ * context to name it under.
+ *
+ * Returns: an {@link S3VectorsError} carrying the code
+ * {@link classifyAwsError} assigns and `awsCommand`.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: classification and wrapping happen together and in that order.
+ * They were written out as a pair at four call sites, which is one decision
+ * recorded four times — and a caller that classified differently, or forgot to,
+ * would produce an error indistinguishable from the others except in its code.
+ */
+export function awsFailure(
+  cause: unknown,
+  awsCommand: AwsCommand,
+  context: Omit<S3VectorsErrorContext, 'awsCommand'>,
+): S3VectorsError {
+  return wrapAwsError(cause, classifyAwsError(cause), awsCommand, context);
 }
 
 /**

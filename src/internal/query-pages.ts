@@ -7,13 +7,11 @@
  * `k` and receives at most `k`.
  */
 import { QueryVectorsCommand, type QueryVectorsCommandOutput } from '@aws-sdk/client-s3vectors';
-import type { DocumentType as __DocumentType } from '@smithy/types';
 
-import { classifyAwsError } from '../shared/errors/classify.js';
 import { rebuildWithContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
-import { wrapAwsError } from '../shared/errors/wrap-error.js';
+import { awsFailure } from '../shared/errors/wrap-error.js';
 import type { StoreScope } from '../shared/scope.js';
 import type { DistanceMetric, S3OutputVector } from '../types.js';
 import type { ParsedFilter } from './filter.js';
@@ -177,7 +175,7 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
       response = await requestPage(opts, nextToken);
     } catch (error: unknown) {
       throw explainPagination(
-        wrapAwsError(error, classifyAwsError(error), 'QueryVectors', { operation, ...scope }),
+        awsFailure(error, 'QueryVectors', { operation, ...scope }),
         pageCount,
         results.length,
         k,

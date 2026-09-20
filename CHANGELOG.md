@@ -429,6 +429,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Classifying an AWS failure and wrapping it are one step.** The pair
+  `wrapAwsError(error, classifyAwsError(error), …)` was written out at four
+  call sites — one decision recorded four times, where a site that classified
+  differently, or not at all, would produce an error indistinguishable from the
+  others except in its code. It is `awsFailure` now, and `jscpd` reports zero
+  clones again, having reported one since the four modules' import lists grew
+  identical enough for it to notice.
+
+- **An unused import is an error even when its name starts with an
+  underscore.** `unused-imports/no-unused-vars` exempts underscore-prefixed
+  names, which is right for a deliberately discarded destructuring binding and
+  wrong for an import. Two dead `import type { DocumentType as __DocumentType }`
+  lines had been sitting in `s3-vectors.ts` and `internal/query-pages.ts`,
+  invisible to that rule and to `noUnusedLocals` for the same reason.
+  `unused-imports/no-unused-imports` is on, and both are gone.
+
 - **Decision records, under `docs/decisions/`.** Ten decisions that are
   expensive to reverse — peers rather than dependencies, the dual ESM/CJS
   build, one error class with a code, creating the index on first write,

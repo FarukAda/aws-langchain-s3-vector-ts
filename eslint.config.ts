@@ -72,7 +72,15 @@ export default tseslint.config(
         },
       ],
 
-      // Auto-remove unused imports.
+      // An unused import is an error even when its name starts with an
+      // underscore. The rule below exempts those, which is right for a
+      // deliberately discarded destructuring binding and wrong for an import:
+      // a dead `import type { X as __X }` sat in s3-vectors.ts unnoticed
+      // because the underscore made both this rule and tsc's noUnusedLocals
+      // skip it.
+      'unused-imports/no-unused-imports': 'error',
+
+      // Auto-remove unused variables.
       'unused-imports/no-unused-vars': [
         'error',
         {

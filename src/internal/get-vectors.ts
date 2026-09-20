@@ -9,11 +9,10 @@
 import { GetVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { chunk } from '../shared/batching.js';
-import { classifyAwsError } from '../shared/errors/classify.js';
 import { rebuildWithContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
-import { wrapAwsError } from '../shared/errors/wrap-error.js';
+import { awsFailure } from '../shared/errors/wrap-error.js';
 import type { StoreScope } from '../shared/scope.js';
 import type { S3OutputVector } from '../types.js';
 import { assertBatchSize } from './guards.js';
@@ -117,7 +116,7 @@ function withFoundIds(
   scope: StoreScope,
   found: Map<string, S3OutputVector>,
 ): S3VectorsError {
-  const base = wrapAwsError(reason, classifyAwsError(reason), 'GetVectors', {
+  const base = awsFailure(reason, 'GetVectors', {
     operation,
     ...scope,
   });
