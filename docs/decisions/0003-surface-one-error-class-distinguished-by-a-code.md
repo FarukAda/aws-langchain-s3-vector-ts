@@ -27,7 +27,9 @@ We raise one class, `S3VectorsError`, carrying a `code` from a stable enum, a
 `no-instanceof` lint rule keeps `instanceof` out of the package entirely.
 
 A new code is added only when a caller would respond to it differently from
-every existing one.
+every existing one, and it may arrive in a minor. The set only grows: a value
+is never removed, never renamed and never reassigned to a different condition,
+so a code that was stored or logged keeps its meaning for the life of a major.
 
 ## Consequences
 
@@ -36,9 +38,12 @@ brand survives realms, bundler duplication and the two module copies. Because
 codes are coarser than the service's exception names, the set stays small
 enough to read.
 
-Negative. Adding a code is a breaking change for anyone switching
-exhaustively, so the bar for a new one is high and some genuinely different
-failures share a code. Callers who want a subclass hierarchy do not get one.
+Negative. A caller who wants compile-time exhaustiveness pays for the set
+growing within a major. A new member compiles in a `switch` with a `default`
+and in an `if` on a single code; it breaks `Record<S3VectorsErrorCode, T>` and
+a `never`-typed exhaustiveness assertion. The bar for a new code is
+correspondingly high, and some genuinely different failures share one. Callers
+who want a subclass hierarchy do not get one.
 
 Neutral. `context` is where anything operation-specific lives, which keeps the
 class shape fixed while letting individual failures carry more.

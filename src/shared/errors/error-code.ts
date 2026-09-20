@@ -8,8 +8,17 @@
  * one per AWS exception name, so a `switch` here stays shorter than the
  * service's error list.
  *
- * Adding a code is a breaking change for anyone switching exhaustively, so a
- * new one has to earn a distinct caller response.
+ * The set only grows. A value is never removed, never renamed and never
+ * reassigned to a different condition, so a code that was stored or logged
+ * means the same thing for the life of a major. A new one may arrive in a
+ * minor, and earns its place only by needing a caller response no existing
+ * code already covers.
+ *
+ * What that costs a caller is worth stating exactly, because it is not
+ * "nothing": a new member compiles fine in a `switch` with a `default` and in
+ * an `if` on a single code, and breaks `Record<S3VectorsErrorCode, T>` and a
+ * `never`-typed exhaustiveness assertion. Those two are the shapes to avoid
+ * if you want a minor to stay a minor.
  */
 /** Stable error codes surfaced by {@link S3VectorsError}. */
 export enum S3VectorsErrorCode {

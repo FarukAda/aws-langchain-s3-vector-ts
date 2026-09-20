@@ -21,6 +21,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An affiliation and trademark statement, and a maintainership line where a
+  reader looks first.** The package leads with two companies' marks — in its
+  own name, in a badge drawn in AWS's brand colour, and in the first sentence
+  of the README — and said nothing anywhere about who is behind it or whether
+  it is official. Using a mark to name the service a package talks to is
+  ordinary nominative use; what needs rebutting is the implied endorsement that
+  the presentation invites, and a disclaimer is the standard way to do it.
+  README and `SUPPORT.md` now both state that this is an independent project,
+  not affiliated with, endorsed by or sponsored by Amazon Web Services, Inc. or
+  LangChain, Inc., and name the trademark owners. The maintainership sentence
+  that was previously reachable only from `SUPPORT.md` — linked from the
+  third-to-last line of the README — is now in the README's opening, because
+  "who maintains this" and "is this official" are the same question asked
+  twice. `SUPPORT.md` additionally says where a problem with the *service* or
+  with `@langchain/core` belongs, which is not here.
+
 - **`asRetriever({ scoreThreshold })`.** Keeps only documents whose relevance
   score — higher is better, the same conversion
   `similaritySearchWithRelevanceScores` applies — reaches the threshold. It is
@@ -226,6 +242,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `asRetriever()` instead.
 
 ### Fixed
+
+- **The README described a cross-process safety net this package does not
+  provide.** The *Concurrency* section said that after a lost index-creation
+  race "nothing is re-read" and that "the next write's `GetIndex` is where a
+  disagreement with this store's configuration surfaces". Both halves were
+  false, in opposite directions: the loser *does* re-read the index and check
+  the winner's non-filterable metadata keys, and it then marks the index as
+  known to exist, so no later write ever issues `GetIndex` again. A reader
+  deciding whether concurrent creation from separate processes was safe was
+  told to expect a check that never happens, while the check that does happen
+  went unmentioned. The behaviour was correct; only the prose was wrong. The
+  `CONFLICT` row of the error table said the same thing more briefly and is
+  corrected with it.
+
+- **The versioning promise for error codes contradicted itself.** The README
+  said the codes are "append-only for `1.x`"; `S3VectorsErrorCode`'s own header
+  and decision record 0003 said adding a code is a breaking change. Only one
+  can govern a major, and they imply different release cadences for the same
+  act. The promise is now stated once, in the three places that make it, with
+  what it does and does not cover: the set only grows — no value is removed,
+  renamed or reassigned, so a stored or logged code keeps its meaning — and a
+  new code may arrive in a minor. That is safe for a `switch` with a `default`
+  and for an `if` on one code, and it breaks `Record<S3VectorsErrorCode, T>`
+  and a `never`-typed exhaustiveness assertion, which are named as not covered
+  rather than left to be discovered.
 
 - **An encryption configuration AWS would refuse is refused at construction.**
   `CreateIndex` enforces the pairing in both directions — "kmsKeyArn must not be
