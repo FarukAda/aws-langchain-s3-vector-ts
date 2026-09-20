@@ -22,11 +22,16 @@ could mask a response — with one stated exception, `write-rate.md`, whose
 subject is how this package's own dispatch behaves against the service's limits
 and which therefore had to run through it. Each run used a bucket created for it and deleted after it.
 
-| Run | Date | Region | Account | SDK | Bucket |
-|---|---|---|---|---|---|
-| 1 | 2026-09-14 | `us-east-1` | 712098997573 | `@aws-sdk/client-s3vectors@3.1118.0` | `langchain-vectors-ci` |
-| 2 | 2026-09-16 | `us-east-1` | 712098997573 | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
-| 3 | 2026-09-17 | `us-east-1` | 712098997573 | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
+Every run below used the same AWS account, so no difference between them is
+explained by account-level quota or configuration. The account is not named
+here: it identifies the maintainer's, and nothing in a probe can be re-derived
+from it.
+
+| Run | Date | Region | SDK | Bucket |
+|---|---|---|---|---|
+| 1 | 2026-09-14 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1118.0` | `langchain-vectors-ci` |
+| 2 | 2026-09-16 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
+| 3 | 2026-09-17 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
 
 ## Claims settled
 

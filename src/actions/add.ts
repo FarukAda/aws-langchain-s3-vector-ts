@@ -12,7 +12,7 @@
 import type { DocumentInterface } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 
-import { runBatchesConcurrently } from '../internal/concurrency.js';
+import { runBatches } from '../internal/concurrency.js';
 import { embedAndWrite } from '../internal/embed-pipeline.js';
 import {
   assertBatchSize,
@@ -225,16 +225,21 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
   checkAborted('addVectors', signal, scope);
   if (vectors.length === 0) return [];
 
-  await runBatchesConcurrently(
+  await runBatches({
     // By count *and* by size: `batchSize` records, and never a body over the
     // 20 MiB AWS accepts. Both vectors and metadata are already in hand here,
     // so the split happens before the first request and every batch below is
     // exactly one of them.
-    requestRuns(records, vectorSnapshot[0]!.length, batchSize, scope),
+    batches: requestRuns(records, vectorSnapshot[0]!.length, batchSize, scope),
     ids,
-    opts.maxConcurrent,
-    { operation: 'addVectors', ...scope },
-    (batch, offset) =>
+    maxConcurrent: opts.maxConcurrent,
+    // The first request is the one that creates the index.
+    serializeFirstBatch: true,
+    operation: 'addVectors',
+    contextField: 'writtenIds',
+    attemptedIds: ids,
+    ...scope,
+    action: (batch, offset) =>
       opts.putBatch(
         'addVectors',
         offset,
@@ -242,7 +247,7 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
         vectorSnapshot.slice(offset, offset + batch.length),
         signal,
       ),
-  );
+  });
 
   return ids;
 }

@@ -429,6 +429,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **One decision about concurrency, in one place.** Three call sites decided
+  for themselves how a batched operation fans out, and they did not agree:
+  `addVectors` and `delete` dispatched fixed groups, so one slow request held
+  back every request behind it until its whole group settled, while
+  `addDocuments` slid a window and did not. Each also carried its own copy of
+  the first-failure latch and the committed-id bookkeeping — the same rules,
+  written three times, which a clone detector cannot see because the code
+  differs. `internal/concurrency.ts` now holds one window and one batched-run
+  helper, and all three go through them. The window is the sliding one, so a
+  slow call delays only the batches that need its slot.
+
+- **No embedding is paid for after a write has failed.** A guarantee the
+  pipeline already made and nothing pinned; it is now a test, because it is a
+  cost rather than a correctness property and those are the ones that regress
+  unnoticed.
+
 - **Every module states the decision it hides.** Thirty-five of the
   forty-six modules under `src/` opened straight into their imports. Each
   export carried a contract, which answers "what does this do?" for one

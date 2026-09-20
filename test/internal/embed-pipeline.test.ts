@@ -98,6 +98,17 @@ describe('embedAndWrite', () => {
     expect(state.peakInFlightPuts).toBeGreaterThan(1);
   });
 
+  it('pays for no further embedding once a write has failed', async () => {
+    // A window of one means each launch waits for the previous put to settle,
+    // so the failure of batch 1 is known before batch 2 would be embedded.
+    // Embedding is the billable half of this pipeline: continuing to call the
+    // model for batches that will never be written is money spent on work
+    // already known to be discarded.
+    const { run, state } = harness({ failPutAt: 1, maxConcurrent: 1, count: 5 });
+    await expect(run()).rejects.toThrow('put boom');
+    expect(state.embedCalls).toBe(2);
+  });
+
   it('never exceeds the write window', async () => {
     const { run, state } = harness({ putDelay: () => 20, maxConcurrent: 2, count: 8 });
     await run();

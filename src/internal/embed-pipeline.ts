@@ -9,6 +9,7 @@
 import { chunk, offsetBatches } from '../shared/batching.js';
 import { attachPartialIds } from '../shared/errors/decorate.js';
 import type { OperationScope, StoreScope } from '../shared/scope.js';
+import { openWindow } from './concurrency.js';
 import { requestRuns, type RecordSize } from './request-size.js';
 import { checkAborted } from './signals.js';
 
@@ -133,70 +134,40 @@ export async function embedAndWrite<T extends RecordSize>(
 
   const rest = offsetBatches(batches.slice(1), firstBatch.length);
 
-  const inFlight = new Set<Promise<void>>();
-  /** Ids by request, flattened in order at the end so reports keep document order. */
-  const settledIds: (string[] | undefined)[] = [];
-  /** Which slot in {@link settledIds} the next request owns; a batch may be several. */
-  let slot = 0;
-  // The separate flag is needed because `unknown` cannot rule out a rejection
-  // reason of null or undefined.
-  let firstError: unknown;
-  let hasError = false;
-  const recordError = (error: unknown): void => {
-    if (!hasError) {
-      hasError = true;
-      firstError = error;
-    }
-  };
+  // The same window every other batched operation runs in. What is this
+  // module's own is only that a batch is embedded while earlier ones are still
+  // being written, and that an embedding failure enters the window's latch by
+  // the same door a write failure does.
+  const window = openWindow<string[]>(opts.maxConcurrent);
 
-  const launchPut = (
-    batchIndex: number,
-    batch: T[],
-    batchOffset: number,
-    vectors: number[][],
-  ): void => {
-    const tracked: Promise<void> = put(batch, batchOffset, vectors)
-      .then(() => {
-        settledIds[batchIndex] = ids.slice(batchOffset, batchOffset + batch.length);
-      }, recordError)
-      .finally(() => {
-        inFlight.delete(tracked);
-      });
-    inFlight.add(tracked);
-  };
-
-  for (let i = 0; i < rest.length && !hasError; i++) {
-    const { batch, offset: batchOffset } = rest[i]!;
+  for (const { batch, offset: batchOffset } of rest) {
+    if (window.hasFailed()) break;
     let vectors: number[][];
     try {
       checkAborted(operation, signal, scope);
       vectors = await embed(batch, batchOffset);
       checkAborted(operation, signal, scope);
     } catch (error: unknown) {
-      recordError(error);
+      window.fail(error);
       break;
     }
     // A sibling put may have failed while this batch was being embedded.
-    if (hasError) break;
+    if (window.hasFailed()) break;
     for (const run of runsOf(batch, batchOffset, vectors)) {
-      if (hasError) break;
-      launchPut(slot++, run.records, run.offset, run.vectors);
-      if (inFlight.size >= opts.maxConcurrent) {
-        // Tracked promises never reject (recordError absorbs the rejection),
-        // so racing them only ever waits for one to settle.
-        await Promise.race(inFlight);
-      }
+      if (window.hasFailed()) break;
+      await window.launch(async () => {
+        await put(run.records, run.offset, run.vectors);
+        return ids.slice(run.offset, run.offset + run.records.length);
+      });
     }
   }
 
-  // Drain the window before reporting anything. Tracked promises never
-  // reject, so `all` cannot throw.
-  await Promise.all(inFlight);
-  for (const batchIds of settledIds) {
+  const outcome = await window.settle();
+  for (const batchIds of outcome.results) {
     if (batchIds !== undefined) writtenIds.push(...batchIds);
   }
 
-  if (hasError) {
-    throw attachPartialIds(firstError, operation, scope, 'writtenIds', writtenIds, ids);
+  if (outcome.failed) {
+    throw attachPartialIds(outcome.error, operation, scope, 'writtenIds', writtenIds, ids);
   }
 }

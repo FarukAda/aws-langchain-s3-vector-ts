@@ -9,7 +9,7 @@
  */
 import { DeleteVectorsCommand } from '@aws-sdk/client-s3vectors';
 
-import { settleGroup } from '../internal/concurrency.js';
+import { runBatches } from '../internal/concurrency.js';
 import { assertBatchSize, assertIsArray, validationError } from '../internal/guards.js';
 import { assertIdsUnique, assertIdsWellFormed } from '../internal/ids.js';
 import type { BatchedOperation } from '../internal/operation.js';
@@ -111,26 +111,29 @@ export async function deleteVectors(opts: DeleteOptions): Promise<void> {
   // of that silent no-op.
   checkAborted('delete', signal, scope);
 
-  const deletedIds: string[] = [];
-  for (const group of chunk(chunk(ids, batchSize), opts.maxConcurrent)) {
-    await settleGroup(
-      group.map((batchIds) => async (): Promise<string[]> => {
-        // The store's write budget, spent by deletes and writes alike.
-        await opts.rateLimit.acquire(batchIds.length, 'delete', scope, signal);
-        await sendAws('DeleteVectors', { operation: 'delete', ...scope }, () =>
-          opts.client.send(
-            new DeleteVectorsCommand({
-              vectorBucketName: opts.vectorBucketName,
-              indexName: opts.indexName,
-              keys: batchIds,
-            }),
-            sendOptions(signal),
-          ),
-        );
-        return batchIds;
-      }),
-      { operation: 'delete', contextField: 'deletedIds', ...scope },
-      deletedIds,
-    );
-  }
+  await runBatches({
+    batches: chunk(ids, batchSize),
+    ids,
+    maxConcurrent: opts.maxConcurrent,
+    // A delete creates nothing, so no batch has to land before the others.
+    serializeFirstBatch: false,
+    operation: 'delete',
+    contextField: 'deletedIds',
+    attemptedIds: ids,
+    ...scope,
+    action: async (batchIds) => {
+      // The store's write budget, spent by deletes and writes alike.
+      await opts.rateLimit.acquire(batchIds.length, 'delete', scope, signal);
+      await sendAws('DeleteVectors', { operation: 'delete', ...scope }, () =>
+        opts.client.send(
+          new DeleteVectorsCommand({
+            vectorBucketName: opts.vectorBucketName,
+            indexName: opts.indexName,
+            keys: batchIds,
+          }),
+          sendOptions(signal),
+        ),
+      );
+    },
+  });
 }
