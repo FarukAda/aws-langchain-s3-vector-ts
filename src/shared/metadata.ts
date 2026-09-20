@@ -9,9 +9,10 @@
 import { Document, type DocumentInterface } from '@langchain/core/documents';
 
 import type { S3OutputVector } from '../types.js';
-import { describeRecord, type RecordRef } from './describe.js';
+import { describeKey, describeRecord, type RecordRef } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
+import { defineOwn } from './objects.js';
 import type { OperationScope } from './scope.js';
 import { unpairedSurrogateReason } from './utf16.js';
 
@@ -142,22 +143,6 @@ function arrayRejectionReason(value: readonly unknown[]): string | undefined {
 }
 
 /**
- * Set an own, enumerable property, whatever the key is called.
- *
- * `defineProperty`, not assignment: assigning to `__proto__` on a plain object
- * runs the inherited setter and stores nothing at all, which once silently
- * discarded every document's page content.
- */
-function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
-  Object.defineProperty(target, key, {
-    value,
-    enumerable: true,
-    writable: true,
-    configurable: true,
-  });
-}
-
-/**
  * UTF-8 bytes of the JSON serialisation, which is what AWS counts.
  *
  * Truthful only because {@link rejectionReason} has already refused every value
@@ -244,9 +229,11 @@ export function buildPutMetadata(
 
   for (const [key, value] of Object.entries(metadata)) {
     const keyReason = unpairedSurrogateReason(key);
-    if (keyReason !== undefined) fail(`Metadata key ${JSON.stringify(key)} ${keyReason}.`);
+    if (keyReason !== undefined) {
+      fail(`Metadata key ${JSON.stringify(describeKey(key))} ${keyReason}.`);
+    }
     const reason = rejectionReason(value);
-    if (reason !== undefined) fail(`Metadata key '${key}' ${reason}.`);
+    if (reason !== undefined) fail(`Metadata key '${describeKey(key)}' ${reason}.`);
     // Copied once known to be storable: the record owns everything that was
     // validated, and the caller keeps their own array to do with as they like.
     if (Array.isArray(value)) defineOwn(metadata, key, [...(value as unknown[])]);

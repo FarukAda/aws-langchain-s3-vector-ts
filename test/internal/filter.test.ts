@@ -361,3 +361,37 @@ describe('parseFilter — strings AWS cannot decode (T3-15)', () => {
     expect(check({ ['k😀']: { $in: ['😀'] } })).toBeUndefined();
   });
 });
+
+describe('nesting depth', () => {
+  /** `{"$or":[{"$or":[… {a:{$eq:1}} …]}]}`, `levels` deep. */
+  const nest = (levels: number): unknown => {
+    let filter: unknown = { a: { $eq: 1 } };
+    for (let level = 0; level < levels; level += 1) filter = { $or: [filter] };
+    return filter;
+  };
+
+  it('accepts the nesting a real query uses', () => {
+    expect(check(nest(8))).toBeUndefined();
+  });
+
+  it('refuses a filter nested past the cap with a coded error, not a RangeError', () => {
+    // assertConditions and assertLogicalBranch recurse without a bound, so
+    // around 3–4k levels the stack overflows and a raw RangeError escapes —
+    // isS3VectorsError returns false for it, and an application catch that
+    // branches on the code falls through to its generic handler. A filter is
+    // the one input a caller may well build from user data or an LLM, and
+    // JSON.parse is iterative, so it gets there.
+    const error = check(nest(5000));
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toMatch(/nest/i);
+  });
+
+  it('a filter at exactly the cap is still accepted', () => {
+    // The boundary is stated in the message, so it has to be the boundary.
+    const error = check(nest(5000)) as Error;
+    const cap = Number(/more than (\d+)/.exec(error.message)?.[1]);
+    expect(Number.isInteger(cap)).toBe(true);
+    expect(check(nest(cap))).toBeUndefined();
+    expect(codeOf(check(nest(cap + 1)))).toBe(S3VectorsErrorCode.VALIDATION);
+  });
+});

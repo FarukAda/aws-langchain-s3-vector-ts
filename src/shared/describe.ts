@@ -14,6 +14,83 @@ function articleFor(word: string): 'a' | 'an' {
   return /^[aeiou]/i.test(word) ? 'an' : 'a';
 }
 
+/** How much of a constructor name a message shows. */
+const MESSAGE_NAME_MAX_LENGTH = 48;
+
+/** How much of a metadata key a message shows. `context` carries nothing of it. */
+const MESSAGE_KEY_MAX_LENGTH = 64;
+
+/**
+ * Remove the characters that let caller data forge a log record.
+ *
+ * A newline inside a value this package interpolates into a message puts a
+ * second line into the application's log stream and its LangSmith traces, and
+ * that line reads as its own record. C0 and DEL go; everything else — including
+ * every non-ASCII character, which a legitimate key may well be — stays.
+ */
+function stripControl(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\u0000-\u001f\u007f]/g, '');
+}
+
+/** Cut to `max` characters, marking that something was cut. */
+function cut(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/**
+ * A caller's metadata key, made safe to put in a message.
+ *
+ * Accepts: the key, as it came off the caller's object.
+ *
+ * Returns: it stripped of control characters and cut to
+ * {@link MESSAGE_KEY_MAX_LENGTH}.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: bounded and single-line. A document's metadata key has no length
+ * rule of its own here — AWS's 1–63 applies to an index's non-filterable keys,
+ * not to a document's — and the per-key loop runs before the 2 KB and 40 KB
+ * budgets, so a 200 KB key produced a 200,182-byte refusal carrying it
+ * verbatim. In an ingest pipeline these keys are routinely derived from the
+ * documents themselves — form field names, spreadsheet headers — so that is
+ * caller content, at caller-chosen length, in somebody's logs.
+ */
+export function describeKey(key: string): string {
+  return cut(stripControl(key), MESSAGE_KEY_MAX_LENGTH);
+}
+
+/**
+ * A constructor name, made safe to put in a message.
+ *
+ * Accepts: whatever `constructor.name` turned out to be — which is caller data,
+ * not a language guarantee: `{ constructor: { name: … } }` is an ordinary object
+ * that arrives from `JSON.parse` of a request body, as a filter operand or as a
+ * document's `pageContent`.
+ *
+ * Returns: the name with control characters removed and cut to
+ * {@link MESSAGE_NAME_MAX_LENGTH}, or `undefined` when there is nothing usable
+ * — not a string, or nothing left after stripping.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees, and why each is here rather than assumed:
+ * - **A string, checked.** `${name}` on an object with a null prototype raises
+ *   "Cannot convert object to primitive value", and this runs while another
+ *   error is being reported, so that replaces the caller's real failure with a
+ *   formatting one.
+ * - **No control characters.** A newline in a name puts a second line into the
+ *   application's log stream and its traces, which reads as its own record.
+ * - **Bounded.** Uncapped, 50 KB of name produced a 50 KB message from a few
+ *   hundred bytes of request, which is a log-amplification lever.
+ */
+function safeName(name: unknown): string | undefined {
+  if (typeof name !== 'string') return undefined;
+  const stripped = stripControl(name);
+  if (stripped === '') return undefined;
+  return cut(stripped, MESSAGE_NAME_MAX_LENGTH);
+}
+
 /**
  * Describe a rejected value by kind, never by content.
  *
@@ -29,15 +106,26 @@ function articleFor(word: string): 'a' | 'an' {
  * another realm). A filter rejection says "a non-plain object" there, because
  * "must be a plain object — received an object" reads like a contradiction.
  *
- * Throws: nothing. Reading `constructor.name` is guarded, so a null-prototype
- * object describes as an object rather than failing inside error handling.
+ * Throws: nothing. Every way of reading `constructor.name` that can fail is
+ * guarded — it may be absent, it may not be a string, and on a hostile object
+ * the getter itself may throw — so a null-prototype object or a crafted one
+ * describes as an object rather than failing inside error handling. The name is
+ * also stripped of control characters and capped; see {@link safeName} for why
+ * a constructor name is caller data rather than a language guarantee.
  */
 export function describeValue(value: unknown, objectFallback = 'an object'): string {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'an array';
   const type = typeof value;
   if (type !== 'object') return `${articleFor(type)} ${type}`;
-  const name = (value as { constructor?: { name?: string } }).constructor?.name;
+  let raw: unknown;
+  try {
+    raw = (value as { constructor?: { name?: unknown } }).constructor?.name;
+  } catch {
+    // A throwing getter. The caller's failure is what matters, not this one.
+    return objectFallback;
+  }
+  const name = safeName(raw);
   return name !== undefined && name !== 'Object'
     ? `${articleFor(name)} ${name} instance`
     : objectFallback;

@@ -111,6 +111,54 @@ describe('flattenMetadata', () => {
       S3VectorsErrorCode.VALIDATION,
     );
   });
+
+  it('keeps a __proto__ key as an own key instead of losing it', () => {
+    // `flat[path] = value` invokes Object.prototype's __proto__ setter, which
+    // is not a property write: the field vanishes, and the guarantee that
+    // every other value is "passed through untouched" is broken silently. The
+    // key is reachable from `JSON.parse`, so this is ordinary loader input.
+    const flattened = flattenMetadata(JSON.parse('{"__proto__":"keep me","other":1}'));
+    expect(Object.hasOwn(flattened, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(flattened, '__proto__')?.value).toBe('keep me');
+    expect(flattened['other']).toBe(1);
+  });
+
+  it('does not let a __proto__ value become the returned object’s prototype', () => {
+    const flattened = flattenMetadata(JSON.parse('{"__proto__":[1,2,3]}'));
+    expect(Object.getPrototypeOf(flattened)).toBe(Object.prototype);
+  });
+
+  it('still refuses a real collision when a __proto__ key is also present', () => {
+    // The collision guard reads own keys; switching the write to
+    // defineProperty must not leave it reading something else.
+    const refusal = refusalOf(() =>
+      flattenMetadata(JSON.parse('{"__proto__":1,"a.b":2,"a":{"b":3}}')),
+    );
+    expect(refusal.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(refusal.message).toContain("'a.b'");
+  });
+
+  it('refuses metadata nested deeper than it can walk, with a coded error', () => {
+    // 6000 levels overflows the stack in the recursive walk. A raw RangeError
+    // escapes isS3VectorsError, breaking the promise that every failure here
+    // is coded. Reachable from JSON.parse, whose parser is iterative.
+    let json = '1';
+    for (let depth = 0; depth < 6000; depth += 1) json = `{"a":${json}}`;
+    const refusal = refusalOf(() => flattenMetadata(JSON.parse(json)));
+    expect(refusal.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(refusal.message).toMatch(/nest/i);
+  });
+
+  it('refuses metadata that expands combinatorially through shared references', () => {
+    // `ancestors` is a path set, so it catches a true cycle but reads a shared
+    // reference as a tree: 22 levels of { a: n, b: n } is 4.2M keys and ~860 MB.
+    // Not reachable from JSON.parse, which cannot alias — but a YAML loader
+    // with anchors, structuredClone, or assembled metadata all produce it.
+    let node: Record<string, unknown> = { leaf: 1 };
+    for (let depth = 0; depth < 22; depth += 1) node = { a: node, b: node };
+    const refusal = refusalOf(() => flattenMetadata(node));
+    expect(refusal.code).toBe(S3VectorsErrorCode.VALIDATION);
+  });
 });
 
 describe('flattenMetadata with the write path', () => {

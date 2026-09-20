@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`flattenMetadata` silently dropped a `__proto__` key, and could hand back an
+  object whose prototype was the caller's own data.** It wrote each flattened
+  field with `flat[path] = value`. For `path === '__proto__'` that is not a
+  property write at all: it runs the setter inherited from `Object.prototype`,
+  which stores nothing, and for an object or array value replaces the returned
+  object's prototype instead. So `flattenMetadata(JSON.parse('{"__proto__":"x","keep":1}'))`
+  returned `{ keep: 1 }` — the field gone, no error — breaking the documented
+  promise that every value it cannot flatten is "passed through untouched"; and
+  `{"__proto__":[1,2,3]}` returned an object whose prototype was that array, so
+  `isPlainObject` then reported it as not a plain object. `Object.hasOwn` reads
+  `false` for `__proto__` too, so the collision guard did not fire either. The
+  key is reachable from `JSON.parse` of any user-supplied document, which is
+  exactly what this helper exists to process. `Object.prototype` itself was
+  never polluted, and is not now. The write path had already been fixed for the
+  same hazard in `buildPutMetadata`; that fix lived beside its one caller, so
+  this second site never got it. The helper now lives in `shared/objects.ts`,
+  because a fix in one of two places is worth nothing.
+
+- **A deeply nested filter escaped as a raw `RangeError`.** `parseFilter`
+  recursed through `$and`/`$or` without a bound, so around three to four
+  thousand levels — a few tens of kilobytes of JSON, which `JSON.parse` accepts
+  happily because its own parser is iterative — exhausted the stack. That error
+  is not one of this package's, so `isS3VectorsError` reported `false` for it
+  and a caller branching on `error.code` fell through to their generic handler,
+  breaking the one guarantee this package makes about every failure. A filter is
+  the input a caller most plausibly builds from user data or from a model's
+  output. Nesting is now capped at 32 levels and refused with `VALIDATION`,
+  which is past anything a person or a query builder writes.
+
+- **`flattenMetadata` expanded a shared reference as though it were a copy.** It
+  tracks ancestors along the current path, which is what lets it spot a cycle,
+  and also means a value reached by two paths is walked twice. 22 levels of
+  `{ a: n, b: n }` over one shared child is 8.4 million nodes and 4.2 million
+  output keys — 7 seconds of blocked event loop and 862 MB, from a few hundred
+  bytes of input. `JSON.parse` cannot produce that shape, but a YAML loader with
+  anchors, `structuredClone`, and programmatically assembled metadata all can.
+  Refusing a repeat outright would be wrong, since `{ a: shared, b: shared }` is
+  legitimate, so the bound is on total work: 100,000 objects entered.
+
+- **Error messages could carry unbounded caller content, and a newline.** Two
+  sinks, both reachable from a request body:
+  `describeValue` interpolated `constructor.name` — which on `{ constructor: {
+  name: … } }` from `JSON.parse` is caller data, not a language guarantee — with
+  no type check, no length cap and no sanitising, so 50 KB of it produced a
+  50,084-byte message, and a newline in it put a second line into the
+  application's log stream and its traces that reads as its own record. When
+  that name was a null-prototype object or a throwing getter, building the
+  message raised `TypeError: Cannot convert object to primitive value` *while
+  another error was being reported*, replacing the caller's real failure with a
+  formatting one — against the function's own documented "Throws: nothing".
+  Separately, a document's metadata key was echoed whole, and a document key has
+  no length rule here, so a 200 KB key produced a 200,182-byte refusal carrying
+  it verbatim; in an ingest pipeline those keys are routinely derived from the
+  documents themselves. Both are now stripped of control characters and capped,
+  and reading a constructor name can no longer throw.
+
 ## [1.0.0-rc.3] - 2026-09-20
 
 ### Upgrading from 0.9.0

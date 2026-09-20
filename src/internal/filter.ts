@@ -108,6 +108,22 @@ const OPERAND_RULES: ReadonlyMap<string, OperandRule> = new Map<string, OperandR
   ['$exists', booleanReason],
 ]);
 const LOGICAL_OPERATORS = new Set(['$and', '$or']);
+
+/**
+ * How deep `$and`/`$or` may nest before the filter is refused.
+ *
+ * The check is recursive, and a filter is the one input a caller plausibly
+ * builds from user data or from a model's output. Without a bound, around three
+ * to four thousand levels — a few tens of kilobytes of JSON, which `JSON.parse`
+ * handles happily because its own parser is iterative — exhausts the stack and
+ * escapes as a raw `RangeError`. That is uncoded, so `isS3VectorsError` reports
+ * `false` and a caller branching on the code falls through to its generic
+ * handler, which is the one guarantee this package makes about every failure.
+ *
+ * 32 is past anything a person or a query builder writes and far below where
+ * recursion is a problem. AWS's own nesting is shallower still.
+ */
+const MAX_FILTER_DEPTH = 32;
 /** Every operator, in the order a message lists them. */
 const ALL_OPERATORS = [...OPERAND_RULES.keys(), ...LOGICAL_OPERATORS].join(', ');
 /** The comparison operators alone. */
@@ -231,8 +247,9 @@ function assertFieldCondition(
  *
  * Throws: `VALIDATION` for anything that is not a non-empty array, and
  * whatever each nested condition raises — recursing back through
- * {@link assertConditions}, which is what makes nesting depth unbounded here
- * rather than capped at one level.
+ * {@link assertConditions}, which is what lets a branch hold another branch
+ * rather than only field conditions. Depth is bounded by
+ * {@link MAX_FILTER_DEPTH}, counted per logical level.
  */
 function assertLogicalBranch(
   entry: unknown,
@@ -240,12 +257,13 @@ function assertLogicalBranch(
   path: string,
   operation: string,
   scope: StoreScope,
+  depth: number,
 ): void {
   if (!Array.isArray(entry) || entry.length === 0) {
     failFilter(operation, scope, `filter${path}.${key} must be a non-empty array of filters.`);
   }
   for (const [index, nested] of (entry as unknown[]).entries()) {
-    assertConditions(nested, `${path}.${key}[${index}]`, operation, scope);
+    assertConditions(nested, `${path}.${key}[${index}]`, operation, scope, depth + 1);
   }
 }
 
@@ -268,7 +286,17 @@ function assertConditions(
   path: string,
   operation: string,
   scope: StoreScope,
+  depth: number,
 ): void {
+  if (depth > MAX_FILTER_DEPTH) {
+    failFilter(
+      operation,
+      scope,
+      `filter${path} nests logical operators more than ${MAX_FILTER_DEPTH} levels deep. ` +
+        'A filter that deep is built by a program rather than written, and checking it ' +
+        'recursively past this point exhausts the stack.',
+    );
+  }
   if (Array.isArray(value)) {
     failFilter(
       operation,
@@ -308,7 +336,7 @@ function assertConditions(
 
   const key = keys[0]!;
   if (LOGICAL_OPERATORS.has(key)) {
-    assertLogicalBranch(value[key], key, path, operation, scope);
+    assertLogicalBranch(value[key], key, path, operation, scope, depth);
     return;
   }
   if (OPERAND_RULES.has(key)) {
@@ -335,8 +363,8 @@ function assertConditions(
  * - `undefined` or `null` — no filter; accepted, and the search runs
  *   unfiltered. `null` is read as "not provided" because a config assembled at
  *   runtime defaults an absent field to it.
- * - a plain object holding exactly one condition, nested to any depth through
- *   `$and`/`$or`. Plain is tested by prototype shape, so an object from another
+ * - a plain object holding exactly one condition, nested through `$and`/`$or`
+ *   up to {@link MAX_FILTER_DEPTH} levels. Plain is tested by prototype shape, so an object from another
  *   realm (a `vm` context, a worker `postMessage`, `structuredClone`) passes
  *   while a class instance, `Map` or `Date` does not.
  *
@@ -380,7 +408,7 @@ export function parseFilter(
   scope: StoreScope,
 ): ParsedFilter | undefined {
   if (filter === undefined || filter === null) return undefined;
-  assertConditions(filter, '', operation, scope);
+  assertConditions(filter, '', operation, scope, 0);
   // The one place the brand is applied, which is what makes it mean anything:
   // every other module can only obtain a ParsedFilter by calling this.
   return filter as ParsedFilter;

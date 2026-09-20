@@ -9,10 +9,41 @@
 import { describeValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
-import { isPlainObject } from './objects.js';
+import { defineOwn, isPlainObject } from './objects.js';
 
 /** Between a nested object's key and its own, as `loc.lines.from`. */
 const SEPARATOR = '.';
+
+/**
+ * How deep this will walk before refusing.
+ *
+ * The walk is recursive, so without a bound a deeply nested object exhausts the
+ * stack and escapes as a raw `RangeError` — uncoded, so `isS3VectorsError`
+ * returns `false` for it and a caller's `catch` falls through to its generic
+ * handler. The threshold is around four thousand levels, and `JSON.parse` is
+ * iterative, so plain user JSON reaches it.
+ *
+ * 32 is far beyond anything a loader produces — the deepest real case in the
+ * wild is `pdf.info.Title` at three — and far below where recursion is a
+ * problem.
+ */
+const MAX_DEPTH = 32;
+
+/**
+ * How many objects this will enter before refusing.
+ *
+ * {@link flattenMetadata} tracks ancestors along the current *path*, which is
+ * what makes it able to spot a cycle. It also means a value reached twice by
+ * different paths is walked twice, so a graph that shares references expands as
+ * if it were a tree: 22 levels of `{ a: n, b: n }` over one shared child is
+ * about 8.4 million nodes and 4.2 million output keys, which took 7 seconds and
+ * 862 MB in a measurement, on input of a few hundred bytes.
+ *
+ * Refusing a repeat outright would be wrong — `{ a: shared, b: shared }` is
+ * legitimate and small — so the bound is on total work instead. Any real
+ * metadata object is a few dozen nodes.
+ */
+const MAX_NODES = 100_000;
 
 /** Raise the `VALIDATION` this helper refuses with, naming `flattenMetadata`. */
 function fail(message: string): never {
@@ -74,8 +105,24 @@ export function flattenMetadata(metadata: Record<string, unknown>): Record<strin
   }
   const flat: Record<string, unknown> = {};
   const ancestors = new Set<unknown>();
+  let nodes = 0;
 
-  const walk = (source: Record<string, unknown>, prefix: string): void => {
+  const walk = (source: Record<string, unknown>, prefix: string, depth: number): void => {
+    if (depth > MAX_DEPTH) {
+      fail(
+        `flattenMetadata found metadata nested more than ${MAX_DEPTH} levels deep at ` +
+          `'${prefix}'. S3 Vectors stores no nested object at all, so a document this deep is ` +
+          'not one it could hold flattened either.',
+      );
+    }
+    nodes += 1;
+    if (nodes > MAX_NODES) {
+      fail(
+        `flattenMetadata gave up after entering ${MAX_NODES} objects, at '${prefix}'. Metadata ` +
+          'that shares one object between many fields expands as though each were its own copy, ' +
+          'so a small input can flatten to millions of keys.',
+      );
+    }
     ancestors.add(source);
     for (const [key, value] of Object.entries(source)) {
       const path = prefix === '' ? key : `${prefix}${SEPARATOR}${key}`;
@@ -88,7 +135,7 @@ export function flattenMetadata(metadata: Record<string, unknown>): Record<strin
               'JSON, which cannot represent one.',
           );
         }
-        walk(value, path);
+        walk(value, path, depth + 1);
         continue;
       }
       if (Object.hasOwn(flat, path)) {
@@ -98,11 +145,14 @@ export function flattenMetadata(metadata: Record<string, unknown>): Record<strin
             'S3 Vectors.',
         );
       }
-      flat[path] = Array.isArray(value) ? [...(value as unknown[])] : value;
+      // defineOwn, not assignment: `flat['__proto__'] = value` writes no
+      // property, drops the field, and for an object value replaces this
+      // object's prototype with the caller's data.
+      defineOwn(flat, path, Array.isArray(value) ? [...(value as unknown[])] : value);
     }
     ancestors.delete(source);
   };
 
-  walk(metadata, '');
+  walk(metadata, '', 0);
   return flat;
 }

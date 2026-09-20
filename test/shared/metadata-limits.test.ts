@@ -190,3 +190,42 @@ describe('buildPutMetadata — page content, unchanged', () => {
     expect(Object.keys(out)).toEqual(['a']);
   });
 });
+
+describe('a metadata key in a refusal message', () => {
+  const opts = {
+    pageContentMetadataKey: '_page_content',
+    nonFilterableMetadataKeys: ['_page_content'],
+    operation: 'addDocuments',
+    vectorBucketName: 'b',
+    indexName: 'i',
+    record: { recordIndex: 0, recordId: 'd1' },
+  } as const;
+
+  const refusalFor = (metadata: Record<string, unknown>): Error => {
+    try {
+      buildPutMetadata({ pageContent: 'hi', metadata }, opts);
+    } catch (error: unknown) {
+      return error as Error;
+    }
+    throw new Error('expected a refusal');
+  };
+
+  it('is bounded, however long the caller made it', () => {
+    // The per-key loop runs before the 2 KB and 40 KB budgets, and a document's
+    // metadata key has no length rule of its own, so a 200 KB key produced a
+    // 200,182-byte message carrying it verbatim. Metadata keys in an ingest
+    // pipeline are routinely derived from user documents — form field names,
+    // spreadsheet headers — so this is caller content in logs and traces.
+    const message = refusalFor({ ['P'.repeat(200_000)]: null }).message;
+    expect(message.length).toBeLessThan(400);
+    expect(message).not.toContain('P'.repeat(1_000));
+  });
+
+  it('still shows enough of the key to identify it', () => {
+    expect(refusalFor({ shortKey: null }).message).toContain('shortKey');
+  });
+
+  it('cannot carry a newline out of a key', () => {
+    expect(refusalFor({ 'bad\nkey': null }).message).not.toContain('\n');
+  });
+});

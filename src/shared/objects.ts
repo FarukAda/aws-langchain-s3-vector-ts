@@ -49,3 +49,34 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   const proto: unknown = Object.getPrototypeOf(value);
   return proto === null || Object.getPrototypeOf(proto) === null;
 }
+
+/**
+ * Set an own, enumerable property, whatever the key is called.
+ *
+ * Accepts: the object to write to, a key that may be any string a caller's
+ * data contained, and the value.
+ *
+ * Returns: nothing.
+ *
+ * Throws: nothing, for a plain extensible target.
+ *
+ * Guarantees: `defineProperty`, never assignment. `target[key] = value` for
+ * `key === '__proto__'` does not write a property at all — it runs the setter
+ * inherited from `Object.prototype`, which stores nothing and, for an object
+ * or `null` value, replaces the target's prototype instead. `Object.hasOwn`
+ * then still reports `false`, so a guard written around it does not fire
+ * either. Both halves have bitten this package: once discarding every
+ * document's page content, once silently dropping a metadata field while
+ * handing the caller an object whose prototype was their own data.
+ *
+ * It lives here rather than beside one of its callers because there are two,
+ * in different modules, and the fix in one is worthless without the other.
+ */
+export function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}

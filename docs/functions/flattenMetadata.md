@@ -8,7 +8,7 @@
 
 > **flattenMetadata**(`metadata`): `Record`\<`string`, `unknown`\>
 
-Defined in: [shared/flatten-metadata.ts:69](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/flatten-metadata.ts#L69)
+Defined in: [shared/flatten-metadata.ts:100](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/flatten-metadata.ts#L100)
 
 Flatten nested document metadata into the shape S3 Vectors stores.
 
