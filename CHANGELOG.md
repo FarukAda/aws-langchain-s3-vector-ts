@@ -168,6 +168,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The live suite still asserted the old distance-metric behaviour.** A write
+  to an index whose metric differs from the store's is now refused against the
+  metric the index itself reports; the unit suite was updated with that change
+  and the live tier was not, because nothing runs it in CI. It was caught by
+  re-running the whole live tier before tagging, where it failed with exactly
+  the new refusal — which is also the proof that the check works against the
+  real service rather than only against a mock. The test now asserts the
+  refusal, that nothing was written, and that the read-path metric check still
+  stands on its own, since that one guards a different case: an index
+  re-created out of band, where no write happens at all.
+
+
 - **Node 26 is in the CI matrix.** It shipped on 2026-09-16 and becomes Active
   LTS while this package is still `1.x`, so it is tested before users are on
   it. Node 22 has been in maintenance since 2025-10-21 and stays, because it is

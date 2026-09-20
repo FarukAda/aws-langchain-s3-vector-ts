@@ -95,22 +95,33 @@ if (!env) {
           distanceMetric: 'euclidean',
         });
 
-        // The metric governs query-time computation only, so a mismatched
-        // store writes valid vectors...
-        await expect(
-          euclideanStore.addVectors([[5, 6, 7, 8]], [new Document({ pageContent: 'y' })], {
-            ids: ['id-2'],
-          }),
-        ).resolves.toEqual(['id-2']);
+        // The write is refused, against the metric the index itself reports on
+        // the GetIndex the first write already makes. Before that check
+        // existed the write went through and the mismatch surfaced only on a
+        // later read — so a write-only workload never caught it at all, while
+        // the cosine-only zero-norm rule was being applied from the *store's*
+        // metric rather than the index's.
+        const writeError = await euclideanStore
+          .addVectors([[5, 6, 7, 8]], [new Document({ pageContent: 'y' })], { ids: ['id-2'] })
+          .catch((e: unknown) => e);
+        expect(isS3VectorsError(writeError)).toBe(true);
+        expect((writeError as { code: S3VectorsErrorCode }).code).toBe(
+          S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
+        );
+        expect((writeError as Error).message).toContain('cosine');
 
-        // ...and the mismatch surfaces on the read path instead, against the
-        // distanceMetric QueryVectors returns. That is the only metric
-        // check this package still performs.
-        const error = await euclideanStore
+        // Nothing was written, so the index still holds only the first vector.
+        expect(await cosineStore.getByIds(['id-2'])).toEqual([undefined]);
+
+        // The read-path check still stands on its own, against the
+        // distanceMetric QueryVectors returns rather than against GetIndex —
+        // so an index re-created out of band with a different metric is caught
+        // on the next read even when no write happens.
+        const readError = await euclideanStore
           .similaritySearchVectorWithScore([1, 2, 3, 4], 1)
           .catch((e: unknown) => e);
-        expect(isS3VectorsError(error)).toBe(true);
-        expect((error as { code: S3VectorsErrorCode }).code).toBe(
+        expect(isS3VectorsError(readError)).toBe(true);
+        expect((readError as { code: S3VectorsErrorCode }).code).toBe(
           S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
         );
       } finally {

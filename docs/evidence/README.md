@@ -32,6 +32,22 @@ from it.
 | 1 | 2026-09-14 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1118.0` | `langchain-vectors-ci` |
 | 2 | 2026-09-16 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
 | 3 | 2026-09-17 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
+| 4 | 2026-09-20 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
+
+**Run 4 settled nothing new: it re-ran the whole live tier against a fresh
+ephemeral bucket and every claim below still held.** 114 tests across 8 suites,
+all passing, before tagging `1.0.0-rc.3` — so the facts frozen into that release
+are confirmed as of that date rather than inherited from runs 1–3. It is
+recorded here because a claim is only as fresh as the last run that checked it,
+and "still true" is the answer this table exists to give.
+
+One test did fail on that run, and it was the test rather than the service: the
+live suite still asserted that a write to an index whose distance metric differs
+from the store's *succeeds*, with the mismatch surfacing on a later read. That
+had been changed deliberately — the write now checks the metric against the
+`GetIndex` it already makes — and the unit suite was updated with it, while this
+one was not, because nothing runs it in CI. The failure is what proves the new
+check works against the real service.
 
 ## Claims settled
 
