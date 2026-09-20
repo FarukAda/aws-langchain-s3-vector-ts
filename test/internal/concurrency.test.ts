@@ -38,7 +38,6 @@ describe('runBatches, reporting what committed', () => {
       batches: [[0], [1], [2]],
       ids: ['first', 'slow', 'fast'],
       serializeFirstBatch: true,
-      attemptedIds: ['first', 'slow', 'fast'],
       action: async (_batch, offset) => {
         if (offset === 1) await releaseSlow.promise;
         if (offset === 2) {
@@ -107,7 +106,6 @@ describe('runBatches, reporting what committed', () => {
     const error = await run<number>({
       batches: [[0]],
       ids: ['a', 'b'],
-      attemptedIds: ['a', 'b'],
       action: () => Promise.reject(new Error('boom')),
     }).catch((e: unknown) => e);
     expect(contextOf(error)['attemptedIds']).toEqual(['a', 'b']);
@@ -117,7 +115,6 @@ describe('runBatches, reporting what committed', () => {
     const error = await run<number>({
       batches: [[0], [1]],
       ids: ['a', 'b'],
-      attemptedIds: ['a', 'b'],
       action: () => Promise.reject(new Error('boom')),
     }).catch((e: unknown) => e);
     expect(contextOf(error)['writtenIds']).toEqual([]);
@@ -128,7 +125,6 @@ describe('runBatches, reporting what committed', () => {
     const error = await run<number>({
       batches: [[0], [1]],
       ids: ['a', 'b'],
-      attemptedIds: ['a', 'b'],
       action: (_batch, offset) => {
         if (offset !== 0) throw new Error('boom');
         return Promise.resolve();

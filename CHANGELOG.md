@@ -1076,6 +1076,46 @@ All of these raise `VALIDATION` before anything billable is spent.
 
 ### Internal
 
+- **Only a `success` satisfies the release gate.** `scripts/require-green-ci.mjs`
+  counted `skipped` and `neutral` as succeeded, for conditional jobs — but none
+  of the fourteen required checks is conditional, so neither can arrive
+  honestly. The one that mattered is `live-aws integration`: an `if:` added to
+  that job later, or a guard around the AWS role secret, reports `skipped`, and
+  the gate that exists to guarantee this package was checked against the real
+  service before publishing would have been satisfied by the suite never
+  running. A skip is now a failure, which is also the truthful exit code —
+  waiting cannot turn it into a success.
+
+- **`scripts/` is linted.** The lint globs named `src/` and `test/` and nothing
+  else, so the formatting and unused-import rules applied to every file in the
+  repository except the six that pack, publish and gate the release. They are
+  linted now, with the type-aware rules switched off — they are plain ESM,
+  deliberately outside the TypeScript program — and the three Node globals they
+  use named in the config rather than taking on `globals` as a dependency for
+  three lines.
+
+- **Three things the code did and the documentation did not say.** Each is a
+  disclosure, not a behaviour change. `writeRateLimit` paces one store instance
+  in one process, so several processes writing to one index can still exceed
+  the limit between them; and a request carrying more vectors than one second's
+  budget (`batchSize` above `vectorsPerSecond`) cannot fit under the rate at
+  all, so it is charged one second's worth and sent after waiting that second
+  rather than waiting for ever. `maxMarginalRelevanceSearch` selects with
+  core's `maximalMarginalRelevance`, which measures diversity by cosine
+  similarity whatever the index's metric is — so on a **euclidean** index
+  holding zero-norm vectors, which euclidean accepts and cosine refuses, the
+  similarity is `NaN` and the order among those candidates is undefined. And
+  the README's peak-memory paragraph said "in-flight vectors" while the
+  per-document records, which the whole input is checked into before the first
+  batch is embedded, are not per-batch; both halves are now stated together.
+
+- **`BatchedRun.attemptedIds` is gone.** Both call sites passed it and
+  `runBatches` never read it: the list it reports as `context.attemptedIds` is
+  its own copy of `ids`, which the same interface already requires. The two
+  fields held the same value and said so in two different doc comments, which
+  is the arrangement where one of them eventually drifts. Nothing observable
+  changes.
+
 - **`src/` cannot import a package the consumer never installed.** The package
   declares no runtime dependencies — both real ones are peers — so anything
   else in `package.json` is a devDependency, and importing one from `src/`

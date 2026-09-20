@@ -110,6 +110,26 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-return': 'off',
     },
   },
+  // The release and packaging tooling. Linted, because it is what stands
+  // between `git push --tags` and a live `latest` — and it was the one
+  // directory the lint script's globs never named, so the formatting rule and
+  // the unused-import rule applied to every file in this repo except the ones
+  // that publish it.
+  //
+  // Not type-checked: these are plain ESM scripts, deliberately outside the
+  // TypeScript program (`test/scripts/require-green-ci.test.ts` imports one
+  // with a `@ts-expect-error` saying so), so every type-aware rule is switched
+  // off for them rather than dragging them into a tsconfig they do not belong
+  // in. The three globals they use are named here instead of pulling in the
+  // `globals` package, which is not currently a dependency and would be one
+  // taken for three lines.
+  {
+    files: ['scripts/**/*.mjs'],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      globals: { console: 'readonly', process: 'readonly', URL: 'readonly' },
+    },
+  },
   {
     ignores: ['dist/', 'coverage/', 'node_modules/', '*.config.*', 'reports/'],
   },

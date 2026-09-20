@@ -237,7 +237,6 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
     serializeFirstBatch: true,
     operation: 'addVectors',
     contextField: 'writtenIds',
-    attemptedIds: ids,
     ...scope,
     action: (batch, offset) =>
       opts.putBatch(

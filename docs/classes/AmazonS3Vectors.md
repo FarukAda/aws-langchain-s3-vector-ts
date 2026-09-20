@@ -234,7 +234,7 @@ Defined in: [s3-vectors.ts:157](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **\_assertRelevanceScoresAvailable**(): (`distance`) => `number`
 
-Defined in: [s3-vectors.ts:1241](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1241)
+Defined in: [s3-vectors.ts:1250](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1250)
 
 **`Internal`**
 
@@ -433,7 +433,7 @@ impossible to find or reconcile again.
 
 > **asRetriever**(`kOrFields?`, `filter?`, `callbacks?`, `tags?`, `metadata?`, `verbose?`): [`AmazonS3VectorsRetriever`](AmazonS3VectorsRetriever.md)\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1066](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1066)
+Defined in: [s3-vectors.ts:1075](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1075)
 
 Build a retriever over this store.
 
@@ -527,7 +527,7 @@ a `tags` that is not a list.
 
 > **delete**(`params`): `Promise`\<`void`\>
 
-Defined in: [s3-vectors.ts:828](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L828)
+Defined in: [s3-vectors.ts:837](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L837)
 
 Delete vectors by id.
 
@@ -579,7 +579,7 @@ maps to, carrying `context.deletedIds`.
 
 > **deleteIndex**(`options?`): `Promise`\<`void`\>
 
-Defined in: [s3-vectors.ts:879](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L879)
+Defined in: [s3-vectors.ts:888](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L888)
 
 Delete the index itself.
 
@@ -626,7 +626,7 @@ the `DeleteIndex` failure maps to. A missing index is not a failure.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1173](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1173)
+Defined in: [s3-vectors.ts:1182](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1182)
 
 Create a store and add the given documents to it.
 
@@ -678,7 +678,7 @@ same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1093](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1093)
+Defined in: [s3-vectors.ts:1102](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1102)
 
 Create a store, embed the given texts and add them to it.
 
@@ -734,7 +734,7 @@ code, cause, `awsCommand`, stack and — once the store was constructed —
 
 > **getByIds**(`ids`, `options?`): `Promise`\<(`Document`\<`Record`\<`string`, `any`\>\> \| `undefined`)[]\>
 
-Defined in: [s3-vectors.ts:925](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L925)
+Defined in: [s3-vectors.ts:934](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L934)
 
 Retrieve documents by their vector IDs.
 
@@ -798,7 +798,7 @@ scratch.
 
 > **listDocuments**(`options?`): `AsyncGenerator`\<`Document`\<`Record`\<`string`, `any`\>\>\>
 
-Defined in: [s3-vectors.ts:970](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L970)
+Defined in: [s3-vectors.ts:979](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L979)
 
 Every document in the index, one at a time.
 
@@ -843,7 +843,7 @@ atomic and does not pretend to be.
 
 > **listVectors**(`options?`): `AsyncGenerator`\<[`S3VectorsRecord`](../interfaces/S3VectorsRecord.md)\>
 
-Defined in: [s3-vectors.ts:1010](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1010)
+Defined in: [s3-vectors.ts:1019](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1019)
 
 Every vector in the index with its embedding, one at a time.
 
@@ -889,7 +889,7 @@ index that looks complete and is not.
 
 > **maxMarginalRelevanceSearch**(`query`, `options`, `callbacks?`, `signal?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:749](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L749)
+Defined in: [s3-vectors.ts:758](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L758)
 
 Maximal Marginal Relevance search: relevance traded against diversity.
 
@@ -906,6 +906,15 @@ Accepts:
   config to `_getRelevantDocuments`, so a retriever-scoped signal has no
   other route to the underlying requests. Absent behaves exactly as core's
   three-parameter call.
+
+The selection is `maximalMarginalRelevance` from
+`@langchain/core/utils/math`, which measures diversity by cosine
+similarity whatever the index's metric is. On a **euclidean** index that
+holds zero-norm vectors — which euclidean, unlike cosine, accepts — the
+similarity against one of them is `NaN`, and where it lands in the
+ranking is undefined. Every document is still real and distinct; only the
+order among those candidates is. A cosine index cannot reach this: it
+refuses a zero-norm vector on write.
 
 #### Parameters
 

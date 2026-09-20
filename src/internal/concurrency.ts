@@ -130,11 +130,12 @@ export interface BatchedRun<T> extends StoreScope {
   readonly operation: string;
   /** Which list the committed ids belong under on a thrown error. */
   readonly contextField: CommittedIdsField;
-  /** Every id this call resolved, whether or not it committed. */
-  readonly attemptedIds?: readonly string[] | undefined;
   /** The batches, already split by count and by payload size. */
   readonly batches: readonly T[][];
-  /** Every id this call resolved, in order, one run of them per batch. */
+  /**
+   * Every id this call resolved, in order, one run of them per batch. Copied on
+   * entry, and reported whole as `context.attemptedIds` should a batch fail.
+   */
   readonly ids: readonly string[];
   /** How many calls may be in flight at once. */
   readonly maxConcurrent: number;

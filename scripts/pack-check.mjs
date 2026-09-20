@@ -32,7 +32,10 @@ const cleanEnv = Object.fromEntries(
 );
 
 const [{ files }] = JSON.parse(
-  execSync('npm pack --dry-run --json', { env: cleanEnv, stdio: ['ignore', 'pipe', 'ignore'] }).toString(),
+  execSync('npm pack --dry-run --json', {
+    env: cleanEnv,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).toString(),
 );
 const paths = files.map((file) => file.path).sort();
 

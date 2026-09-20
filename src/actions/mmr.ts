@@ -161,7 +161,14 @@ export function resolveMmrParameters(
  *
  * The selection itself is `maximalMarginalRelevance` from
  * `@langchain/core/utils/math`, so this package chooses candidates rather than
- * reimplementing the algorithm.
+ * reimplementing the algorithm. It measures diversity by cosine similarity
+ * whatever the index's metric is, so a zero-norm candidate — storable on a
+ * euclidean index, refused on a cosine one — scores `NaN` against the query
+ * and lands somewhere undefined in the ranking. Not corrected here: the fix
+ * would be this package reimplementing core's selection to special-case a
+ * vector core is entitled to its own opinion about, and the documents
+ * returned are real and distinct either way. It is stated on
+ * `maxMarginalRelevanceSearch` instead, where a caller reads it.
  */
 export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
   const { operation, k, fetchK, lambda, signal } = opts;

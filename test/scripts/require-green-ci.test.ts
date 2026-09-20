@@ -107,13 +107,26 @@ describe('evaluate', () => {
   );
 
   it.each(['skipped', 'neutral'])(
-    'treats a required check concluding %s as succeeded',
+    'treats a required check concluding %s as failed too — only success counts',
     (conclusion) => {
       const name = 'test (node 22 on windows-latest)';
       const verdict = classify(allGreenExcept(name, { name, status: 'completed', conclusion }));
-      expect(verdict).toMatchObject({ failed: [], pending: [] });
+      expect(verdict.failed.map((run) => run.name)).toEqual([name]);
     },
   );
+
+  it('refuses to publish when the live-AWS suite was skipped rather than run', () => {
+    // The reason `skipped` is not a success. An `if:` added to that job, or a
+    // guard around the AWS role secret, makes it report `skipped` — and the
+    // gate that exists to guarantee a live check before publishing would have
+    // been satisfied by the suite never running.
+    const name = 'live-aws integration';
+    const verdict = classify(
+      allGreenExcept(name, { name, status: 'completed', conclusion: 'skipped' }),
+    );
+    expect(verdict.failed.map((run) => run.name)).toEqual([name]);
+    expect(verdict.pending).toEqual([name]);
+  });
 
   it('leaves a still-running required check pending rather than failed', () => {
     const name = 'test (node 24 on ubuntu-latest)';

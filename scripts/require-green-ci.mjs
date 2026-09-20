@@ -69,28 +69,27 @@ export function parseCheckRuns(text) {
 /**
  * Classify a commit's check runs against the required list.
  *
- * A check run counts as succeeded on `success`, and — as before — on `skipped`
- * and `neutral`, which a conditional job legitimately reports. Anything else
- * that has completed is a failure, `cancelled` and `timed_out` included.
+ * Only `success` counts. Anything else that has completed is a failure —
+ * `cancelled` and `timed_out` included, and `skipped` and `neutral` too.
+ *
+ * Those last two used to count as succeeded, on the grounds that a conditional
+ * job legitimately reports them. No job on the list above is conditional, so
+ * neither can arrive honestly — and the one that would matter is
+ * `live-aws integration`. An `if:` added to it later, or a `secrets.` guard
+ * around it, would report `skipped`, and the gate that exists to guarantee this
+ * package was checked against the real service before publishing would have
+ * been satisfied by it never running. A skip is also not something waiting can
+ * fix, so it belongs with the failures rather than with the pending.
  */
 export function evaluate(checkRuns, required = REQUIRED_CHECKS) {
   const succeeded = new Set(
     checkRuns
-      .filter(
-        (run) =>
-          run.status === 'completed' &&
-          (run.conclusion === 'success' ||
-            run.conclusion === 'skipped' ||
-            run.conclusion === 'neutral'),
-      )
+      .filter((run) => run.status === 'completed' && run.conclusion === 'success')
       .map((run) => run.name),
   );
   const requiredNames = new Set(required);
   const failed = checkRuns.filter(
-    (run) =>
-      requiredNames.has(run.name) &&
-      run.status === 'completed' &&
-      !succeeded.has(run.name),
+    (run) => requiredNames.has(run.name) && run.status === 'completed' && !succeeded.has(run.name),
   );
   const pending = required.filter((name) => !succeeded.has(name));
   return { failed, pending, satisfied: required.length - pending.length, total: required.length };

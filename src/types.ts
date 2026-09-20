@@ -157,6 +157,15 @@ export interface AmazonS3VectorsConfig {
    * measured your own headroom — a single writer reached 6,026 vectors/s
    * untouched — and lower them to share an index with another workload.
    *
+   * Two things this does not do. It paces **this store instance**, in this
+   * process, so several processes writing to one index can still exceed the
+   * limit between them; the SDK's own retries remain the backstop for that.
+   * And a single request carrying more vectors than one second's budget —
+   * `batchSize` above `vectorsPerSecond` — cannot ever fit under the rate, so
+   * it is charged one second's worth and sent after waiting that second,
+   * rather than waiting forever. Keep `batchSize` at or below
+   * `vectorsPerSecond` if the rate you set is one you need held exactly.
+   *
    * @defaultValue `{ vectorsPerSecond: 2500, requestsPerSecond: 1000 }`
    */
   readonly writeRateLimit?: { vectorsPerSecond?: number; requestsPerSecond?: number } | false;

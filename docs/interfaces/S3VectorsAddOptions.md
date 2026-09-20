@@ -6,7 +6,7 @@
 
 # Interface: S3VectorsAddOptions
 
-Defined in: [types.ts:330](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L330)
+Defined in: [types.ts:339](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L339)
 
 Options accepted by [AmazonS3Vectors.addVectors](../classes/AmazonS3Vectors.md#addvectors) and
 [AmazonS3Vectors.addDocuments](../classes/AmazonS3Vectors.md#adddocuments).
@@ -22,7 +22,7 @@ what this package's own retriever had to publish in its declarations.
 
 > `readonly` `optional` **batchSize?**: `number`
 
-Defined in: [types.ts:344](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L344)
+Defined in: [types.ts:353](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L353)
 
 Records per `PutVectors` request, 1–500.
 
@@ -36,7 +36,7 @@ Records per `PutVectors` request, 1–500.
 
 > `readonly` `optional` **ids?**: `string`[]
 
-Defined in: [types.ts:339](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L339)
+Defined in: [types.ts:348](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L348)
 
 An id per document, in the same order.
 
@@ -51,6 +51,6 @@ what `error.context.attemptedIds` is for after a partial failure.
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [types.ts:346](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L346)
+Defined in: [types.ts:355](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L355)
 
 Cancels the write. Batches already written stay written; see `error.context.writtenIds`.

@@ -734,6 +734,15 @@ export class AmazonS3Vectors extends VectorStore {
    *   other route to the underlying requests. Absent behaves exactly as core's
    *   three-parameter call.
    *
+   * The selection is `maximalMarginalRelevance` from
+   * `@langchain/core/utils/math`, which measures diversity by cosine
+   * similarity whatever the index's metric is. On a **euclidean** index that
+   * holds zero-norm vectors — which euclidean, unlike cosine, accepts — the
+   * similarity against one of them is `NaN`, and where it lands in the
+   * ranking is undefined. Every document is still real and distinct; only the
+   * order among those candidates is. A cosine index cannot reach this: it
+   * refuses a zero-norm vector on write.
+   *
    * @returns At most `k` documents, most relevant first, each distinct. Fewer
    * than `k` when the index holds fewer candidates than asked for.
    * @throws {S3VectorsError} `VALIDATION` for a query that is not a string, a

@@ -119,7 +119,6 @@ export async function deleteVectors(opts: DeleteOptions): Promise<void> {
     serializeFirstBatch: false,
     operation: 'delete',
     contextField: 'deletedIds',
-    attemptedIds: ids,
     ...scope,
     action: async (batchIds) => {
       // The store's write budget, spent by deletes and writes alike.

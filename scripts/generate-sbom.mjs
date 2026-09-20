@@ -98,7 +98,10 @@ const runtime = {
   metadata: {
     timestamp: build.metadata.timestamp,
     lifecycles: [{ phase: 'build' }],
-    tools: [...(build.metadata.tools ?? []), { name: 'generate-sbom.mjs', vendor: 'this repository' }],
+    tools: [
+      ...(build.metadata.tools ?? []),
+      { name: 'generate-sbom.mjs', vendor: 'this repository' },
+    ],
     component: root,
     properties: [
       {
