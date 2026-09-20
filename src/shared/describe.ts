@@ -29,8 +29,21 @@ const MESSAGE_KEY_MAX_LENGTH = 64;
  * every non-ASCII character, which a legitimate key may well be — stays.
  */
 function stripControl(text: string): string {
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/[\u0000-\u001f\u007f]/g, '');
+  // By code point rather than by regex. A character class holding control
+  // characters is what `no-control-regex` exists to flag, and suppressing that
+  // rule would have been the first disabled lint rule in `src/` — which the
+  // source contract forbids, and cannot catch, because every suppression is a
+  // comment. Iterating is also surrogate-safe, where a regex over code units
+  // is not.
+  let kept = '';
+  for (const character of text) {
+    // Compared as strings rather than as code points, which needs no
+    // assertion that `codePointAt` found one: C0 is everything below the
+    // space, and a surrogate pair starts at U+D800, so an astral character
+    // sorts above the space and survives.
+    if (character >= ' ' && character !== '\u007f') kept += character;
+  }
+  return kept;
 }
 
 /** Cut to `max` characters, marking that something was cut. */

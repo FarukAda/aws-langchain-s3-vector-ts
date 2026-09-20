@@ -506,6 +506,39 @@ All of these raise `VALIDATION` before anything billable is spent.
 
 ### Fixed
 
+- **Documentation that had drifted behind the code it describes.** An audit
+  after the release preparation, since prose is the one thing no gate reads:
+  - Four places said the index's **distance metric** is checked only against
+    the `QueryVectors` response on every read. It is now checked against the
+    `GetIndex` that precedes a first write as well, which is the whole point of
+    that change — a write-only workload never reaches a read.
+  - The **project structure** listed two scripts where there are now six, and
+    omitted `integration-live.yml` entirely; the CI matrix still read 22/24.
+  - The **testing tiers** described the hostile corpus as 32 values across 13
+    ambient conditions; it is 37 across 21. It said nine undocumented
+    behaviours are recorded; it is twenty-three, across twelve files. It said
+    the live tier runs "on demand, locally"; it runs on every tag.
+  - Two claims about the **contract registry** overstated it in the same way
+    its own `describe` block once did — that every entry point is declared,
+    and that the registry covers the whole public surface. Eight of sixteen
+    carry a contract; the rest are listed as pending with a reason each, and
+    that is what the README now says.
+  - The **bug-report template** offered `fromExistingIndex`, removed before
+    1.0, and had no option for the enumeration methods.
+  - `CONTRIBUTING.md`'s release process predated the workflow being split in
+    two, the named-check gate and the live-AWS gate, and said nothing about
+    the two deliberately manual steps. It also now states the rule this
+    release learned twice: bump the version **last**, immediately before
+    tagging.
+
+- **`stripControl` no longer suppresses a lint rule.** Stripping control
+  characters with a regex needs `no-control-regex` disabled, and that would
+  have been the first `eslint-disable` in `src/` — which `source-contracts`
+  forbids and cannot catch, because every suppression is a comment. Comparing
+  characters as strings needs no suppression, no non-null assertion, and is
+  surrogate-safe where a regex over code units is not.
+
+
 - **The live suite still asserted the old distance-metric behaviour.** A write
   to an index whose metric differs from the store's is now refused against the
   metric the index itself reports; the unit suite was updated with that change

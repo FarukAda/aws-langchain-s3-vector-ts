@@ -50,6 +50,16 @@ describe('describeValue with a hostile object', () => {
     expect([...described].some((char) => char.codePointAt(0)! < 0x20)).toBe(false);
   });
 
+  it('strips DEL as well as C0', () => {
+    expect(describeValue(withConstructorName('a\u007fb'))).toBe('an ab instance');
+  });
+
+  it('keeps an astral character, which is above the space rather than below it', () => {
+    // The strip compares characters as strings; a surrogate pair starts at
+    // U+D800, so it must survive rather than be read as something to remove.
+    expect(describeValue(withConstructorName('Grüße😀'))).toBe('a Grüße😀 instance');
+  });
+
   it('falls back to the object wording when the name is not a string', () => {
     expect(describeValue(withConstructorName(Object.create(null)))).toBe('an object');
     expect(describeValue(withConstructorName(42))).toBe('an object');

@@ -43,8 +43,9 @@ body:
         - addDocuments / addVectors
         - similaritySearch* / asRetriever
         - getByIds
-        - delete
-        - fromTexts / fromDocuments / fromExistingIndex
+        - listDocuments / listVectors
+        - delete / deleteIndex
+        - fromTexts / fromDocuments
         - constructor / index creation
     validations:
       required: true
