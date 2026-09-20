@@ -1,3 +1,11 @@
+/**
+ * Hides that filterable metadata has to be flat.
+ *
+ * S3 Vectors filters on top-level metadata keys only, so a nested object is
+ * unfilterable in practice. This turns one into dotted keys that can be filtered,
+ * which is a transformation a caller has to opt into: it changes the key names
+ * their filters must use, and that is a decision only they can make.
+ */
 import { describeValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';

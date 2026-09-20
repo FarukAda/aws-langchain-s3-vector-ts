@@ -1,3 +1,11 @@
+/**
+ * Hides the bounds a vector has to satisfy.
+ *
+ * Dimension, component values and the zero vector on a cosine index are all
+ * refused here rather than by the service, which answers every one of them with
+ * the same sentence naming neither the component nor the reason. Where the
+ * bound comes from — documented, or probed live — is recorded with it.
+ */
 import { MAX_DIMENSION, MIN_DIMENSION } from '../shared/aws-limits.js';
 import { describeRecord, type RecordRef, renderValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';

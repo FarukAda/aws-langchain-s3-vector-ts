@@ -1,3 +1,11 @@
+/**
+ * Hides `ListVectors` pagination.
+ *
+ * The token loop, the page size and its bounds, and the checks that run between
+ * pages are one concern. A caller receives vectors one at a time and never sees
+ * a page boundary, which is what lets the page size change without touching
+ * anything that enumerates.
+ */
 import { ListVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { renderValue } from '../shared/describe.js';

@@ -1,3 +1,11 @@
+/**
+ * Hides where page content lives.
+ *
+ * The service stores metadata, not documents, so the content has to be a
+ * metadata key — or nowhere, when a store is configured to keep it out. Which
+ * key, that it counts against the index's limits, and how it is lifted back out
+ * on read are one decision, made here and invisible on both sides of it.
+ */
 import { Document, type DocumentInterface } from '@langchain/core/documents';
 
 import type { S3OutputVector } from '../types.js';

@@ -1,3 +1,12 @@
+/**
+ * Hides what a valid store is.
+ *
+ * Every configuration value is checked once, when the store is constructed, so
+ * that no later operation has to wonder. The decision hidden here is that the
+ * whole configuration is settled up front and refuses to start rather than
+ * failing at the first request — including the near-miss check, which refuses a
+ * misspelled option rather than silently using the default.
+ */
 import { DataType, DistanceMetric, S3VectorsClient, SseType } from '@aws-sdk/client-s3vectors';
 
 import type { AmazonS3VectorsConfig } from '../types.js';

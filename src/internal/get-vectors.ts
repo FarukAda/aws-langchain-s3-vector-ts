@@ -1,3 +1,11 @@
+/**
+ * Hides the shape of a `GetVectors` fan-out.
+ *
+ * A caller asks for any number of ids; the service takes 100 at a time. The
+ * split, the requests in flight, the collapse of duplicates and the decision to
+ * report what was already retrieved when one batch fails are settled here. The
+ * result is a map from id to vector, which is a shape the wire never sends.
+ */
 import { GetVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { chunk } from '../shared/batching.js';

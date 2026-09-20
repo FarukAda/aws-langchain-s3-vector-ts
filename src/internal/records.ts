@@ -1,3 +1,11 @@
+/**
+ * Hides the record shape `PutVectors` takes.
+ *
+ * A document has page content and metadata; a record has an id, a vector and one
+ * flat metadata object with the content folded into it. Where the content goes,
+ * and that it goes anywhere at all, is this module's decision — which is why a
+ * store can be configured to store no content and nothing else changes.
+ */
 import type { DocumentInterface } from '@langchain/core/documents';
 
 import { buildPutMetadata, type MetadataConfig } from '../shared/metadata.js';

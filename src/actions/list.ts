@@ -1,3 +1,12 @@
+/**
+ * Hides that enumeration is paginated.
+ *
+ * The service hands out one page and a token; a caller gets an async iterator
+ * that ends when the vectors do. Page size, when the next request is issued, and
+ * what a fired signal does between pages are settled here. The two exported
+ * generators differ only in what they yield — documents or the raw records —
+ * which is the one thing a caller does choose.
+ */
 import type { Document } from '@langchain/core/documents';
 
 import { listPages } from '../internal/list-pages.js';

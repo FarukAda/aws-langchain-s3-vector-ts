@@ -1,3 +1,11 @@
+/**
+ * Hides where a search's numbers come from.
+ *
+ * The distance in every result is the service's own, never a substitute computed
+ * here, and the relevance conversion that turns it into a score is chosen by the
+ * index's metric. Which checks run before the request — and therefore which
+ * failures cost nothing — is fixed here rather than at each call site.
+ */
 import type { Document } from '@langchain/core/documents';
 
 import { validateFilter } from '../internal/filter.js';

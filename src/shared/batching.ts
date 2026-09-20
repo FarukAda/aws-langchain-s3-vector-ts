@@ -1,3 +1,11 @@
+/**
+ * Hides how a list becomes batches.
+ *
+ * Chunking is one line to write and easy to write wrong at the boundaries, which
+ * is why it exists once and refuses a size that would never terminate. The
+ * offset variant exists so a failed batch can name the positions it held in the
+ * original list, which a caller needs and a chunk does not carry.
+ */
 import { renderValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';

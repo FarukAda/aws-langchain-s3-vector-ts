@@ -1,3 +1,12 @@
+/**
+ * Hides how one write request is issued and what its failure means.
+ *
+ * The command, the send options that carry cancellation, and the mapping from a
+ * thrown SDK error to this package's error class are one step. Keeping them
+ * together is what lets a 503 from `PutVectors` — which AWS also returns for a
+ * batch that exceeds resource capacity — be read as the capacity signal it is
+ * rather than as a transient failure worth retrying.
+ */
 import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 

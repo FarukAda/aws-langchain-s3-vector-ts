@@ -1,3 +1,12 @@
+/**
+ * Hides how a delete chooses and reaches its targets.
+ *
+ * A delete is either a list of ids or the whole index, and the two are not the
+ * same operation underneath: one splits into `DeleteVectors` batches, the other
+ * cannot be expressed as a request at all. That an absent id is a success, and
+ * that a repeated one is refused here rather than by the service, are decisions
+ * about what the operation means, not about how it is executed.
+ */
 import { DeleteVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { settleGroup } from '../internal/concurrency.js';

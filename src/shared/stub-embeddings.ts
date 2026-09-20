@@ -1,3 +1,12 @@
+/**
+ * Hides that a store can have no embeddings model.
+ *
+ * `@langchain/core`'s `VectorStore` requires one in its constructor, and several
+ * real uses of this package — writing pre-computed vectors, deleting, listing —
+ * need none. A stub satisfies the base class and fails loudly if anything
+ * actually asks it to embed, so the requirement is met without a caller having
+ * to invent a model they will never use.
+ */
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 
 /** Symbol used to identify StubEmbeddings without instanceof. */

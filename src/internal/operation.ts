@@ -1,3 +1,11 @@
+/**
+ * Hides what an operation needs in order to issue a request.
+ *
+ * The client, the cancellation signal, the batch size and the fan-out bound
+ * travel together because every AWS call here needs the same four things. They
+ * are one type rather than four parameters so that adding a fifth is a change to
+ * this file, not to every signature between the store and the wire.
+ */
 import type { S3VectorsClient } from '@aws-sdk/client-s3vectors';
 
 import type { OperationScope } from '../shared/scope.js';

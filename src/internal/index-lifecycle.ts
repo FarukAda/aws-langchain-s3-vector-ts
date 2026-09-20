@@ -1,3 +1,11 @@
+/**
+ * Hides whether the index is there yet.
+ *
+ * A first write may have to create the index, and several writes starting at
+ * once must not each try. One shared check per store, its result cached, the
+ * race resolved so that every waiter is answered under its own operation name —
+ * that is the decision. Callers write; they never ask whether the index exists.
+ */
 import {
   CreateIndexCommand,
   DeleteIndexCommand,

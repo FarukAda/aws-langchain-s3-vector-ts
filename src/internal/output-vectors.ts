@@ -1,3 +1,10 @@
+/**
+ * Hides that a response is not trusted until it is read.
+ *
+ * The SDK types say a response holds an array of vectors; the wire says whatever
+ * arrived. Casting would assert the shape, so it is checked instead, once, here
+ * — and every caller downstream may then treat the array as real.
+ */
 import { describeValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';

@@ -1,3 +1,12 @@
+/**
+ * Hides that an operation is assembled, not implemented here.
+ *
+ * This class owns what lasts for the store's lifetime — the client, the
+ * configuration, the index lifecycle and the rate-limit budget — and hands each
+ * operation to the module that performs it. The decision it hides is which
+ * long-lived thing each operation needs, so that no action has to construct a
+ * client, resolve a config or learn whether the index exists.
+ */
 import { S3VectorsClient, type EncryptionConfiguration } from '@aws-sdk/client-s3vectors';
 import type { Callbacks } from '@langchain/core/callbacks/manager';
 import { Document, type DocumentInterface } from '@langchain/core/documents';

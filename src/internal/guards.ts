@@ -1,3 +1,12 @@
+/**
+ * Hides what this package refuses before it does anything.
+ *
+ * Each guard exists because a value that reached the service, or reached a
+ * billable embedding call, produced a failure that named nothing useful — or
+ * worse, produced no failure at all and wrote something nobody asked for. The
+ * decision hidden here is which of those costs are paid by the caller and which
+ * are refused up front, in one voice, with one error code.
+ */
 import { MAX_TOP_K } from '../shared/aws-limits.js';
 import { describeRecord, describeValue, type RecordRef } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';

@@ -6,6 +6,14 @@
 
 LangChain-compatible Amazon S3 Vectors store for TypeScript.
 
+Hides where anything lives.
+
+This module re-exports and declares nothing of its own, so the internal
+arrangement — which module holds the store, the retriever, the error class
+or the metadata helper — is free to change without moving anything a caller
+imports. What appears here is the whole supported surface; a name reachable
+by a deep import is not part of it.
+
 ## Enumerations
 
 - [S3VectorsErrorCode](enumerations/S3VectorsErrorCode.md)

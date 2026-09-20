@@ -429,6 +429,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Every module states the decision it hides.** Thirty-five of the
+  forty-six modules under `src/` opened straight into their imports. Each
+  export carried a contract, which answers "what does this do?" for one
+  function; none of them answered "why is this a module?" — which is the
+  question that decides whether a change lands in one file or five. Each module
+  now opens with that statement, and a contract test in
+  `test/contract/source-contracts.test.ts` fails on a module that has none, or
+  whose block is short enough to be a label rather than a decision. The
+  orphaned-contract check learned about module docs at the same time, so it
+  still refuses two adjacent contract blocks anywhere else.
+
 - **One word per concept, where three words named two concepts.** `key` meant
   a vector's identifier in `internal/ids.ts` and `internal/get-vectors.ts`, a
   metadata field name in `internal/index-lifecycle.ts` and `shared/metadata.ts`,

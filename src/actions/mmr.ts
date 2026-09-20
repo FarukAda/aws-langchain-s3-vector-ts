@@ -1,3 +1,12 @@
+/**
+ * Hides that maximal marginal relevance costs two round trips.
+ *
+ * `QueryVectors` ranks by distance but returns no embeddings, and the selection
+ * needs them, so the candidates are fetched again through `GetVectors`. That
+ * second call, the fan-out it runs at, and the fact that the selection itself
+ * comes from `@langchain/core` rather than from here are all invisible to a
+ * caller, who asks for `k` documents from `fetchK` candidates.
+ */
 import type { Document } from '@langchain/core/documents';
 import { maximalMarginalRelevance } from '@langchain/core/utils/math';
 

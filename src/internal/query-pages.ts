@@ -1,3 +1,11 @@
+/**
+ * Hides that one search may be several requests.
+ *
+ * `QueryVectors` caps what it returns, so reaching `k` can take more than one
+ * page. The loop, the point at which the index's metric is verified against the
+ * response, and the checks between pages are settled here; a caller asks for
+ * `k` and receives at most `k`.
+ */
 import { QueryVectorsCommand, type QueryVectorsCommandOutput } from '@aws-sdk/client-s3vectors';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 

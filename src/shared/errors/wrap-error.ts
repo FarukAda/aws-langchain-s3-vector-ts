@@ -1,3 +1,12 @@
+/**
+ * Hides the boundary between a failure and this package's account of it.
+ *
+ * Anything can be thrown: an SDK error, a caller's embeddings model, a string.
+ * Turning any of them into one error class — with the right code, the command
+ * that failed, and a message that survives being read by someone who has never
+ * seen this code — happens here, and the rules differ for a failure this package
+ * caused and one a caller's own code did.
+ */
 import { renderValue } from '../describe.js';
 import { isTransientNetworkFailure, SDK_TIMEOUT_ERROR_NAME } from './classify.js';
 import { S3VectorsErrorCode } from './error-code.js';

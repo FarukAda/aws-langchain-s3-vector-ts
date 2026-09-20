@@ -99,11 +99,17 @@ describe('no contract is orphaned from the function it describes', () => {
         // Either the last line of a block, or a whole block on one line.
         return trimmed === '*/' || (trimmed.startsWith('/**') && trimmed.endsWith('*/'));
       };
+      // The module doc opens the file and describes the module, so the block
+      // under it is the first declaration's own contract rather than an orphan.
+      // Every other adjacency is one.
+      const moduleDocEnd = lines[0]?.trim() === '/**' ? lines.findIndex(endsDoc) : -1;
       const orphans = lines
         .map((line, index) => ({ line, index }))
         .filter(
           ({ line, index }) =>
-            endsDoc(line) && (lines[index + 1]?.trim().startsWith('/**') ?? false),
+            index !== moduleDocEnd &&
+            endsDoc(line) &&
+            (lines[index + 1]?.trim().startsWith('/**') ?? false),
         )
         .map(({ index }) => index + 2);
       // A doc block whose next line opens another doc block describes nothing:
@@ -219,5 +225,48 @@ describe('the source keeps the constraints the design fixed', () => {
       )
       .map(({ file, index }) => `${file}:${index + 1}`);
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('every module states the decision it hides', () => {
+  /**
+   * The module doc block, or `undefined` when the file does not open with one.
+   *
+   * "Opens with" means before the imports. A block sitting after them
+   * describes whatever follows it, which is a declaration, not the module.
+   */
+  function moduleDoc(file: string): string | undefined {
+    const lines = readFileSync(file, 'utf8').split('\n');
+    let cursor = 0;
+    while (lines[cursor]?.trim() === '') cursor += 1;
+    if (lines[cursor]?.trim() !== '/**') return undefined;
+    const doc: string[] = [];
+    while (cursor < lines.length && lines[cursor]?.trim() !== '*/') {
+      doc.push(lines[cursor]!);
+      cursor += 1;
+    }
+    return doc.join('\n');
+  }
+
+  it('finds the modules to check, so a broken scan cannot pass silently', () => {
+    expect(sourceFiles(SRC).length).toBeGreaterThanOrEqual(40);
+  });
+
+  it('opens every module with a doc block', () => {
+    const undocumented = sourceFiles(SRC)
+      .filter((file) => moduleDoc(file) === undefined)
+      .map((file) => file.slice(SRC.length));
+    expect(undocumented).toEqual([]);
+  });
+
+  it('makes that block state something rather than label the file', () => {
+    // Syntactic, like every check here: a test cannot judge whether the stated
+    // decision is the one the module actually hides. It can insist the module
+    // says more than its own filename back to the reader, which is what the
+    // one-line labels it replaced did.
+    const thin = sourceFiles(SRC)
+      .filter((file) => (moduleDoc(file)?.length ?? 0) < 160)
+      .map((file) => file.slice(SRC.length));
+    expect(thin).toEqual([]);
   });
 });

@@ -1,3 +1,11 @@
+/**
+ * Hides nothing, deliberately — this is the published surface.
+ *
+ * Every type a caller names is declared here, and this module imports nothing
+ * from the rest of the package, so the surface can be read in one sitting and
+ * cannot drift behind an implementation detail. Anything that is not meant to be
+ * named by a caller belongs in the module that uses it, not here.
+ */
 import type {
   EncryptionConfiguration,
   S3VectorsClient,

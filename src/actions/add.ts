@@ -1,3 +1,14 @@
+/**
+ * Hides the order a write happens in.
+ *
+ * Every check a write can fail, the embedding call, id resolution, the split
+ * into requests and the pacing between them are sequenced here, and the
+ * sequence is the decision: what is refused before a billable `embedQuery`,
+ * what is refused before the first request, and what a failure carries once
+ * some batches have already committed. A caller sees documents in and ids out.
+ * Change the order — validate later, embed earlier, batch differently — and
+ * only this module changes.
+ */
 import type { DocumentInterface } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
 

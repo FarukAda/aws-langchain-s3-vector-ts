@@ -1,3 +1,16 @@
+/**
+ * Hides how many kinds of failure a caller has to tell apart.
+ *
+ * Every failure in this package carries one of these, and the set is the
+ * decision: a narrower code exists only where a caller would act differently
+ * on it — retry, ask for a quota, fix an argument, call an operator. Failures
+ * that call for the same response share a code rather than multiplying into
+ * one per AWS exception name, so a `switch` here stays shorter than the
+ * service's error list.
+ *
+ * Adding a code is a breaking change for anyone switching exhaustively, so a
+ * new one has to earn a distinct caller response.
+ */
 /** Stable error codes surfaced by {@link S3VectorsError}. */
 export enum S3VectorsErrorCode {
   /**

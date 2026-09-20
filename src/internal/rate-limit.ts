@@ -1,3 +1,11 @@
+/**
+ * Hides how fast this package is willing to write.
+ *
+ * AWS bounds a vector index in two units at once — requests a second and vectors
+ * a second — and nothing about a caller's code says which one it will reach
+ * first. One limiter per store holds both budgets, shared by writes and deletes,
+ * so concurrency can be tuned without any call site knowing there is a budget.
+ */
 import type { StoreScope } from '../shared/scope.js';
 import { checkAborted } from './signals.js';
 

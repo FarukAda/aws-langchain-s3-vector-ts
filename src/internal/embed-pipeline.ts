@@ -1,3 +1,11 @@
+/**
+ * Hides that documents are embedded a batch at a time.
+ *
+ * Embedding everything up front is simpler and costs peak memory proportional to
+ * the whole input; embedding per batch keeps it proportional to one batch, at the
+ * price of interleaving the model's failures with the service's. That trade, and
+ * the point at which a model's bad output is refused, live here.
+ */
 import { chunk, offsetBatches } from '../shared/batching.js';
 import { attachPartialIds } from '../shared/errors/decorate.js';
 import type { OperationScope, StoreScope } from '../shared/scope.js';

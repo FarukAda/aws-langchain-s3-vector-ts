@@ -1,3 +1,12 @@
+/**
+ * Hides the filter grammar.
+ *
+ * Which operators exist, which operands each one takes, how deep a filter may
+ * nest and what a rejection says are one decision, answered here so that no call
+ * site has to know the shape of a filter to pass one along. The grammar is the
+ * service's; the refusals are this package's, because the service's own message
+ * names neither the operator nor the reason.
+ */
 import { describeValue, renderValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';

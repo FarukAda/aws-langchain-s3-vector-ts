@@ -1,3 +1,12 @@
+/**
+ * Hides which failures are the same failure.
+ *
+ * An SDK error arrives as a name, a status, a `code`, or a cause holding one of
+ * those — and several distinct arrivals mean one thing to a caller deciding
+ * whether to retry. The mapping from all of them to one error code is made here,
+ * so that decision is made once against evidence rather than at each call site
+ * against whatever that site happened to see.
+ */
 import { isAbortError } from './aws-abort.js';
 import { S3VectorsErrorCode } from './error-code.js';
 

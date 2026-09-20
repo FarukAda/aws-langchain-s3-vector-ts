@@ -1,3 +1,13 @@
+/**
+ * Hides which search a retriever runs.
+ *
+ * A retriever is built once with its search type, `k`, filter, threshold and
+ * signal, and then invoked with only a query. Turning that fixed configuration
+ * into the right call — similarity, MMR, or a threshold read against relevance
+ * rather than distance — happens here. Fields are validated when the retriever
+ * is built, not when it runs, so a misconfiguration surfaces at the point the
+ * mistake was made.
+ */
 import {
   parseCallbackConfigArg,
   type CallbackManagerForRetrieverRun,

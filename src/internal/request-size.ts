@@ -1,3 +1,11 @@
+/**
+ * Hides how many records fit in one request.
+ *
+ * The service caps the request body in bytes, not in records, so a fixed batch
+ * size is either wasteful or too large depending on the data. The size of a
+ * record is estimated here, as an upper bound, and the split follows from it —
+ * so the batch size a caller sets is a ceiling rather than the actual split.
+ */
 import type { StoreScope } from '../shared/scope.js';
 
 /**

@@ -1,3 +1,11 @@
+/**
+ * Hides how cancellation travels.
+ *
+ * A signal has to reach the SDK, be checked before each further request, and be
+ * refused when it is not a signal at all. Doing that in one place is what makes
+ * an abort mean the same thing on every operation, and what keeps the check
+ * before the call rather than after it.
+ */
 import { describeValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError, type S3VectorsErrorContext } from '../shared/errors/s3-vectors-error.js';

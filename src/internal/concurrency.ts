@@ -1,3 +1,13 @@
+/**
+ * Hides how many requests are in flight, and what a half-finished write owes
+ * the caller.
+ *
+ * A batched operation is a fan-out with a bound, and the bound is the decision:
+ * it caps both the request rate against a shared account quota and the peak
+ * payload held in memory. The other half is what a failure carries — the ids
+ * that did commit, under the field the operation names — so a caller can retry
+ * in place instead of writing everything again under fresh ids.
+ */
 import { chunk, offsetBatches } from '../shared/batching.js';
 import { attachPartialIds } from '../shared/errors/decorate.js';
 import type { StoreScope } from '../shared/scope.js';

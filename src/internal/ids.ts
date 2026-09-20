@@ -1,3 +1,11 @@
+/**
+ * Hides where a vector's id comes from and what may be one.
+ *
+ * A caller may supply ids, or let them be derived from the documents, or let
+ * them be minted; the bounds the service enforces are the same either way. Both
+ * halves are decisions a caller should not have to restate, and the copy taken
+ * here is what makes every later check mean anything.
+ */
 import { randomUUID } from 'node:crypto';
 
 import type { DocumentInterface } from '@langchain/core/documents';

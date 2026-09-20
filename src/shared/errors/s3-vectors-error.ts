@@ -1,3 +1,12 @@
+/**
+ * Hides that there is one error type.
+ *
+ * Every failure this package raises is this class, distinguished by a code rather
+ * than by a subclass, so a caller writes one `catch` and switches on a value.
+ * Recognising it across realms and across the ESM and CommonJS copies of this
+ * package is a `Symbol.for` brand rather than `instanceof`, which is why
+ * `isS3VectorsError` exists and why nothing here tests prototypes.
+ */
 import type { AmazonS3Vectors } from '../../s3-vectors.js';
 import { S3VectorsErrorCode } from './error-code.js';
 

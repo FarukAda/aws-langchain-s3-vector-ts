@@ -1,3 +1,11 @@
+/**
+ * Hides that absence is an ordinary answer.
+ *
+ * `GetVectors` returns neither an entry nor an error for an id it does not hold,
+ * so the mapping from a requested list to a same-length list of slots — each one
+ * a document or `undefined` — is invented here. A caller indexes the result by
+ * position and never learns that the service answered with a shorter array.
+ */
 import type { Document } from '@langchain/core/documents';
 
 import { fetchVectorsByIds } from '../internal/get-vectors.js';

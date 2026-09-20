@@ -1,3 +1,12 @@
+/**
+ * Hides that an error is rebuilt rather than changed.
+ *
+ * `code`, `context` and `cause` are readonly once set, so adding the operation
+ * name or the ids already written means constructing a new error — while keeping
+ * the stack of the failure being decorated, which is the only stack that points
+ * at what went wrong. Every caller that adds context goes through here and none
+ * of them has to know that.
+ */
 import type { StoreScope } from '../scope.js';
 import {
   isS3VectorsError,
