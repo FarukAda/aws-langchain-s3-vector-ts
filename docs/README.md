@@ -29,10 +29,10 @@ by a deep import is not part of it.
 - [AmazonS3VectorsConfig](interfaces/AmazonS3VectorsConfig.md)
 - [AmazonS3VectorsRetrieverFields](interfaces/AmazonS3VectorsRetrieverFields.md)
 - [S3OutputVector](interfaces/S3OutputVector.md)
-- [S3VectorsDeleteIndexParams](interfaces/S3VectorsDeleteIndexParams.md)
-- [S3VectorsDeleteParams](interfaces/S3VectorsDeleteParams.md)
+- [S3VectorsDeleteIndexOptions](interfaces/S3VectorsDeleteIndexOptions.md)
+- [S3VectorsDeleteOptions](interfaces/S3VectorsDeleteOptions.md)
 - [S3VectorsErrorContext](interfaces/S3VectorsErrorContext.md)
-- [S3VectorsListParams](interfaces/S3VectorsListParams.md)
+- [S3VectorsListOptions](interfaces/S3VectorsListOptions.md)
 - [S3VectorsRecord](interfaces/S3VectorsRecord.md)
 
 ## Type Aliases

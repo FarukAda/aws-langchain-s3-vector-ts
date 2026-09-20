@@ -62,9 +62,9 @@ import {
 import type {
   AmazonS3VectorsConfig,
   DistanceMetric,
-  S3VectorsDeleteIndexParams,
-  S3VectorsDeleteParams,
-  S3VectorsListParams,
+  S3VectorsDeleteIndexOptions,
+  S3VectorsDeleteOptions,
+  S3VectorsListOptions,
   S3VectorsRecord,
   VectorDataType,
 } from './types.js';
@@ -822,12 +822,15 @@ export class AmazonS3Vectors extends VectorStore {
    * `ABORTED` for a fired signal; otherwise the class the `DeleteVectors` failure
    * maps to, carrying `context.deletedIds`.
    */
-  override async delete(params: S3VectorsDeleteParams): Promise<void> {
+  override async delete(params: S3VectorsDeleteOptions): Promise<void> {
+    // `params`, not `options`, because this overrides `VectorStore.delete` and
+    // the parameter name is core's. Every method this package declares itself
+    // calls the same thing `options`, which is the word its errors use too.
     assertOptionsBag('delete', this.#scope, params);
     // Named rather than spread: `params` is whatever a caller passed, and
     // spreading it let an extra `client` key send this delete through a
     // different client. `deleteAll` is read by the action, which refuses it.
-    const { ids, batchSize, signal, deleteAll } = (params ?? {}) as S3VectorsDeleteParams & {
+    const { ids, batchSize, signal, deleteAll } = (params ?? {}) as S3VectorsDeleteOptions & {
       deleteAll?: unknown;
     };
     await deleteVectors({
@@ -870,7 +873,7 @@ export class AmazonS3Vectors extends VectorStore {
    * @throws {S3VectorsError} `ABORTED` for a fired signal; otherwise the class
    * the `DeleteIndex` failure maps to. A missing index is not a failure.
    */
-  async deleteIndex(options?: S3VectorsDeleteIndexParams): Promise<void> {
+  async deleteIndex(options?: S3VectorsDeleteIndexOptions): Promise<void> {
     assertOptionsBag('deleteIndex', this.#scope, options);
     await this.#lifecycle.deleteIndex(options?.signal, 'deleteIndex');
   }
@@ -954,7 +957,7 @@ export class AmazonS3Vectors extends VectorStore {
    * yielded — items already yielded have been consumed, so a listing is not
    * atomic and does not pretend to be.
    */
-  async *listDocuments(options?: S3VectorsListParams): AsyncGenerator<Document> {
+  async *listDocuments(options?: S3VectorsListOptions): AsyncGenerator<Document> {
     // A generator, not a plain method, so a malformed bag fails on the first
     // `next()` — exactly where an out-of-range `pageSize` fails. Throwing
     // synchronously from a method documented to return a generator would make
@@ -994,7 +997,7 @@ export class AmazonS3Vectors extends VectorStore {
    * because a migration that dropped records silently would produce a target
    * index that looks complete and is not.
    */
-  async *listVectors(options?: S3VectorsListParams): AsyncGenerator<S3VectorsRecord> {
+  async *listVectors(options?: S3VectorsListOptions): AsyncGenerator<S3VectorsRecord> {
     // See {@link listDocuments} for why this is a generator.
     assertOptionsBag('listVectors', this.#scope, options);
     yield* listVectors({

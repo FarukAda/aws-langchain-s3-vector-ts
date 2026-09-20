@@ -18,9 +18,9 @@ export type {
   AmazonS3VectorsConfig,
   DistanceMetric,
   VectorDataType,
-  S3VectorsDeleteIndexParams,
-  S3VectorsDeleteParams,
-  S3VectorsListParams,
+  S3VectorsDeleteIndexOptions,
+  S3VectorsDeleteOptions,
+  S3VectorsListOptions,
   S3VectorsRecord,
   S3OutputVector,
 } from './types.js';

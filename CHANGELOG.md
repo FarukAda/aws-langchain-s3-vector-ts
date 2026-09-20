@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **Three published option types were renamed** to match what the methods that
+  take them call their parameter, and what the errors about them say:
+  `S3VectorsDeleteParams` to `S3VectorsDeleteOptions`,
+  `S3VectorsDeleteIndexParams` to `S3VectorsDeleteIndexOptions`, and
+  `S3VectorsListParams` to `S3VectorsListOptions`. One concept had two names —
+  the signature read `deleteIndex(options?: S3VectorsDeleteIndexParams)` while
+  the refusal read "The options argument must be an object". No shape changed,
+  so the fix is the name. `delete(params)` keeps its parameter name, which is
+  `@langchain/core`'s rather than this package's.
+
 ### Added
 
 - **`asRetriever({ scoreThreshold })`.** Keeps only documents whose relevance
@@ -428,6 +440,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   code, cause, `awsCommand` and stack.
 
 ### Internal
+
+- **`src/` cannot import a package the consumer never installed.** The package
+  declares no runtime dependencies — both real ones are peers — so anything
+  else in `package.json` is a devDependency, and importing one from `src/`
+  ships a module that resolves here and fails on a consumer's first `require`.
+  A contract test allows only node builtins, a declared peer, or an enumerated
+  exception with its reason, and requires every exception to be type-only so
+  none can reach run time. One stands: `@smithy/types`, for the document type
+  the SDK's own command input declares.
 
 - **Classifying an AWS failure and wrapping it are one step.** The pair
   `wrapAwsError(error, classifyAwsError(error), …)` was written out at four

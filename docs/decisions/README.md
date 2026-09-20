@@ -25,3 +25,4 @@ the numbering, and that no number is used twice.
 | [8](0008-gate-the-build-on-complete-coverage.md) | Gate the build on complete coverage | Accepted |
 | [9](0009-parse-input-at-the-boundary-and-carry-the-proof.md) | Parse input at the boundary and carry the proof | Accepted |
 | [10](0010-make-the-layer-direction-a-build-gate.md) | Make the layer direction a build gate | Accepted |
+| [11](0011-let-the-public-surface-speak-the-peer-dependencies-vocabulary.md) | Let the public surface speak the peer dependencies’ vocabulary | Accepted |

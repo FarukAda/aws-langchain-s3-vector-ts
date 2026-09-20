@@ -234,7 +234,7 @@ Defined in: [s3-vectors.ts:154](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **\_assertRelevanceScoresAvailable**(): (`distance`) => `number`
 
-Defined in: [s3-vectors.ts:1224](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1224)
+Defined in: [s3-vectors.ts:1227](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1227)
 
 **`Internal`**
 
@@ -484,7 +484,7 @@ impossible to find or reconcile again.
 
 > **asRetriever**(`kOrFields?`, `filter?`, `callbacks?`, `tags?`, `metadata?`, `verbose?`): [`AmazonS3VectorsRetriever`](AmazonS3VectorsRetriever.md)\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1053](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1053)
+Defined in: [s3-vectors.ts:1056](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1056)
 
 Build a retriever over this store.
 
@@ -586,7 +586,7 @@ Delete vectors by id.
 
 ##### params
 
-[`S3VectorsDeleteParams`](../interfaces/S3VectorsDeleteParams.md)
+[`S3VectorsDeleteOptions`](../interfaces/S3VectorsDeleteOptions.md)
 
 Deletion parameters
 
@@ -630,7 +630,7 @@ maps to, carrying `context.deletedIds`.
 
 > **deleteIndex**(`options?`): `Promise`\<`void`\>
 
-Defined in: [s3-vectors.ts:873](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L873)
+Defined in: [s3-vectors.ts:876](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L876)
 
 Delete the index itself.
 
@@ -638,7 +638,7 @@ Delete the index itself.
 
 ##### options?
 
-[`S3VectorsDeleteIndexParams`](../interfaces/S3VectorsDeleteIndexParams.md)
+[`S3VectorsDeleteIndexOptions`](../interfaces/S3VectorsDeleteIndexOptions.md)
 
 Optional settings
 
@@ -677,7 +677,7 @@ the `DeleteIndex` failure maps to. A missing index is not a failure.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1160](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1160)
+Defined in: [s3-vectors.ts:1163](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1163)
 
 Create a store and add the given documents to it.
 
@@ -729,7 +729,7 @@ same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1080](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1080)
+Defined in: [s3-vectors.ts:1083](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1083)
 
 Create a store, embed the given texts and add them to it.
 
@@ -785,7 +785,7 @@ code, cause, `awsCommand`, stack and — once the store was constructed —
 
 > **getByIds**(`ids`, `options?`): `Promise`\<(`Document`\<`Record`\<`string`, `any`\>\> \| `undefined`)[]\>
 
-Defined in: [s3-vectors.ts:912](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L912)
+Defined in: [s3-vectors.ts:915](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L915)
 
 Retrieve documents by their vector IDs.
 
@@ -854,7 +854,7 @@ scratch.
 
 > **listDocuments**(`options?`): `AsyncGenerator`\<`Document`\<`Record`\<`string`, `any`\>\>\>
 
-Defined in: [s3-vectors.ts:957](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L957)
+Defined in: [s3-vectors.ts:960](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L960)
 
 Every document in the index, one at a time.
 
@@ -862,7 +862,7 @@ Every document in the index, one at a time.
 
 ##### options?
 
-[`S3VectorsListParams`](../interfaces/S3VectorsListParams.md)
+[`S3VectorsListOptions`](../interfaces/S3VectorsListOptions.md)
 
 Optional settings
 
@@ -899,7 +899,7 @@ atomic and does not pretend to be.
 
 > **listVectors**(`options?`): `AsyncGenerator`\<[`S3VectorsRecord`](../interfaces/S3VectorsRecord.md)\>
 
-Defined in: [s3-vectors.ts:997](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L997)
+Defined in: [s3-vectors.ts:1000](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1000)
 
 Every vector in the index with its embedding, one at a time.
 
@@ -907,7 +907,7 @@ Every vector in the index with its embedding, one at a time.
 
 ##### options?
 
-[`S3VectorsListParams`](../interfaces/S3VectorsListParams.md)
+[`S3VectorsListOptions`](../interfaces/S3VectorsListOptions.md)
 
 Optional settings, as [listDocuments](#listdocuments) takes them
 

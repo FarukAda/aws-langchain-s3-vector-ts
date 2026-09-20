@@ -319,7 +319,7 @@ export interface S3OutputVector {
 }
 
 /** Options accepted by {@link AmazonS3Vectors.delete}. */
-export interface S3VectorsDeleteParams {
+export interface S3VectorsDeleteOptions {
   /**
    * The vector ids to delete. Required: `delete` removes vectors, and nothing
    * else. Destroying the index is {@link AmazonS3Vectors.deleteIndex}, which
@@ -339,7 +339,7 @@ export interface S3VectorsDeleteParams {
 }
 
 /** Options accepted by {@link AmazonS3Vectors.deleteIndex}. */
-export interface S3VectorsDeleteIndexParams {
+export interface S3VectorsDeleteIndexOptions {
   /**
    * Abort the deletion. An already-fired signal rejects before any request;
    * one that fires while an index creation is being awaited ends this
@@ -356,7 +356,7 @@ export interface S3VectorsDeleteIndexParams {
  * enumerating and discarding would bill for every vector in the index while
  * looking like a server-side filter.
  */
-export interface S3VectorsListParams {
+export interface S3VectorsListOptions {
   /**
    * Vectors requested per `ListVectors` call: an integer 1-1000. Advisory —
    * AWS stops a page at 1 MB of processed data regardless, so a short page is
