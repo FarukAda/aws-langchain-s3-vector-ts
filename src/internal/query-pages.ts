@@ -16,6 +16,7 @@ import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { StoreScope } from '../shared/scope.js';
 import type { DistanceMetric, S3OutputVector } from '../types.js';
+import type { ParsedFilter } from './filter.js';
 import type { AwsOperation } from './operation.js';
 import { outputVectorsOf } from './output-vectors.js';
 import { checkAborted, sendOptions } from './signals.js';
@@ -40,8 +41,8 @@ export interface QueryPagesOptions extends AwsOperation {
   readonly k: number;
   /** The embedding to search with. */
   readonly queryVector: number[];
-  /** A metadata filter, already validated by the caller. */
-  readonly filter?: unknown;
+  /** A metadata filter. Only {@link parseFilter} can produce one. */
+  readonly filter?: ParsedFilter | undefined;
   /** Whether each result should carry its metadata. */
   readonly returnMetadata: boolean;
   /** Whether each result should carry its distance. MMR asks for candidates without one. */
@@ -118,7 +119,7 @@ async function requestPage(
       topK: opts.k,
       nextToken,
       queryVector: { float32: opts.queryVector },
-      filter: opts.filter as __DocumentType | undefined,
+      filter: opts.filter,
       returnMetadata: opts.returnMetadata,
       returnDistance: opts.returnDistance,
     }),

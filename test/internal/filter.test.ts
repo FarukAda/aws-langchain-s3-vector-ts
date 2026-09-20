@@ -1,10 +1,10 @@
 import { describe, it, expect } from '@jest/globals';
 
-import { validateFilter } from '../../src/internal/filter.js';
+import { parseFilter } from '../../src/internal/filter.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 
 /**
- * One test per domain cell of `validateFilter`. The operator vocabulary is
+ * One test per domain cell of `parseFilter`. The operator vocabulary is
  * documented and closed (userguide s3-vectors-metadata-filtering.html), and
  * docs/evidence/ filter-validation.md established that AWS rejects an unknown
  * `$`-prefixed key — including one that might have been a literal — so
@@ -15,14 +15,14 @@ const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code
 
 const check = (filter: unknown): unknown => {
   try {
-    validateFilter(filter, 'similaritySearch', SCOPE);
+    parseFilter(filter, 'similaritySearch', SCOPE);
     return undefined;
   } catch (e) {
     return e;
   }
 };
 
-describe('validateFilter — shape', () => {
+describe('parseFilter — shape', () => {
   it.each([
     ['undefined', undefined],
     ['null', null],
@@ -62,7 +62,7 @@ describe('validateFilter — shape', () => {
   });
 });
 
-describe('validateFilter — operators', () => {
+describe('parseFilter — operators', () => {
   it.each([
     ['implicit equality', { genre: 'scifi' }],
     ['$eq', { genre: { $eq: 'scifi' } }],
@@ -180,7 +180,7 @@ describe('validateFilter — operators', () => {
   });
 });
 
-describe('validateFilter — one condition per object (T3-17)', () => {
+describe('parseFilter — one condition per object (T3-17)', () => {
   it.each([
     ['two fields', { genre: 'scifi', year: 2020 }, 'filter holds 2 conditions (genre, year)'],
     [
@@ -207,7 +207,7 @@ describe('validateFilter — one condition per object (T3-17)', () => {
   });
 });
 
-describe("validateFilter — a field's operator object (T3-18)", () => {
+describe("parseFilter — a field's operator object (T3-18)", () => {
   it('refuses an empty operator object', () => {
     expect((check({ genre: {} }) as Error).message).toBe(
       'filter.genre is an empty object. Give the value itself, or at least one comparison ' +
@@ -222,7 +222,7 @@ describe("validateFilter — a field's operator object (T3-18)", () => {
   });
 });
 
-describe('validateFilter — operands (T3-16)', () => {
+describe('parseFilter — operands (T3-16)', () => {
   it.each([
     [
       '$eq holding null',
@@ -299,7 +299,7 @@ describe('validateFilter — operands (T3-16)', () => {
   });
 });
 
-describe('validateFilter — values the AWS SDK would send as something else (T3-19)', () => {
+describe('parseFilter — values the AWS SDK would send as something else (T3-19)', () => {
   it.each([
     [
       'NaN in $eq',
@@ -334,7 +334,7 @@ describe('validateFilter — values the AWS SDK would send as something else (T3
   });
 });
 
-describe('validateFilter — strings AWS cannot decode (T3-15)', () => {
+describe('parseFilter — strings AWS cannot decode (T3-15)', () => {
   it.each([
     [
       'a shorthand string',

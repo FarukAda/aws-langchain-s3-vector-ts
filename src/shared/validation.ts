@@ -244,6 +244,15 @@ function assertTimeoutOption(value: unknown, option: string): void {
  * assembled from environment variables, where every non-empty string is truthy:
  * `createIndexIfNotExist: 'false'` read as "yes, create it", and created it.
  */
+function assertConcurrency(value: unknown): void {
+  if (value === undefined) return;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    fail(
+      `config.maxConcurrentBatchCalls must be a positive integer (received ${describeValue(value)}).`,
+    );
+  }
+}
+
 function assertBooleanOption(value: unknown, option: string): void {
   if (value === undefined) return;
   if (typeof value !== 'boolean') {
@@ -663,6 +672,7 @@ export function assertValidConfig(config: AmazonS3VectorsConfig): void {
   assertTimeoutOption(config.socketTimeout, 'socketTimeout');
   assertTimeoutOption(config.requestTimeout, 'requestTimeout');
   assertBooleanOption(config.createIndexIfNotExist, 'createIndexIfNotExist');
+  assertConcurrency(config.maxConcurrentBatchCalls);
   assertClientExclusivity(config);
 }
 

@@ -257,25 +257,41 @@ export function assertBatchSize(
   }
 }
 
+declare const topK: unique symbol;
+
 /**
- * Reject a `k` that cannot work, before it costs anything.
+ * A `k` that has been checked against AWS's `topK` ceiling.
+ *
+ * {@link parseK} is the only way to obtain one, so a function that asks for a
+ * TopK cannot be handed a number nobody checked — and does not have to check
+ * it again to be sure. The same `k` used to be checked twice on the text
+ * search path, once at the store before embedding and once in the action,
+ * because neither check left anything behind that the other could see.
+ *
+ * The brand is phantom: at run time it is the caller's own number.
+ */
+export type TopK = number & { readonly [topK]: true };
+
+/**
+ * Parse a `k`, refusing one that cannot work before it costs anything.
  *
  * Accepts: an integer of 1 to 10,000, AWS's documented `topK` ceiling.
  *
- * Returns: nothing.
+ * Returns: the same number, carrying the proof that it was checked.
  *
  * Throws: `VALIDATION`, naming the ceiling.
  *
  * Guarantees: checked before the query is embedded, so an impossible `k` never
  * costs a billable `embedQuery` call.
  */
-export function assertK(operation: string, scope: StoreScope, k: number): void {
+export function parseK(operation: string, scope: StoreScope, k: number): TopK {
   if (!Number.isInteger(k) || k <= 0) {
     throw validationError(operation, scope, 'k must be a positive integer');
   }
   if (k > MAX_TOP_K) {
     throw validationError(operation, scope, `k (${k}) exceeds AWS's topK limit of ${MAX_TOP_K}.`);
   }
+  return k as TopK;
 }
 
 /**

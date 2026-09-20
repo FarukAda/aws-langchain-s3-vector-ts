@@ -23,8 +23,8 @@ import {
 } from '@langchain/core/vectorstores';
 
 import { resolveMmrParameters } from './actions/mmr.js';
-import { validateFilter } from './internal/filter.js';
-import { assertK, assertOptionsBag, assertQueryText, validationError } from './internal/guards.js';
+import { parseFilter } from './internal/filter.js';
+import { parseK, assertOptionsBag, assertQueryText, validationError } from './internal/guards.js';
 import { assertSignal, raceAbort } from './internal/signals.js';
 import type { AmazonS3Vectors } from './s3-vectors.js';
 import { renderValue } from './shared/describe.js';
@@ -274,10 +274,10 @@ export class AmazonS3VectorsRetriever<
       assertOptionsBag(operation, scope, this.searchKwargs, '`searchKwargs`');
       const options = this.#mmrOptions;
       resolveMmrParameters(options, operation, scope);
-      validateFilter(options.filter, operation, scope);
+      parseFilter(options.filter, operation, scope);
     } else if (searchType === 'similarity') {
-      assertK(operation, scope, this.k);
-      validateFilter(this.filter, operation, scope);
+      parseK(operation, scope, this.k);
+      parseFilter(this.filter, operation, scope);
       if (this.scoreThreshold !== undefined) {
         if (typeof this.scoreThreshold !== 'number' || !Number.isFinite(this.scoreThreshold)) {
           throw validationError(

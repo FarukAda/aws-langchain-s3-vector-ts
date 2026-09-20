@@ -145,7 +145,7 @@ describe('AmazonS3Vectors constructor — client validation', () => {
 
   it('treats client: null as "not provided" and builds one from region/credentials', () => {
     // A DI framework or untyped caller defaulting an optional field to null
-    // means "not provided" — the same reading _validateFilter already gives
+    // means "not provided" — the same reading parseFilter already gives
     // a null filter. Previously this threw a raw, uncoded TypeError.
     const store = new AmazonS3Vectors(createMockEmbeddings(), {
       ...BASE_CONFIG,

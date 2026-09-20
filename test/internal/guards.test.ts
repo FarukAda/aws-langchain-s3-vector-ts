@@ -6,7 +6,7 @@ import {
   assertDocumentObjects,
   assertIdsOption,
   assertIsArray,
-  assertK,
+  parseK,
   assertQueryText,
   rejectSignalInCallbacksSlot,
   validationError,
@@ -126,24 +126,24 @@ describe('assertBatchSize', () => {
   });
 });
 
-describe('assertK', () => {
+describe('parseK', () => {
   it.each([1, 4, 10_000])('accepts %p', (k) => {
     expect(() => {
-      assertK('similaritySearch', SCOPE, k);
+      parseK('similaritySearch', SCOPE, k);
     }).not.toThrow();
   });
 
   it.each([0, -1, 2.5])('rejects %p', (k) => {
     expect(
       thrown(() => {
-        assertK('similaritySearch', SCOPE, k);
+        parseK('similaritySearch', SCOPE, k);
       }).message,
     ).toBe('k must be a positive integer');
   });
 
   it("rejects a k above AWS's documented topK ceiling", () => {
     const error = thrown(() => {
-      assertK('similaritySearch', SCOPE, 10_001);
+      parseK('similaritySearch', SCOPE, 10_001);
     });
     expect(error.message).toContain('10000');
   });

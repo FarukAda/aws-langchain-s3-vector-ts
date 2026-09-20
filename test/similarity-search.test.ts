@@ -615,7 +615,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
   });
 });
 
-describe('_validateFilter — array and non-plain-object filters', () => {
+describe('parseFilter — array and non-plain-object filters', () => {
   it('rejects an array filter instead of forwarding it to AWS', async () => {
     const { store, mock } = createTestStore();
     mock.on(QueryVectorsCommand).resolves({ vectors: [], distanceMetric: 'cosine' });
@@ -863,6 +863,18 @@ describe('AmazonS3Vectors text search — checks before the billable embedQuery'
     const error = await store.similaritySearch('q', 4, {}).catch((e: unknown) => e);
 
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(embeddings.embedQuery).not.toHaveBeenCalled();
+  });
+
+  it('does not call embedQuery when maxMarginalRelevanceSearch gets a bad filter', async () => {
+    const { store, embeddings } = createTestStore();
+
+    const error = await store
+      .maxMarginalRelevanceSearch('q', { k: 2, fetchK: 4, filter: { genre: { $eg: 'scifi' } } })
+      .catch((e: unknown) => e);
+
+    expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain("unknown operator '$eg'");
     expect(embeddings.embedQuery).not.toHaveBeenCalled();
   });
 

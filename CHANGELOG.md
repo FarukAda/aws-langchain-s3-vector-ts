@@ -429,6 +429,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The filter and `k` carry the proof that they were checked.** Both were
+  validated by a function returning `void`, which threw away what it had
+  learned at the moment it learned it — so `queryPages` took `filter?: unknown`
+  with a comment reading "already validated by the caller", and took any
+  `number` as `k`. A comment is a promise the compiler cannot keep, and it was
+  not kept: `similaritySearchVectorWithScore` passed both straight through
+  without checking either, and the text-search path checked both and then
+  passed the unchecked originals on, so the same filter was parsed twice on one
+  call. `parseFilter` and `parseK` now return branded types that only they can
+  construct, the boundary parses once, and the actions take the proof instead
+  of repeating the check. Nothing published changed: the brands are phantom and
+  the values are the caller's own.
+
+- **The `maxConcurrentBatchCalls` check joined the others.** It was the one
+  configuration option checked in the middle of the constructor's field
+  assignment rather than in `assertValidConfig` with every other option. Same
+  message, same error, one place to look.
+
 - **One decision about concurrency, in one place.** Three call sites decided
   for themselves how a batched operation fans out, and they did not agree:
   `addVectors` and `delete` dispatched fixed groups, so one slow request held

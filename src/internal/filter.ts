@@ -113,6 +113,25 @@ const ALL_OPERATORS = [...OPERAND_RULES.keys(), ...LOGICAL_OPERATORS].join(', ')
 /** The comparison operators alone. */
 const COMPARISON_OPERATORS = [...OPERAND_RULES.keys()].join(', ');
 
+declare const parsedFilter: unique symbol;
+
+/**
+ * A metadata filter that has been checked against the grammar this module
+ * defines.
+ *
+ * The only way to obtain one is {@link parseFilter}, so a function that asks
+ * for a ParsedFilter cannot be handed a filter nobody checked. Those functions
+ * used to ask for `unknown` and carry a comment saying "already validated by
+ * the caller" — a promise the compiler cannot keep, and the reason the same
+ * filter was checked twice on one path: a check that returns nothing throws
+ * away what it learned at the moment it learned it.
+ *
+ * The brand is phantom. At run time the value is the caller's own filter
+ * object, unchanged, and it is cast to the SDK's document type where the
+ * request is built.
+ */
+export type ParsedFilter = { readonly [parsedFilter]: true };
+
 /** Raise a `VALIDATION` naming the filter path that broke a rule. */
 function failFilter(operation: string, scope: StoreScope, message: string): never {
   throw new S3VectorsError(message, S3VectorsErrorCode.VALIDATION, { operation, ...scope });
@@ -355,7 +374,14 @@ function assertConditions(
  * identical for every one of these. This one names the key, the path and the
  * rule.
  */
-export function validateFilter(filter: unknown, operation: string, scope: StoreScope): void {
-  if (filter === undefined || filter === null) return;
+export function parseFilter(
+  filter: unknown,
+  operation: string,
+  scope: StoreScope,
+): ParsedFilter | undefined {
+  if (filter === undefined || filter === null) return undefined;
   assertConditions(filter, '', operation, scope);
+  // The one place the brand is applied, which is what makes it mean anything:
+  // every other module can only obtain a ParsedFilter by calling this.
+  return filter as ParsedFilter;
 }

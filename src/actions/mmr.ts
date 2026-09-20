@@ -10,7 +10,7 @@
 import type { Document } from '@langchain/core/documents';
 import { maximalMarginalRelevance } from '@langchain/core/utils/math';
 
-import { validateFilter } from '../internal/filter.js';
+import type { ParsedFilter } from '../internal/filter.js';
 import { fetchVectorsByIds } from '../internal/get-vectors.js';
 import { assertQueryVector } from '../internal/limits.js';
 import type { AwsOperation } from '../internal/operation.js';
@@ -35,7 +35,7 @@ export interface MmrSearchOptions extends AwsOperation {
   /** 0 favours diversity entirely, 1 favours relevance entirely. */
   readonly lambda: number;
   /** A metadata filter, applied to the candidate query. */
-  readonly filter?: unknown;
+  readonly filter?: ParsedFilter | undefined;
   /** Where page content is stored, so it can be lifted back out. */
   readonly pageContentMetadataKey: string | null;
   /**
@@ -172,7 +172,6 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
   };
 
   assertMmrParameters(k, fetchK, lambda, operation, scope);
-  validateFilter(opts.filter, operation, scope);
   // The rules `searchByVector` applies, which MMR skipped: the same unusable
   // embedding got a precise local error from one search method, and a bare AWS
   // rejection after a billable round trip from the other.

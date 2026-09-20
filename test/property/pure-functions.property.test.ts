@@ -2,7 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 import fc from 'fast-check';
 
-import { validateFilter } from '../../src/internal/filter.js';
+import { parseFilter } from '../../src/internal/filter.js';
 import { resolveWriteIds } from '../../src/internal/ids.js';
 import { chunk, offsetBatches } from '../../src/shared/batching.js';
 import { classifyAwsError } from '../../src/shared/errors/classify.js';
@@ -126,12 +126,12 @@ describe('resolveWriteIds', () => {
   });
 });
 
-describe('validateFilter', () => {
+describe('parseFilter', () => {
   it('never throws anything but a coded S3VectorsError, for any input at all', () => {
     fc.assert(
       fc.property(anything(), (filter) => {
         try {
-          validateFilter(filter, 'similaritySearch', SCOPE);
+          parseFilter(filter, 'similaritySearch', SCOPE);
         } catch (error: unknown) {
           expect(isS3VectorsError(error)).toBe(true);
           expect((error as { code: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
@@ -174,7 +174,7 @@ describe('validateFilter', () => {
     fc.assert(
       fc.property(nested, (filter) => {
         expect(() => {
-          validateFilter(filter, 'similaritySearch', SCOPE);
+          parseFilter(filter, 'similaritySearch', SCOPE);
         }).not.toThrow();
       }),
     );
@@ -202,7 +202,7 @@ describe('validateFilter', () => {
             ].includes(unknown),
           );
           expect(() => {
-            validateFilter({ field: { [unknown]: 'x' } }, 'similaritySearch', SCOPE);
+            parseFilter({ field: { [unknown]: 'x' } }, 'similaritySearch', SCOPE);
           }).toThrow(unknown);
         },
       ),

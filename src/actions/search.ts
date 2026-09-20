@@ -8,8 +8,8 @@
  */
 import type { Document } from '@langchain/core/documents';
 
-import { validateFilter } from '../internal/filter.js';
-import { assertK, validationError } from '../internal/guards.js';
+import type { ParsedFilter } from '../internal/filter.js';
+import { type TopK, validationError } from '../internal/guards.js';
 import { assertQueryVector } from '../internal/limits.js';
 import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
@@ -25,10 +25,10 @@ export interface VectorSearchOptions extends AwsOperation {
   readonly distanceMetric: DistanceMetric;
   /** The embedding to search with. */
   readonly queryVector: number[];
-  /** Results wanted, an integer 1–10,000. */
-  readonly k: number;
-  /** A metadata filter, validated here before the request. */
-  readonly filter?: unknown;
+  /** Results wanted. Only {@link parseK} can produce one. */
+  readonly k: TopK;
+  /** A metadata filter, parsed at the boundary this call came through. */
+  readonly filter?: ParsedFilter | undefined;
   /** Where page content is stored, so it can be lifted back out. */
   readonly pageContentMetadataKey: string | null;
 }
@@ -63,7 +63,6 @@ export async function searchByVector(opts: VectorSearchOptions): Promise<[Docume
     indexName: opts.indexName,
   };
 
-  assertK(operation, scope, opts.k);
   // The same rules a stored vector is held to. All of them were probed against
   // the live service and answered identically — "Query vector contains invalid
   // values or is invalid for this index" — for a zero-norm vector, an empty one,
@@ -75,7 +74,6 @@ export async function searchByVector(opts: VectorSearchOptions): Promise<[Docume
     distanceMetric: opts.distanceMetric,
     ...scope,
   });
-  validateFilter(opts.filter, operation, scope);
 
   const outputVectors = await queryPages({
     client: opts.client,

@@ -20,9 +20,9 @@ import { getByIds } from './actions/get-by-ids.js';
 import { listDocuments, listVectors } from './actions/list.js';
 import { mmrSearch, resolveMmrParameters } from './actions/mmr.js';
 import { searchByVector, selectRelevanceScoreFn } from './actions/search.js';
-import { validateFilter } from './internal/filter.js';
+import { parseFilter } from './internal/filter.js';
 import {
-  assertK,
+  parseK,
   assertOptionsBag,
   assertQueryText,
   rejectSignalInCallbacksSlot,
@@ -256,15 +256,9 @@ export class AmazonS3Vectors extends VectorStore {
     this.createIndexIfNotExist = config.createIndexIfNotExist ?? true;
     this.encryptionConfiguration = config.encryptionConfiguration;
     this.tags = config.tags;
+    // Checked in assertValidConfig, with every other configuration option.
     this.maxConcurrentBatchCalls =
       config.maxConcurrentBatchCalls ?? DEFAULT_MAX_CONCURRENT_BATCH_CALLS;
-    if (!Number.isInteger(this.maxConcurrentBatchCalls) || this.maxConcurrentBatchCalls <= 0) {
-      throw validationError(
-        'constructor',
-        this.#scope,
-        `config.maxConcurrentBatchCalls must be a positive integer (received ${renderValue(config.maxConcurrentBatchCalls)}).`,
-      );
-    }
     this.#writeRateLimit = createWriteRateLimiter(
       config.writeRateLimit === false
         ? false
@@ -289,7 +283,7 @@ export class AmazonS3Vectors extends VectorStore {
     // `null` is treated exactly like an omitted client — an optional field
     // defaulted to `null` by a DI framework or an untyped caller means "not
     // provided", and this file already reads a `null` filter as "no filter"
-    // (see _validateFilter). Previously `null !== undefined` was true here,
+    // (see parseFilter). Previously `null !== undefined` was true here,
     // so evaluation reached `null.config` and threw a raw, uncoded
     // TypeError, breaking the guarantee that every failure is typed.
     //
@@ -530,13 +524,14 @@ export class AmazonS3Vectors extends VectorStore {
     filter?: this['FilterType'],
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
+    const operation = 'similaritySearchVectorWithScore';
     return await searchByVector({
       client: this.#client,
-      operation: 'similaritySearchVectorWithScore',
+      operation,
       distanceMetric: this.distanceMetric,
       queryVector: query,
-      k,
-      filter,
+      k: parseK(operation, this.#scope, k),
+      filter: parseFilter(filter, operation, this.#scope),
       pageContentMetadataKey: this.pageContentMetadataKey,
       signal,
       ...this.#scope,
@@ -580,7 +575,7 @@ export class AmazonS3Vectors extends VectorStore {
     // Everything cheap and synchronous runs before the billable — and
     // uncancellable — embedQuery call: a signal in the wrong slot, an
     // invalid k, an invalid filter, or a signal that already fired should
-    // not cost an embedding round trip before failing. _validateFilter runs
+    // not cost an embedding round trip before failing. parseFilter runs
     // again inside _queryVectors for the direct-vector entry points;
     // running it twice here is free.
     rejectSignalInCallbacksSlot('similaritySearchWithScore', this.#scope, _callbacks);
@@ -618,8 +613,8 @@ export class AmazonS3Vectors extends VectorStore {
     // signal that already fired should not cost an embedding round trip
     // before failing.
     assertQueryText(operation, this.#scope, query);
-    assertK(operation, this.#scope, k);
-    validateFilter(filter, operation, this.#scope);
+    const parsedK = parseK(operation, this.#scope, k);
+    const parsedFilter = parseFilter(filter, operation, this.#scope);
     // embedQuery has no signal support (LangChain's EmbeddingsInterface
     // doesn't accept one), so it can't self-cancel the way an AWS call does —
     // check explicitly. Only the QueryVectors call after it can be cancelled
@@ -631,8 +626,8 @@ export class AmazonS3Vectors extends VectorStore {
       operation,
       distanceMetric: this.distanceMetric,
       queryVector,
-      k,
-      filter,
+      k: parsedK,
+      filter: parsedFilter,
       pageContentMetadataKey: this.pageContentMetadataKey,
       signal,
       ...this.#scope,
@@ -775,7 +770,7 @@ export class AmazonS3Vectors extends VectorStore {
       'maxMarginalRelevanceSearch',
       this.#scope,
     );
-    validateFilter(options.filter, 'maxMarginalRelevanceSearch', this.#scope);
+    const parsedFilter = parseFilter(options.filter, 'maxMarginalRelevanceSearch', this.#scope);
 
     // embedQuery has no signal support, so it cannot self-cancel — check
     // before spending a billable, uncancellable call.
@@ -790,7 +785,7 @@ export class AmazonS3Vectors extends VectorStore {
       k,
       fetchK,
       lambda,
-      filter: options.filter,
+      filter: parsedFilter,
       pageContentMetadataKey: this.pageContentMetadataKey,
       maxConcurrent: this.maxConcurrentBatchCalls,
       signal,

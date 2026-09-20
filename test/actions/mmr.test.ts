@@ -2,6 +2,7 @@ import { GetVectorsCommand, QueryVectorsCommand } from '@aws-sdk/client-s3vector
 import { describe, it, expect } from '@jest/globals';
 
 import { mmrSearch } from '../../src/actions/mmr.js';
+import { parseFilter } from '../../src/internal/filter.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { createMockClient } from '../helpers.js';
 
@@ -125,12 +126,21 @@ describe('mmrSearch', () => {
     expect(mock.commandCalls(GetVectorsCommand)).toHaveLength(0);
   });
 
-  it('rejects a malformed filter locally, before the billable embed or any request', async () => {
+  it('forwards the filter it was given to the candidate query', async () => {
+    // A filter reaching here has been parsed at the boundary the call came
+    // through — `ParsedFilter` is not constructible anywhere else — so this
+    // action sends it rather than checking it again. The refusal of a
+    // malformed filter is a boundary guarantee and is tested there, against
+    // the store, where "before the billable embed" can also be asserted.
     const { mock, run } = setup();
-    const error = await run({ filter: { genre: { $eg: 'scifi' } } }).catch((e: unknown) => e);
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain("unknown operator '$eg'");
-    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+    const filter = parseFilter({ genre: { $eq: 'scifi' } }, 'maxMarginalRelevanceSearch', {
+      vectorBucketName: 'b',
+      indexName: 'i',
+    });
+    await run({ filter });
+    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input).toMatchObject({
+      filter: { genre: { $eq: 'scifi' } },
+    });
   });
 
   it('names the parameter, the range and what it got', async () => {
