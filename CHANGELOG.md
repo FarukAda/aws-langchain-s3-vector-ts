@@ -61,6 +61,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The live-AWS suite runs on every tag, and never on a schedule.**
+  `integration-live.yml` is back, triggered by a `v*` tag push and by manual
+  dispatch — not by cron. The nightly version of this workflow was removed
+  because it spent money and AWS quota answering a question nobody asked that
+  night; the moment the answer matters is before a version is published, and
+  that is now the moment it runs. `release.yml` requires the resulting
+  `live-aws integration` check on the tagged commit, so a tag whose live run
+  failed — or never started, because the AWS role secret is missing — waits and
+  then refuses to publish, rather than publishing untested against the real
+  service.
+
+  It is a **separate workflow file rather than a job in `release.yml`**, and
+  that is a security decision. Assuming an AWS role by OIDC needs
+  `id-token: write`, which is not AWS-specific: it mints an OIDC token for any
+  audience, including npm's, and npm Trusted Publishing authorises by
+  repository and *workflow filename*. That permission inside `release.yml`
+  would reopen the hole that file was restructured to close; in its own file it
+  cannot, because the `workflow_ref` claim does not match the trusted
+  publisher's.
+
+  The ephemeral bucket is created at the start of the run and deleted in
+  teardown with `if: always()`, with any leftover from a killed run removed
+  first, and a guard that fails the job if the suite reported success having
+  run zero tests. The pinned `aws-actions/configure-aws-credentials` moved from
+  v6.2.3 to v6.3.0, which is current.
+
+
 - **The documentation an enterprise evaluator actually needs.** The reference
   material was accurate and complete about *behaviour*; what was missing was
   everything someone asks before adopting it. Now present:

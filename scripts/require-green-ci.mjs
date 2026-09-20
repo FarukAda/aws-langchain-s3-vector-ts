@@ -25,15 +25,27 @@
  */
 
 /**
- * The check-run names `ci.yml` produces. The matrix legs are spelled out
- * because a matrix job's check-run name is its `name:` with the matrix values
- * substituted, and a missing leg is exactly what this gate exists to notice.
+ * The check-run names a tagged commit must carry, all of them successful.
+ *
+ * Mostly `ci.yml`. The matrix legs are spelled out because a matrix job's
+ * check-run name is its `name:` with the matrix values substituted, and a
+ * missing leg is exactly what this gate exists to notice.
+ *
+ * `live-aws integration` comes from `integration-live.yml` instead, which runs
+ * on the same tag push. That suite is the only thing that checks this package
+ * against the real service — every other test runs against a mock — and a
+ * 2026-09-20 run proved the point by catching a behaviour change the unit
+ * suite had already moved past. Requiring it here is what makes "the live tier
+ * runs before every tag" a gate rather than a good intention. A tag whose live
+ * run failed, or never started because the AWS role secret is missing, waits
+ * here and then refuses to publish.
  */
 export const REQUIRED_CHECKS = [
   'lint + typecheck + hygiene',
   'peer dependency floors',
   'package smoke (pack + lint + install + import)',
   'npm audit (high+)',
+  'live-aws integration',
   'test (node 22 on ubuntu-latest)',
   'test (node 22 on windows-latest)',
   'test (node 22 on macos-latest)',

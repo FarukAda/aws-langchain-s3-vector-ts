@@ -57,6 +57,7 @@ describe('the required list', () => {
       'peer dependency floors',
       'package smoke (pack + lint + install + import)',
       'npm audit (high+)',
+      'live-aws integration',
       'test (node 22 on ubuntu-latest)',
       'test (node 22 on windows-latest)',
       'test (node 22 on macos-latest)',

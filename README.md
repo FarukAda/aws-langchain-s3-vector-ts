@@ -1360,7 +1360,11 @@ npm run test:integration
 
 Without `RUN_LIVE_INTEGRATION=1` **and** `AWS_VECTOR_BUCKET` set, the suite prints a skip message and exits 0 — no false passes, no false fails.
 
-**There is no CI job for this tier.** The live suite runs locally, on demand, against a bucket you create and delete for the run. A scheduled workflow spent real money on every night the repository was untouched and reported against whatever `main` happened to be, which is not the commit anyone was looking at; it is removed rather than left to run unread. Everything it enforced still holds when you run the suite yourself: `RUN_LIVE_INTEGRATION=1` with no `AWS_VECTOR_BUCKET` is fatal rather than a silent skip, so a half-set environment cannot report success having run nothing.
+**It runs on every tag, and never on a schedule.** `integration-live.yml` is triggered by a `v*` tag push and by manual dispatch. A nightly version of it existed once and was removed: it spent real money on every night the repository was untouched, and reported against whatever `main` happened to be rather than against the commit anyone was looking at. The moment the answer matters is before a version is published, so that is when it runs — and the release workflow *requires* the resulting `live-aws integration` check on the tagged commit, so a tag whose live run failed, or never started, does not publish.
+
+That matters more than it sounds. This is the only tier that talks to the real service; everything else runs against `aws-sdk-client-mock`. The run on 2026-09-20 proved the point by catching a live test that still asserted a behaviour the unit suite had already moved past — drift that nothing else could have found, because nothing else was looking.
+
+The workflow creates the ephemeral bucket, deletes it in teardown with `if: always()`, removes any leftover from a killed run first, and fails the job if the suite reported success having run zero tests. Run it locally the same way, against a bucket you create and delete yourself: `RUN_LIVE_INTEGRATION=1` with no `AWS_VECTOR_BUCKET` is fatal rather than a silent skip, so a half-set environment cannot report success having run nothing.
 
 ### Verifying against real AWS
 

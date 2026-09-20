@@ -1,0 +1,125 @@
+name: Integration (live AWS)
+
+# On a tag, and on demand. **Never on a schedule** — a nightly run spends money
+# and AWS quota to answer a question nobody asked that night, and this suite
+# exists to answer it at the one moment it matters: before a version is
+# published. `workflow_dispatch` is here so it can also be run deliberately,
+# without tagging anything.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      aws-region:
+        description: 'AWS region for the ephemeral test bucket'
+        required: false
+        default: 'us-east-1'
+
+# This lives in its own file rather than as a job in `release.yml`, and that is
+# a security decision rather than tidiness.
+#
+# Assuming an AWS role by OIDC needs `id-token: write`. That permission is not
+# specific to AWS: it lets a job mint an OIDC token for *any* audience,
+# including npm's — and npm Trusted Publishing authorises by repository and
+# **workflow filename**. A job in `release.yml` holding `id-token: write` could
+# therefore mint an npm publish credential, which is exactly the hole that file
+# was restructured to close. A job in *this* file cannot: its `workflow_ref`
+# does not match the trusted publisher's, so npm rejects the token.
+#
+# The release still waits for this suite. `release.yml` gates on named check
+# runs for the tagged commit, and `live-aws integration` is one of the names it
+# requires (see `scripts/require-green-ci.mjs`), so a tag whose live run failed
+# — or never ran — does not publish.
+permissions: {}
+
+env:
+  # The vector bucket is ephemeral: created at the start of each run and
+  # deleted in teardown (`if: always()`), so nothing stands between runs.
+  # The name is fixed and MUST match the IAM role's resource policy, which
+  # is scoped to exactly this bucket. A tag push sends no input, so
+  # `aws-region` falls back to us-east-1.
+  AWS_VECTOR_BUCKET: langchain-vectors-ci
+  AWS_REGION: ${{ inputs.aws-region || 'us-east-1' }}
+
+jobs:
+  integration:
+    name: live-aws integration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Only to assume the AWS role below. See the note above for why this
+      # permission cannot live in `release.yml`.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Spin the bucket up. If a previous run was killed before its teardown
+      # finished, a leftover bucket would block create-vector-bucket — so we
+      # remove any leftover (and its indexes) first. Steady state: no bucket
+      # exists at the start of a run.
+      - name: Spin up ephemeral vector bucket
+        run: |
+          set -euo pipefail
+          if aws s3vectors get-vector-bucket \
+            --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Leftover bucket found — removing before recreate."
+            for idx in $(aws s3vectors list-indexes \
+              --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION" \
+              --query 'indexes[].indexName' --output text); do
+              aws s3vectors delete-index \
+                --vector-bucket-name "$AWS_VECTOR_BUCKET" --index-name "$idx" --region "$AWS_REGION"
+            done
+            aws s3vectors delete-vector-bucket \
+              --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION"
+          fi
+          aws s3vectors create-vector-bucket \
+            --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION"
+
+      # A skipped Jest suite exits 0, so "the env was never set" and "every
+      # live test passed" are indistinguishable from the job's exit code
+      # alone. The guard in test/integration/_guard.ts makes a *misconfigured*
+      # run fatal; this makes a run that executed nothing fatal too, so a
+      # dropped env line here can never turn this job green without a single
+      # AWS call having been made.
+      - name: Run live integration tests
+        run: |
+          set -euo pipefail
+          npm run test:integration -- --json --outputFile=jest-results.json
+          PASSED=$(node -p "require('./jest-results.json').numPassedTests")
+          TOTAL=$(node -p "require('./jest-results.json').numTotalTests")
+          echo "live integration: $PASSED/$TOTAL tests passed"
+          if [ "$PASSED" -lt 1 ]; then
+            echo "::error::Live integration reported success having run 0 tests — failing the job."
+            exit 1
+          fi
+        env:
+          RUN_LIVE_INTEGRATION: '1'
+
+      # Spin the bucket down — always, even if the tests failed. Delete every
+      # index first (the bucket must be empty), then the bucket itself. Each
+      # step is best-effort so a partial teardown never fails the job.
+      #
+      # The suite's own tests delete the indexes they create in `finally`
+      # blocks, and a 2026-09-20 run left none behind. This is the net under
+      # that: a test killed mid-run, or one added later without the same care,
+      # would otherwise leave an index that blocks the next run's create.
+      - name: Tear down ephemeral vector bucket
+        if: always()
+        run: |
+          for idx in $(aws s3vectors list-indexes \
+            --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION" \
+            --query 'indexes[].indexName' --output text 2>/dev/null); do
+            aws s3vectors delete-index \
+              --vector-bucket-name "$AWS_VECTOR_BUCKET" --index-name "$idx" --region "$AWS_REGION" || true
+          done
+          aws s3vectors delete-vector-bucket \
+            --vector-bucket-name "$AWS_VECTOR_BUCKET" --region "$AWS_REGION" || true
