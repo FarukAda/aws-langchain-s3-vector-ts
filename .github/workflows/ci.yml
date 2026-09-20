@@ -92,16 +92,21 @@ jobs:
       # then type-check and run the unit tier against it. A floor that was
       # never published, or an API this code uses that the floor lacks,
       # fails here rather than on the consumer who pinned it.
+      # The floor of each range is computed by scripts/peer-floors.mjs, which
+      # refuses a range it cannot reduce to one version rather than degrading
+      # to "install whatever npm resolves" — which is what the previous inline
+      # `replace(/^[\^~]/)` did for a `>=`, an x-range or a `||` union, leaving
+      # the job green having proved nothing. One spec per line, read with
+      # mapfile, so no spec can be split on a space.
       - name: Install every declared peer at its floor
         run: |
           set -euo pipefail
-          read -ra floors <<< "$(node -e '
-            const { peerDependencies } = require("./package.json");
-            console.log(Object.entries(peerDependencies).map(([name, range]) => name + "@" + range.replace(/^[\^~]/, "")).join(" "));
-          ')"
-          echo "installing ${floors[*]}"
+          mapfile -t floors < <(npm run --silent peer-floors)
+          printf 'installing %s\n' "${floors[@]}"
           npm install --no-save "${floors[@]}"
-          npm ls --depth=0 "${floors[@]%@*}" || true
+          # No `|| true`: this is the check that the floors actually resolved,
+          # and swallowing it was swallowing the one signal the job produces.
+          npm ls --depth=0 "${floors[@]%@*}"
       - run: npm run typecheck
       - run: npm run typecheck:test
       - run: npm run typecheck:types
@@ -114,7 +119,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['22', '24']
+        # 22 is the supported floor (engines.node), 24 is Active LTS, and 26
+        # is Current — it shipped 2026-09-16 and becomes Active LTS while this
+        # package is still 1.x, so it is tested before users are on it.
+        node: ['22', '24', '26']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

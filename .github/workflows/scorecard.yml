@@ -17,11 +17,19 @@ jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
+    # A job-level block REPLACES the workflow-level one rather than merging
+    # with it, so the `read-all` above bought nothing and these four were the
+    # whole grant. Scorecard's Code-Review, CI-Tests and Maintained checks read
+    # pull requests, check runs and issues; without them the published score is
+    # lower than the repository earns, and the badge reports that.
     permissions:
       security-events: write
       id-token: write
       contents: read
       actions: read
+      checks: read
+      issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

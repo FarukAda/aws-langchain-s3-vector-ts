@@ -104,6 +104,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Node 26 is in the CI matrix.** It shipped on 2026-09-16 and becomes Active
+  LTS while this package is still `1.x`, so it is tested before users are on
+  it. Node 22 has been in maintenance since 2025-10-21 and stays, because it is
+  the supported floor. The release gate's required-check list was extended with
+  the three new legs at the same time — it names checks rather than counting
+  them, so a matrix leg it does not know about would be a leg nothing waits for.
+
+- **The peer-floor job could pass having proved nothing.** It extracted each
+  floor with `range.replace(/^[\^~]/, '')` and let the shell word-split the
+  result: correct for `^` and `~`, and silently wrong for everything else. A
+  `>=1.0.0`, `1.x` or `*` range installed the *newest* match, so the job that
+  exists to prove the declared floor work tested the ceiling instead; a
+  `^1.0.0 || ^2.0.0` union split into three arguments and npm tried to install
+  a package named `||`. Both current ranges are `^`, so it worked — the failure
+  mode was that it would stop working without saying so. A range is now reduced
+  by `scripts/peer-floors.mjs`, which refuses anything it cannot reduce to a
+  single version, emits one spec per line so nothing can be split on a space,
+  and the `|| true` that was swallowing the `npm ls` verification is gone.
+
+- **Scorecard was scored on less than it could see.** The workflow set
+  `permissions: read-all` and the job then set four of its own; a job-level
+  block *replaces* the workflow-level one rather than merging with it, so
+  `read-all` bought nothing and the Code-Review, CI-Tests and Maintained checks
+  ran without the pull-request, check-run and issue reads they need. The badge
+  therefore reported a lower score than the repository earns.
+
 - **The conformance registry covered no search, while saying it covered the
   public surface.** Eleven of sixteen public entry points sat in
   `PENDING_ENTRY_POINTS` — including every similarity search and `asRetriever`

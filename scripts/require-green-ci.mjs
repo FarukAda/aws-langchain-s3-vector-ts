@@ -40,6 +40,9 @@ export const REQUIRED_CHECKS = [
   'test (node 24 on ubuntu-latest)',
   'test (node 24 on windows-latest)',
   'test (node 24 on macos-latest)',
+  'test (node 26 on ubuntu-latest)',
+  'test (node 26 on windows-latest)',
+  'test (node 26 on macos-latest)',
 ];
 
 /** Parse the newline-delimited JSON `gh api --paginate --jq` emits. */
