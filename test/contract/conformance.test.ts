@@ -107,7 +107,11 @@ beforeAll(async () => {
 describe('executable contracts', () => {
   it('drives a real corpus, so an empty run cannot pass', () => {
     expect(REGISTRY.length).toBeGreaterThan(0);
-    expect(TOTAL_RUNS).toBeGreaterThan(100);
+    // A floor far enough below the real count to survive ordinary additions,
+    // and far enough above zero to catch a corpus that silently stopped
+    // generating. The old floor was 100 against a corpus that actually runs
+    // about 1,800 cases, so a regression dropping 90% of them still cleared it.
+    expect(TOTAL_RUNS).toBeGreaterThan(1_500);
   });
 
   it('breaches no contract that is not a recorded gap', () => {
@@ -126,7 +130,10 @@ describe('executable contracts', () => {
   });
 });
 
-describe('the registry covers the public surface', () => {
+// Not 'covers the public surface': it checks that every public entry point is
+// accounted for — registered *or* listed as pending — which is a weaker claim
+// and was being read as the stronger one while eleven of sixteen were pending.
+describe('every public entry point is accounted for', () => {
   it('names only entry points that exist at runtime', () => {
     const missing = PUBLIC_ENTRY_POINTS.filter((symbol) => {
       const member = symbol.slice('AmazonS3Vectors.'.length);

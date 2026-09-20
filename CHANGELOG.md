@@ -104,6 +104,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The conformance registry covered no search, while saying it covered the
+  public surface.** Eleven of sixteen public entry points sat in
+  `PENDING_ENTRY_POINTS` — including every similarity search and `asRetriever`
+  — and the `describe` around the check was named "the registry covers the
+  public surface". It does not check that: it checks that each entry point is
+  *accounted for*, registered **or** pending, which is a much weaker claim and
+  was being read as the stronger one. So none of the six properties, and none
+  of the hostile corpus of 39 values × 21 ambient conditions that found the
+  `NaN` and sparse-array defects on the write path, had ever swept a query —
+  the read path being the primary use of a vector store.
+  `similaritySearch`, `similaritySearchWithScore` and
+  `similaritySearchVectorWithScore` are now registered (8 of 16, from 5); the
+  `describe` says what it checks; and the pending list now records, for each
+  name left on it, why it is there rather than leaving an open-ended
+  exemption. Writing the contracts immediately caught an over-declaration: the
+  vector-taking search cannot raise `ABORTED` (it has no signal parameter),
+  `EMBEDDINGS_MISSING` (it takes an embedding) or `UNEXPECTED_ERROR` (it runs
+  no caller code), and the conformance run rejected the wider set.
+  The "an empty run cannot pass" floor was `> 100` against a corpus that
+  actually runs about 1,800 cases, so a regression dropping 90% of them still
+  cleared it; it is 1,500 now.
+
 - **The read path dispatched fixed groups, and a load-bearing comment said it
   did not.** `getByIds` and MMR's candidate fetch ran `chunk(chunk(ids))` with
   a `Promise.allSettled` per group, so one slow `GetVectors` held back every
