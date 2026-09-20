@@ -1,6 +1,8 @@
 import { QueryVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
+import { parseK } from '../../src/internal/guards.js';
+import { parseQueryVector } from '../../src/internal/limits.js';
 import { queryPages } from '../../src/internal/query-pages.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { S3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
@@ -11,6 +13,9 @@ import { createMockClient } from '../helpers.js';
  */
 const codeOf = (e: unknown): string | undefined => (e as { code?: string }).code;
 
+/** Branded values can only come from the parsers, which is the point of them. */
+const SCOPE_FOR_PARSE = { vectorBucketName: 'b', indexName: 'i' } as const;
+
 function setup() {
   const { client, mock } = createMockClient();
   const run = (overrides: Record<string, unknown> = {}): Promise<unknown> =>
@@ -20,8 +25,12 @@ function setup() {
       indexName: 'i',
       operation: 'similaritySearch',
       distanceMetric: 'cosine',
-      k: 4,
-      queryVector: [1, 2, 3],
+      k: parseK('similaritySearch', SCOPE_FOR_PARSE, 4),
+      queryVector: parseQueryVector([1, 2, 3], {
+        operation: 'similaritySearch',
+        distanceMetric: 'cosine',
+        ...SCOPE_FOR_PARSE,
+      }),
       returnMetadata: true,
       returnDistance: true,
       ...overrides,

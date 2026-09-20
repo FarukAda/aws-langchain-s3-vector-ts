@@ -1,7 +1,7 @@
 import { GetVectorsCommand, QueryVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
-import { mmrSearch } from '../../src/actions/mmr.js';
+import { mmrSearch, resolveMmrParameters } from '../../src/actions/mmr.js';
 import { parseFilter } from '../../src/internal/filter.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { createMockClient } from '../helpers.js';
@@ -39,9 +39,10 @@ function setup(present: string[] = Object.keys(VECTORS)) {
       operation: 'maxMarginalRelevanceSearch',
       distanceMetric: 'cosine',
       queryVector: [1, 0, 0],
-      k: 2,
-      fetchK: 3,
-      lambda: 0.5,
+      ...resolveMmrParameters({ k: 2, fetchK: 3, lambda: 0.5 }, 'maxMarginalRelevanceSearch', {
+        vectorBucketName: 'b',
+        indexName: 'i',
+      }),
       pageContentMetadataKey: null,
       maxConcurrent: 10,
       ...overrides,
@@ -116,9 +117,10 @@ describe('mmrSearch', () => {
       operation: 'maxMarginalRelevanceSearch',
       distanceMetric: 'cosine',
       queryVector: [1, 0, 0],
-      k: 2,
-      fetchK: 3,
-      lambda: 0.5,
+      ...resolveMmrParameters({ k: 2, fetchK: 3, lambda: 0.5 }, 'maxMarginalRelevanceSearch', {
+        vectorBucketName: 'b',
+        indexName: 'i',
+      }),
       pageContentMetadataKey: null,
       maxConcurrent: 10,
     });
@@ -202,9 +204,10 @@ describe('mmrSearch', () => {
       operation: 'maxMarginalRelevanceSearch',
       distanceMetric: 'cosine',
       queryVector: [1, 0, 0],
-      k: 1,
-      fetchK: 1,
-      lambda: 0.5,
+      ...resolveMmrParameters({ k: 1, fetchK: 1, lambda: 0.5 }, 'maxMarginalRelevanceSearch', {
+        vectorBucketName: 'b',
+        indexName: 'i',
+      }),
       pageContentMetadataKey: null,
       maxConcurrent: 10,
     }).catch((e: unknown) => e);

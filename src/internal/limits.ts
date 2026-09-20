@@ -119,18 +119,32 @@ export function assertWriteVectors(vectors: readonly unknown[], opts: WriteVecto
   }
 }
 
-/** Options for {@link assertQueryVector}. */
+/** Options for {@link parseQueryVector}. */
 export interface QueryVectorOptions extends OperationScope {
   /** The metric of the index being searched. */
   readonly distanceMetric: DistanceMetric;
 }
 
+declare const queryVector: unique symbol;
+
 /**
- * Reject a query vector.
+ * A query vector checked against the bounds the index enforces.
+ *
+ * {@link parseQueryVector} is the only way to obtain one, so a function that
+ * asks for a QueryVector cannot be handed an embedding nobody checked. Both
+ * search paths used to call the check and discard what it returned, which left
+ * `queryPages` taking any `number[]`.
+ *
+ * The brand is phantom: at run time it is the caller's own array.
+ */
+export type QueryVector = number[] & { readonly [queryVector]: true };
+
+/**
+ * Parse a query vector, rejecting one the index cannot take.
  *
  * Accepts: anything, as the embedding to search with.
  *
- * Returns: nothing.
+ * Returns: the same array, carrying the proof that it was checked.
  *
  * Throws: {@link S3VectorsError} `VALIDATION`, as "Query vector …", for any rule
  * {@link vectorRejectionReason} states. It carries no record fields, because a
@@ -141,10 +155,11 @@ export interface QueryVectorOptions extends OperationScope {
  * values or is invalid for this index", which names neither the component nor
  * the reason.
  */
-export function assertQueryVector(vector: unknown, opts: QueryVectorOptions): void {
+export function parseQueryVector(vector: unknown, opts: QueryVectorOptions): QueryVector {
   const { distanceMetric, ...scope } = opts;
   const reason = vectorRejectionReason(vector, distanceMetric);
   if (reason !== undefined) {
     throw new S3VectorsError(`Query vector ${reason}.`, S3VectorsErrorCode.VALIDATION, scope);
   }
+  return vector as QueryVector;
 }

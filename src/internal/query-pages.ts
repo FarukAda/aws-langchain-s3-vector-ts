@@ -15,6 +15,8 @@ import { awsFailure } from '../shared/errors/wrap-error.js';
 import type { StoreScope } from '../shared/scope.js';
 import type { DistanceMetric, S3OutputVector } from '../types.js';
 import type { ParsedFilter } from './filter.js';
+import type { TopK } from './guards.js';
+import type { QueryVector } from './limits.js';
 import type { AwsOperation } from './operation.js';
 import { outputVectorsOf } from './output-vectors.js';
 import { checkAborted, sendOptions } from './signals.js';
@@ -36,9 +38,9 @@ export interface QueryPagesOptions extends AwsOperation {
   /** What this store believes the index uses; verified against the response. */
   readonly distanceMetric: DistanceMetric;
   /** Results wanted. Pagination continues until this many are collected. */
-  readonly k: number;
+  readonly k: TopK;
   /** The embedding to search with. */
-  readonly queryVector: number[];
+  readonly queryVector: QueryVector;
   /** A metadata filter. Only {@link parseFilter} can produce one. */
   readonly filter?: ParsedFilter | undefined;
   /** Whether each result should carry its metadata. */

@@ -477,6 +477,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this?" for someone arriving later. A contract test checks the five sections,
   the numbering and the index.
 
+- **So does the query vector, and MMR's resolved `k` and `fetchK`.** Both
+  search paths called the vector check and threw away what it returned, so
+  `queryPages` still took any `number[]`; `resolveMmrParameters` resolved and
+  checked `k` and `fetchK` and handed back plain numbers, so the candidate
+  count reached `QueryVectors` unchecked. Requiring the parsed types turned
+  each of those into a compiler error.
+
 - **The filter and `k` carry the proof that they were checked.** Both were
   validated by a function returning `void`, which threw away what it had
   learned at the moment it learned it — so `queryPages` took `filter?: unknown`

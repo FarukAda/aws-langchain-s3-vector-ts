@@ -10,7 +10,7 @@ import type { Document } from '@langchain/core/documents';
 
 import type { ParsedFilter } from '../internal/filter.js';
 import { type TopK, validationError } from '../internal/guards.js';
-import { assertQueryVector } from '../internal/limits.js';
+import { parseQueryVector } from '../internal/limits.js';
 import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
 import { cosineRelevanceScoreFn } from '../relevance-scores.js';
@@ -69,7 +69,7 @@ export async function searchByVector(opts: VectorSearchOptions): Promise<[Docume
   // and one of the wrong length. That message names no component and no reason,
   // so the round trip bought nothing this package could not say itself, and
   // said better.
-  assertQueryVector(opts.queryVector, {
+  const queryVector = parseQueryVector(opts.queryVector, {
     operation,
     distanceMetric: opts.distanceMetric,
     ...scope,
@@ -80,7 +80,7 @@ export async function searchByVector(opts: VectorSearchOptions): Promise<[Docume
     operation,
     distanceMetric: opts.distanceMetric,
     k: opts.k,
-    queryVector: opts.queryVector,
+    queryVector,
     filter: opts.filter,
     returnMetadata: true,
     returnDistance: true,

@@ -12,7 +12,8 @@ import { maximalMarginalRelevance } from '@langchain/core/utils/math';
 
 import type { ParsedFilter } from '../internal/filter.js';
 import { fetchVectorsByIds } from '../internal/get-vectors.js';
-import { assertQueryVector } from '../internal/limits.js';
+import type { TopK } from '../internal/guards.js';
+import { parseQueryVector } from '../internal/limits.js';
 import type { AwsOperation } from '../internal/operation.js';
 import { queryPages } from '../internal/query-pages.js';
 import { MAX_TOP_K } from '../shared/aws-limits.js';
@@ -28,10 +29,10 @@ export interface MmrSearchOptions extends AwsOperation {
   readonly distanceMetric: DistanceMetric;
   /** The embedding to rank against. */
   readonly queryVector: number[];
-  /** Documents to return. */
-  readonly k: number;
+  /** Documents to return. Only {@link resolveMmrParameters} can produce one. */
+  readonly k: TopK;
   /** Candidates to consider before selecting. */
-  readonly fetchK: number;
+  readonly fetchK: TopK;
   /** 0 favours diversity entirely, 1 favours relevance entirely. */
   readonly lambda: number;
   /** A metadata filter, applied to the candidate query. */
@@ -122,12 +123,15 @@ export function resolveMmrParameters(
   options: { readonly k?: number; readonly fetchK?: number; readonly lambda?: number },
   operation: string,
   scope: StoreScope,
-): { k: number; fetchK: number; lambda: number } {
+): { k: TopK; fetchK: TopK; lambda: number } {
   const k = options.k ?? 4;
   const fetchK = options.fetchK ?? 20;
   const lambda = options.lambda ?? 0.5;
   assertMmrParameters(k, fetchK, lambda, operation, scope);
-  return { k, fetchK, lambda };
+  // Branded here rather than re-checked downstream: assertMmrParameters holds
+  // both to the same 1–10,000 bound parseK does, and this is the only place a
+  // caller's k and fetchK are resolved.
+  return { k: k as TopK, fetchK: fetchK as TopK, lambda };
 }
 
 /**
@@ -144,7 +148,7 @@ export function resolveMmrParameters(
  * Returns: at most `k` documents, most relevant first.
  *
  * Throws: `VALIDATION` for `k`, `fetchK`, `lambda`, the filter, or a query
- * vector S3 Vectors would refuse (see `assertQueryVector`) — all before any
+ * vector S3 Vectors would refuse (see `parseQueryVector`) — all before any
  * request; `ABORTED` for `signal`; `AWS_INVALID_RESPONSE` when a vector comes
  * back without data despite `returnData`; otherwise whatever the underlying
  * search and fetch raise.
@@ -175,7 +179,7 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
   // The rules `searchByVector` applies, which MMR skipped: the same unusable
   // embedding got a precise local error from one search method, and a bare AWS
   // rejection after a billable round trip from the other.
-  assertQueryVector(opts.queryVector, {
+  const queryVector = parseQueryVector(opts.queryVector, {
     operation,
     distanceMetric: opts.distanceMetric,
     ...scope,
@@ -194,7 +198,7 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
     operation,
     distanceMetric: opts.distanceMetric,
     k: fetchK,
-    queryVector: opts.queryVector,
+    queryVector,
     filter: opts.filter,
     returnMetadata: false,
     returnDistance: false,

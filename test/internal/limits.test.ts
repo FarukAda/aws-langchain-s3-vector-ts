@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
 
 import {
-  assertQueryVector,
+  parseQueryVector,
   assertWriteVectors,
   vectorRejectionReason,
 } from '../../src/internal/limits.js';
@@ -168,7 +168,7 @@ describe('assertWriteVectors', () => {
   });
 });
 
-describe('assertQueryVector', () => {
+describe('parseQueryVector', () => {
   const opts = {
     operation: 'similaritySearchVectorWithScore',
     ...SCOPE,
@@ -178,14 +178,14 @@ describe('assertQueryVector', () => {
   it('accepts an ordinary vector', () => {
     expect(
       thrownBy(() => {
-        assertQueryVector([0.1, 0.2], opts);
+        parseQueryVector([0.1, 0.2], opts);
       }),
     ).toBeUndefined();
   });
 
   it('refuses what the write rules refuse, naming it a query vector and no record', () => {
     const error = thrownBy(() => {
-      assertQueryVector([0, 0], opts);
+      parseQueryVector([0, 0], opts);
     });
     expect(error?.code).toBe(S3VectorsErrorCode.VALIDATION);
     expect(error?.message).toMatch(/^Query vector has zero norm, which a cosine index rejects/);
