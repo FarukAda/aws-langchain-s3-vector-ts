@@ -243,6 +243,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The release workflow minted its npm credential in the same job that ran
+  the whole development toolchain.** Trusted Publishing works by letting a job
+  exchange `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`
+  — two ordinary environment variables, readable by every process in that job —
+  for a registry credential. One job held that capability from its first step
+  and then ran `npm ci` over roughly 570 development packages and executed
+  them: eslint, jest, tsc, the packaging checks. Any one of them, at install
+  time or at run time, could have published anything at all as this package
+  *with a valid provenance attestation attached*, which is worse than a leaked
+  token because it looks authentic. The workflow is now two jobs. `verify`
+  builds, tests and packs with no `id-token` permission and so can mint
+  nothing; `publish` installs no third-party code whatsoever — it downloads the
+  tarball `verify` already checked and runs `npm publish` on that exact file
+  with the npm bundled in Node. Trusted Publishing validates the repository and
+  the workflow *file*, not the job, so this needs no change on the registry
+  side. A top-level `permissions: {}` means a job added later inherits nothing.
+
+- **The SBOM attached to every release described neither this package's
+  dependencies nor anything else useful.** `npm sbom --omit=dev` produced five
+  components — `@emnapi/core`, `@emnapi/runtime`, `@emnapi/wasi-threads`,
+  `@napi-rs/wasm-runtime` and `@tybys/wasm-util` — and **neither peer**. The
+  cause is this package's shape: it declares no runtime `dependencies` at all,
+  and the two a consumer must install are `peerDependencies` present in this
+  tree only because they are also `devDependencies`, so `--omit=dev` drops
+  them, while five wasm shims reached through an optional edge under the dev
+  tooling survive. `--omit=optional` and `--omit=peer` change nothing; all
+  three combinations yield the same five. Releases now carry two documents,
+  each honest about what it is: `sbom.runtime.cyclonedx.json`, what installing
+  this package takes on — this package and its peers, each carrying the
+  declared range alongside the version the build resolved — and
+  `sbom.build.cyclonedx.json`, npm's own unmodified output over the whole
+  installed tree, which is what the tarball was built with. The runtime
+  document is derived from the build one by filtering, never hand-written, so
+  every purl, hash, licence and external reference is npm's.
+
+- **The release's CI gate counted check runs instead of naming them.** The
+  condition was "some check runs exist on this commit and none failed", which
+  passes in the one case it most needs to catch: a `ci.yml` that produced *no*
+  check runs at all — after a rename, invalid YAML, or a `paths-ignore:` added
+  later — leaves CodeQL and Scorecard as a complete, green set, and the release
+  would publish a commit the six-leg operating-system × Node matrix never
+  touched. All ten required checks are now named, and each must be present
+  *and* successful. The classification lives in `scripts/require-green-ci.mjs`
+  with tests, rather than in shell in the workflow, because a release gate that
+  has never been exercised is not a gate; a re-run's earlier failed attempt is
+  correctly not treated as a failure, and `skipped` and `neutral` still count
+  as success. `gh api` is now paginated rather than capped at one page.
+
+- **The release no longer installs an npm CLI from the registry.** The pinned
+  `npm@11.11.0` was published in February and had become a *downgrade*: Node 24,
+  which this workflow already uses, bundles npm 11.19.x, and Trusted Publishing
+  needs only 11.5.1. Fetching a CLI onto the machine that holds the OIDC token
+  bought nothing and cost a step; the publish job now asserts the bundled
+  version clears the floor instead. `npm audit --audit-level=high` runs once
+  more at release time, since an advisory can land between a commit's CI run
+  and its tag.
+
 - **The README described a cross-process safety net this package does not
   provide.** The *Concurrency* section said that after a lost index-creation
   race "nothing is re-read" and that "the next write's `GetIndex` is where a
