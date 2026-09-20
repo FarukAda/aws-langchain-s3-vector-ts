@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-rc.3] - 2026-09-20
+
+### Upgrading from 0.9.0
+
+`0.9.0` is what `npm install` still resolves to, so this is the upgrade most
+people are making, and it spans three prereleases. Every break between the two
+is listed here in one place, one line each; the detail for each is in the
+release section named beside it. Nothing below is a silent behaviour change —
+each one either fails to compile or raises a coded `VALIDATION` error naming
+what it objected to.
+
+**Platform**
+
+- Node 22 or later is required. A deployment pinned to Node 20 stays on `0.9.0`. *(rc.1)*
+
+**Removed, renamed or moved**
+
+- `delete()` no longer destroys the index — it requires `ids`, and `deleteIndex()` is the
+  separate method that removes the index. This is the one to read first if you call `delete`. *(rc.2)*
+- `addTexts` and `similaritySearchByVector` are removed. *(rc.2)*
+- `isAwsValidationException` and `S3VectorsErrorCode.NOT_IMPLEMENTED` are removed. *(rc.2)*
+- The error codes `ThrottlingException`, `InternalServerError` and `RequestTimeout` never
+  existed in the S3 Vectors service model and are gone. *(rc.2)*
+- `S3VectorsDeleteParams`, `S3VectorsDeleteIndexParams` and `S3VectorsListParams` are now
+  `…Options`. The shapes are unchanged, so this is a rename in your imports. *(1.0.0-rc.3)*
+
+**Signatures and types**
+
+- `similaritySearchWithRelevanceScores` takes `Callbacks` fourth and the `AbortSignal` fifth,
+  as its siblings already did. A call that passed the signal fifth is unaffected. *(rc.1)*
+- `getByIds` returns `(Document | undefined)[]`; a missing id is a hole, not a short array. *(rc.2)*
+- `error.code` and `error.context` are readonly at runtime, not only to TypeScript. *(rc.2)*
+- Every internal is a `#private` field or method, so nothing reaches them from outside. *(rc.2)*
+- `exactOptionalPropertyTypes` and `noImplicitOverride` are on, which can surface type errors
+  in code that subclasses or passes `undefined` explicitly. *(rc.2)*
+
+**Input that used to be accepted and is now refused**
+
+All of these raise `VALIDATION` before anything billable is spent.
+
+- Empty-string and duplicate ids on any write path. *(rc.1)*
+- Ids passed to `delete`, checked locally the way a write checks them. *(rc.2)*
+- A query vector whose components the index could not take. *(rc.2)*
+- A `metadatas` argument to `fromTexts` that does not match the texts. *(rc.2)*
+- A document without a string `pageContent` or an object `metadata`. *(rc.2)*
+- A non-object options bag, on every method that takes one. *(rc.2)*
+- `client` supplied together with `region`, `credentials`, `endpoint` or the timeouts. *(rc.2)*
+- `similaritySearchWithRelevanceScores` on a euclidean index with no `relevanceScoreFn`. *(rc.2)*
+- An `addVectors` call whose vectors disagree on dimension — the whole call, not one batch. *(1.0.0-rc.3)*
+- A filter holding `NaN`, `±Infinity` or a `Date`. *(1.0.0-rc.3)*
+- A `nonFilterableMetadataKeys` list no index could be created with — at construction, so a
+  store that only ever reads now fails to construct too. *(1.0.0-rc.3)*
+- A misspelled configuration option, where before it was ignored and the default applied. *(1.0.0-rc.3)*
+- An invalid retriever configuration, at `asRetriever()` rather than at the first `invoke()`. *(1.0.0-rc.3)*
+
+**What your `catch` blocks see**
+
+- `context.operation` is the public method you called, on every error. Five paths used to
+  report the AWS command there instead. *(1.0.0-rc.3)*
+- A timed-out, reset, refused or unreachable connection is `SERVICE_UNAVAILABLE`, not
+  `AWS_REQUEST_FAILED`. Branch on the former. *(1.0.0-rc.3)*
+- `ResourceNotFoundException` is no longer read as an absent index. *(rc.2)*
+- `context.instance` is non-enumerable, so loggers stop serialising the whole store. *(rc.1)*
+- When several things are wrong at once, one order decides which is reported. *(1.0.0-rc.3)*
+- `QUERY_PAGE_LIMIT_EXCEEDED` is now `PAGE_LIMIT_EXCEEDED`, and an enumeration raises it too;
+  `context.awsCommand` says which paginator ran out. *(1.0.0-rc.3)*
+- The id arrays on `context` — `writtenIds`, `attemptedIds`, `deletedIds`, `foundIds` — and
+  `fieldList` are `readonly` and frozen. Assigning one to a mutable `string[]` no longer
+  compiles; read it, or copy it with `[...ids]`. *(1.0.0-rc.3)*
+
+**Two more, if you write to an existing index or read documents off a retriever**
+
+- A write to an index whose **distance metric** differs from the store's is refused with
+  `INDEX_CONFIG_MISMATCH`, against the metric the index itself reports. It used to succeed,
+  with the mismatch surfacing only on a later read — so a write-only workload never saw it.
+  The dimension is still left to AWS. *(1.0.0-rc.3)*
+- `retriever.invoke` now returns documents with `@langchain/core`'s default metadata type,
+  matching `store.similaritySearch` and the retriever's own `batch`/`stream`, which disagreed
+  with it. This widens the type, so existing code keeps compiling. *(1.0.0-rc.3)*
+
 ### Breaking
 
 - **The id arrays on `error.context` are `readonly` arrays, and frozen.** They
@@ -58,6 +138,131 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every write and says so clearly, and the vectors' dimension is only known once
   the embedding has been paid for, so checking it locally buys a round trip and
   nothing else.
+
+
+- **Three published option types were renamed** to match what the methods that
+  take them call their parameter, and what the errors about them say:
+  `S3VectorsDeleteParams` to `S3VectorsDeleteOptions`,
+  `S3VectorsDeleteIndexParams` to `S3VectorsDeleteIndexOptions`, and
+  `S3VectorsListParams` to `S3VectorsListOptions`. One concept had two names —
+  the signature read `deleteIndex(options?: S3VectorsDeleteIndexParams)` while
+  the refusal read "The options argument must be an object". No shape changed,
+  so the fix is the name. `delete(params)` keeps its parameter name, which is
+  `@langchain/core`'s rather than this package's.
+
+
+- **`context.operation` is the public method the caller invoked on every
+  error, a failed AWS request included.** Five paths named the AWS command
+  instead: a refused
+  `GetIndex`, `CreateIndex` or `PutVectors` reported `operation: "GetIndex"`,
+  `"CreateIndex"` or `"PutVectors"` from `addVectors` and `addDocuments`, a
+  refused `DeleteVectors` reported `"DeleteVectors"` from `delete`, and a
+  refused `DeleteIndex` reported `"DeleteIndex"` from `deleteIndex` — while
+  every read (`getByIds`, the searches, MMR, the listings) named the method, so
+  one call's failures were split across two names depending on which request
+  failed. They report the method now, with the command in `awsCommand`; a
+  creation rule refused at the index step, which named `createIndex` — neither
+  a method nor a command — names the write too. **Migration:** a branch on
+  `context.operation === 'PutVectors'` becomes
+  `context.awsCommand === 'PutVectors'`, and likewise for `GetIndex`,
+  `CreateIndex`, `DeleteVectors` and `DeleteIndex`; a branch on the method
+  (`operation === 'addDocuments'`) now also sees that method's request
+  failures.
+
+  The retriever and the static factories reported the method they ran
+  underneath instead. A retriever's failures named `similaritySearch` or
+  `maxMarginalRelevanceSearch` — only its own `invoke` signal firing named
+  `retriever.invoke` — its inherited `addDocuments` named `addDocuments`, and
+  `fromDocuments`/`fromTexts` named `constructor` for a configuration the store
+  refused and `addDocuments` for a failed write. Each now names itself —
+  `retriever.invoke`, `retriever.addDocuments`, `fromDocuments`, `fromTexts` —
+  with the code, cause, `awsCommand`, stack and `context.instance` unchanged. A
+  failure raised inside `retriever.invoke` reaches core's `batch` and `stream`
+  under that name too; what those two refuse before calling `invoke` does not
+  (see *Fixed*). **Migration:** match `retriever.invoke`,
+  `retriever.addDocuments`, `fromDocuments` or `fromTexts` where a branch
+  expected the underlying method's name from those calls.
+
+- **`addVectors` requires every vector in the call to share one dimension, and
+  checks it before writing anything.** It was checked per batch, so a call whose
+  later batch disagreed wrote its earlier batches and then failed. An index has
+  one dimension, so such a call could never succeed whole; it is now refused whole,
+  with `INDEX_CONFIG_MISMATCH` naming the first vector that differs.
+
+- **A filter holding `NaN`, `±Infinity` or a `Date` is refused.** S3 Vectors
+  accepts what they become — the AWS SDK sends a non-finite number as the string
+  `"NaN"` and a `Date` as a timestamp — and the filter then silently matches
+  nothing, or compares against a number nobody wrote
+  ([`docs/evidence/filter-validation.md`](./docs/evidence/filter-validation.md),
+  T3-19). This is the rule metadata already followed, and it is the one place
+  the filter check refuses something the service would take.
+
+- **A timed-out, reset, refused or unreachable connection is
+  `SERVICE_UNAVAILABLE`.** The SDK's HTTP handler raises `TimeoutError` for a
+  connection, socket-idle or request timeout and for
+  `ECONNRESET`/`EPIPE`/`ETIMEDOUT`, and its retry strategy treats that name as
+  transient alongside `RequestTimeoutException` — which this package already
+  mapped to `SERVICE_UNAVAILABLE`. That was `AWS_REQUEST_FAILED` before, so
+  retry logic keyed on the documented transient codes treated a timeout as a
+  hard failure; only `context.retryable` said otherwise. The same retry
+  strategy also matches five more Node.js system error codes directly by
+  `code`, without renaming the error, so the error keeps its own `name`:
+  `ECONNREFUSED` (refused), `EHOSTUNREACH`/`ENETUNREACH` (unreachable) and
+  `ENOTFOUND`/`EAI_AGAIN` (DNS failure). Those five are now
+  `SERVICE_UNAVAILABLE` too, instead of `AWS_REQUEST_FAILED`, when they fail
+  an AWS request — matched on the error's own `code`; the SDK also finds such
+  a code in the error's `cause`, which this package does not. A caller
+  branching on `AWS_REQUEST_FAILED` for a timeout, a reset, a refused or an
+  unreachable connection must switch to `SERVICE_UNAVAILABLE`.
+
+- **A `nonFilterableMetadataKeys` list no index could ever be created with is
+  refused at construction, not on the first write.** Merged with
+  `pageContentMetadataKey` (added unless it is `null`), more than 10 keys or a
+  key outside 1–63 characters can never be written to any index. It was
+  refused only once a write first created the index — after its `GetIndex`
+  and, for `addDocuments`, after the first batch was embedded — so a store
+  configured this way could sit unused, or serve reads, before the mistake
+  surfaced. A store configured with such a list now fails to construct, even
+  one that never writes, and the error's context names the bucket and index,
+  as every constructor error raised after those two names are checked does.
+  `CreateIndex` still re-checks the same rule, as defence.
+
+- **One order of checks on every public entry point, when several faults
+  coincide: every refusal the arguments alone decide (`VALIDATION`, and
+  `addVectors`' `INDEX_CONFIG_MISMATCH` for vectors that disagree on
+  dimension), then `ABORTED` for an already-fired signal, then an empty
+  input's free `[]`, then anything spent (resolving the embeddings model,
+  embedding, the AWS request).** Previously the order depended on the method. Observable
+  differences: `addVectors` and `delete` now report `VALIDATION`, not
+  `ABORTED`, for a malformed id alongside a fired signal, matching
+  `addDocuments` and `getByIds`; `addVectors`, `addDocuments` and `getByIds`
+  now refuse `batchSize: 0` even when the list they are given is empty,
+  instead of resolving `[]`, as `delete` already did; `addDocuments` and `getByIds` now report
+  `ABORTED` for a fired signal alongside a valid empty list, matching
+  `addVectors` and `delete`; and `addDocuments` on a store with no
+  embeddings model now resolves `[]` for `addDocuments([])` and reports
+  `VALIDATION` for invalid input, rather than always failing
+  `EMBEDDINGS_MISSING` first.
+
+- **An invalid retriever configuration fails at `asRetriever()`, not at the
+  first `invoke`.** A retriever's `k`, `filter`, `searchType`, `searchKwargs`
+  (an object holding `fetchK` and `lambda`, for `'mmr'`) and field `signal` are
+  checked when it is built — by the checks the search they configure applies,
+  in that search's order — and refused with `VALIDATION` naming `asRetriever`,
+  or `retriever.constructor` for a retriever constructed directly. They were
+  checked only once a search ran, so an `invoke` handed an already-fired
+  signal reported `ABORTED` for a retriever that could never have searched,
+  against the order above; a `searchType` other than `'similarity'` or `'mmr'`
+  ran as a similarity search; and a `searchKwargs` that was not an object was
+  spread into the search's options as nothing. `asRetriever`'s argument is
+  read as every options bag is: `null` means no fields, as `undefined` does,
+  and one that is neither a number nor an object — a string, an array, `true`
+  — is `VALIDATION`; `asRetriever(null)` threw a raw `TypeError`, and a string
+  built a default retriever. `retriever.invoke` likewise checks its query, and
+  then its `timeout` — a whole number of milliseconds from 1 to 2,147,483,647
+  when present — before it looks at its signal. **Migration:** a `try` that
+  caught a configuration `VALIDATION` from the first `invoke` must surround
+  `asRetriever()` instead.
 
 ### Added
 
@@ -192,6 +397,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   third metric, widening one is a major here. The README now says so next to
   the export list, with the same advice as for error codes: `switch` with a
   `default`.
+
+
+- **An affiliation and trademark statement, and a maintainership line where a
+  reader looks first.** The package leads with two companies' marks — in its
+  own name, in a badge drawn in AWS's brand colour, and in the first sentence
+  of the README — and said nothing anywhere about who is behind it or whether
+  it is official. Using a mark to name the service a package talks to is
+  ordinary nominative use; what needs rebutting is the implied endorsement that
+  the presentation invites, and a disclaimer is the standard way to do it.
+  README and `SUPPORT.md` now both state that this is an independent project,
+  not affiliated with, endorsed by or sponsored by Amazon Web Services, Inc. or
+  LangChain, Inc., and name the trademark owners. The maintainership sentence
+  that was previously reachable only from `SUPPORT.md` — linked from the
+  third-to-last line of the README — is now in the README's opening, because
+  "who maintains this" and "is this official" are the same question asked
+  twice. `SUPPORT.md` additionally says where a problem with the *service* or
+  with `@langchain/core` belongs, which is not here.
+
+- **`asRetriever({ scoreThreshold })`.** Keeps only documents whose relevance
+  score — higher is better, the same conversion
+  `similaritySearchWithRelevanceScores` applies — reaches the threshold. It is
+  checked when the retriever is built, like every other field: combined with
+  `searchType: 'mmr'` it is refused, because MMR returns documents without
+  scores, and on a euclidean index with no `relevanceScoreFn` it is refused
+  rather than failing at the first query. This exists because the obvious
+  LangChain route is wrong against this store: `@langchain/classic`'s
+  `ScoreThresholdRetriever` filters on `similaritySearchWithScore`, which here
+  is AWS's raw distance, where lower is better — so it keeps the worst matches
+  and drops the best. `similaritySearchWithScore` still returns the distance;
+  what changed is that a threshold is now available that reads the right number.
+
+- **A misspelled configuration option is refused, not ignored.** `new
+  AmazonS3Vectors(embeddings, { …, createIndexIfNotExists: false })` — one
+  letter out — constructed a store that created the index with every default,
+  and an index's configuration cannot be changed afterwards. A key that differs
+  from an option only in case, or that is within two edits of one or the start
+  of one, now raises `VALIDATION` naming both. Unrecognised keys that are not
+  near misses are still accepted, because `@langchain/core`'s
+  `SemanticSimilarityExampleSelector` passes its own `k`, `filter`,
+  `exampleKeys` and `inputKeys` in the same object; the closest any of those
+  comes to an option here is four edits.
+
+- **`writeRateLimit`: writes are paced to AWS's per-index limits.** S3 Vectors
+  allows up to 1,000 `PutVectors`/`DeleteVectors` requests and 2,500 vectors a
+  second per index, and nothing here bounded either: `maxConcurrentBatchCalls`
+  caps one call's requests in flight, so eight concurrent writes on one store
+  had eighty. Measured against the live service, eight concurrent `addVectors`
+  of 25,000 vectors ran at 18,078 vectors/s, drew 120
+  `TooManyRequestsException`s and failed **every** call with 63,800 of 200,000
+  vectors written. Every store now paces its writes and deletes against one
+  shared budget in those two units, defaulting to AWS's own numbers; the same
+  load then wrote all 200,000 vectors with no failures and no throttling at
+  all. Two alternatives were measured on that load and neither worked: a
+  store-wide cap of ten requests in flight still ran at 6,937 vectors/s and
+  failed every call, and the SDK's `adaptive` retry mode fell to 774 vectors/s
+  and still failed every call — a concurrency cap does not bound a rate
+  (`docs/evidence/write-rate.md`). Set `writeRateLimit` to raise the rates if
+  you have measured your own headroom, or to `false` to pace nothing.
+
+- **`flattenMetadata`, for documents a loader or splitter produced.** S3 Vectors
+  stores no nested object, no `null`, no empty array and no mixed array — under
+  a non-filterable key just as much as a filterable one, measured against the
+  live service (`docs/evidence/metadata-value-types.md`). Every chunk
+  `@langchain/textsplitters` returns carries `loc: { lines: { from, to } }`, and
+  the PDF loaders in `@langchain/community` add `pdf: { … }` and `loc: { … }`,
+  so the standard ingestion pipeline was refused on its first write. This
+  exported helper turns those into the dotted keys the service does store
+  (`loc.lines.from`), drops the fields a loader leaves empty, and passes
+  everything else through untouched so a value it cannot flatten is still
+  refused by name at the write rather than silently converted. It refuses a
+  collision (`'loc.pageNumber'` alongside `loc: { pageNumber }`) instead of
+  picking one. It is a function you call, not a store option: what a store
+  writes stays what you passed it.
+
+- **Write batches are split to fit AWS's request limit.** S3 Vectors refuses a
+  request body over 20 MiB — exactly and inclusively: 20,971,520 bytes is
+  accepted and one byte more comes back `ValidationException` "Request body
+  exceeds max allowed size" (`docs/evidence/request-payload-limit.md`). The
+  default batch of 200 records at 4,096 dimensions carrying 39 KB of page
+  content is 23.9 MiB, and AWS's own guidance to write "batches up to the
+  maximum batch size of 500 vectors" reaches it sooner still. `addVectors` and
+  `addDocuments` now split such a batch across as many `PutVectors` requests as
+  it needs, before sending anything, so `batchSize` is the ceiling on records
+  per request rather than a promise of one request. Nothing changes for a batch
+  that already fits, which is every batch that was not being refused. A failure
+  partway through a split batch reports the ids its earlier requests wrote, as
+  a failure between batches always has.
+
+- **`error.context.recordIndex` and `error.context.recordId`.** A refusal about
+  one element of a list — a document, its metadata, a vector, a text or a
+  `metadatas` entry passed to fromTexts, or an id — now says which one: its
+  position in *your* input, counted over the whole call rather than within a
+  batch, and its id when it has one. The message leads with the same, as
+  `Document at index 400 (id "ticket-400"): …`. Both fields are optional and
+  appear only on errors about a single element of a list.
+
+- **`error.context.awsCommand`: the AWS request that failed.** The S3 Vectors
+  API operation — `GetIndex`, `CreateIndex`, `DeleteIndex`, `PutVectors`,
+  `DeleteVectors`, `QueryVectors`, `GetVectors` or `ListVectors` — set on every
+  error that wraps a failed AWS request, an `ABORTED` that cancelled one in
+  flight included, and absent from every other: a validation error, an abort
+  that cancelled no request, a failure of caller-supplied code, and an
+  `AWS_INVALID_RESPONSE` about a response that did arrive. Reads never reported
+  the request at all, and writes, deletes and `deleteIndex` reported it in
+  place of the method (see *Changed*). The message names both, as
+  `addDocuments failed on PutVectors (AccessDeniedException, HTTP 403, requestId …): …`.
 
 ### Fixed
 
@@ -435,305 +746,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documents themselves. Both are now stripped of control characters and capped,
   and reading a constructor name can no longer throw.
 
-## [1.0.0-rc.3] - 2026-09-20
-
-### Upgrading from 0.9.0
-
-`0.9.0` is what `npm install` still resolves to, so this is the upgrade most
-people are making, and it spans three prereleases. Every break between the two
-is listed here in one place, one line each; the detail for each is in the
-release section named beside it. Nothing below is a silent behaviour change —
-each one either fails to compile or raises a coded `VALIDATION` error naming
-what it objected to.
-
-**Platform**
-
-- Node 22 or later is required. A deployment pinned to Node 20 stays on `0.9.0`. *(rc.1)*
-
-**Removed, renamed or moved**
-
-- `delete()` no longer destroys the index — it requires `ids`, and `deleteIndex()` is the
-  separate method that removes the index. This is the one to read first if you call `delete`. *(rc.2)*
-- `addTexts` and `similaritySearchByVector` are removed. *(rc.2)*
-- `isAwsValidationException` and `S3VectorsErrorCode.NOT_IMPLEMENTED` are removed. *(rc.2)*
-- The error codes `ThrottlingException`, `InternalServerError` and `RequestTimeout` never
-  existed in the S3 Vectors service model and are gone. *(rc.2)*
-- `S3VectorsDeleteParams`, `S3VectorsDeleteIndexParams` and `S3VectorsListParams` are now
-  `…Options`. The shapes are unchanged, so this is a rename in your imports. *(1.0.0-rc.3)*
-
-**Signatures and types**
-
-- `similaritySearchWithRelevanceScores` takes `Callbacks` fourth and the `AbortSignal` fifth,
-  as its siblings already did. A call that passed the signal fifth is unaffected. *(rc.1)*
-- `getByIds` returns `(Document | undefined)[]`; a missing id is a hole, not a short array. *(rc.2)*
-- `error.code` and `error.context` are readonly at runtime, not only to TypeScript. *(rc.2)*
-- Every internal is a `#private` field or method, so nothing reaches them from outside. *(rc.2)*
-- `exactOptionalPropertyTypes` and `noImplicitOverride` are on, which can surface type errors
-  in code that subclasses or passes `undefined` explicitly. *(rc.2)*
-
-**Input that used to be accepted and is now refused**
-
-All of these raise `VALIDATION` before anything billable is spent.
-
-- Empty-string and duplicate ids on any write path. *(rc.1)*
-- Ids passed to `delete`, checked locally the way a write checks them. *(rc.2)*
-- A query vector whose components the index could not take. *(rc.2)*
-- A `metadatas` argument to `fromTexts` that does not match the texts. *(rc.2)*
-- A document without a string `pageContent` or an object `metadata`. *(rc.2)*
-- A non-object options bag, on every method that takes one. *(rc.2)*
-- `client` supplied together with `region`, `credentials`, `endpoint` or the timeouts. *(rc.2)*
-- `similaritySearchWithRelevanceScores` on a euclidean index with no `relevanceScoreFn`. *(rc.2)*
-- An `addVectors` call whose vectors disagree on dimension — the whole call, not one batch. *(1.0.0-rc.3)*
-- A filter holding `NaN`, `±Infinity` or a `Date`. *(1.0.0-rc.3)*
-- A `nonFilterableMetadataKeys` list no index could be created with — at construction, so a
-  store that only ever reads now fails to construct too. *(1.0.0-rc.3)*
-- A misspelled configuration option, where before it was ignored and the default applied. *(1.0.0-rc.3)*
-- An invalid retriever configuration, at `asRetriever()` rather than at the first `invoke()`. *(1.0.0-rc.3)*
-
-**What your `catch` blocks see**
-
-- `context.operation` is the public method you called, on every error. Five paths used to
-  report the AWS command there instead. *(1.0.0-rc.3)*
-- A timed-out, reset, refused or unreachable connection is `SERVICE_UNAVAILABLE`, not
-  `AWS_REQUEST_FAILED`. Branch on the former. *(1.0.0-rc.3)*
-- `ResourceNotFoundException` is no longer read as an absent index. *(rc.2)*
-- `context.instance` is non-enumerable, so loggers stop serialising the whole store. *(rc.1)*
-- When several things are wrong at once, one order decides which is reported. *(1.0.0-rc.3)*
-
-### Breaking
-
-- **Three published option types were renamed** to match what the methods that
-  take them call their parameter, and what the errors about them say:
-  `S3VectorsDeleteParams` to `S3VectorsDeleteOptions`,
-  `S3VectorsDeleteIndexParams` to `S3VectorsDeleteIndexOptions`, and
-  `S3VectorsListParams` to `S3VectorsListOptions`. One concept had two names —
-  the signature read `deleteIndex(options?: S3VectorsDeleteIndexParams)` while
-  the refusal read "The options argument must be an object". No shape changed,
-  so the fix is the name. `delete(params)` keeps its parameter name, which is
-  `@langchain/core`'s rather than this package's.
-
-
-- **`context.operation` is the public method the caller invoked on every
-  error, a failed AWS request included.** Five paths named the AWS command
-  instead: a refused
-  `GetIndex`, `CreateIndex` or `PutVectors` reported `operation: "GetIndex"`,
-  `"CreateIndex"` or `"PutVectors"` from `addVectors` and `addDocuments`, a
-  refused `DeleteVectors` reported `"DeleteVectors"` from `delete`, and a
-  refused `DeleteIndex` reported `"DeleteIndex"` from `deleteIndex` — while
-  every read (`getByIds`, the searches, MMR, the listings) named the method, so
-  one call's failures were split across two names depending on which request
-  failed. They report the method now, with the command in `awsCommand`; a
-  creation rule refused at the index step, which named `createIndex` — neither
-  a method nor a command — names the write too. **Migration:** a branch on
-  `context.operation === 'PutVectors'` becomes
-  `context.awsCommand === 'PutVectors'`, and likewise for `GetIndex`,
-  `CreateIndex`, `DeleteVectors` and `DeleteIndex`; a branch on the method
-  (`operation === 'addDocuments'`) now also sees that method's request
-  failures.
-
-  The retriever and the static factories reported the method they ran
-  underneath instead. A retriever's failures named `similaritySearch` or
-  `maxMarginalRelevanceSearch` — only its own `invoke` signal firing named
-  `retriever.invoke` — its inherited `addDocuments` named `addDocuments`, and
-  `fromDocuments`/`fromTexts` named `constructor` for a configuration the store
-  refused and `addDocuments` for a failed write. Each now names itself —
-  `retriever.invoke`, `retriever.addDocuments`, `fromDocuments`, `fromTexts` —
-  with the code, cause, `awsCommand`, stack and `context.instance` unchanged. A
-  failure raised inside `retriever.invoke` reaches core's `batch` and `stream`
-  under that name too; what those two refuse before calling `invoke` does not
-  (see *Fixed*). **Migration:** match `retriever.invoke`,
-  `retriever.addDocuments`, `fromDocuments` or `fromTexts` where a branch
-  expected the underlying method's name from those calls.
-
-- **`addVectors` requires every vector in the call to share one dimension, and
-  checks it before writing anything.** It was checked per batch, so a call whose
-  later batch disagreed wrote its earlier batches and then failed. An index has
-  one dimension, so such a call could never succeed whole; it is now refused whole,
-  with `INDEX_CONFIG_MISMATCH` naming the first vector that differs.
-
-- **A filter holding `NaN`, `±Infinity` or a `Date` is refused.** S3 Vectors
-  accepts what they become — the AWS SDK sends a non-finite number as the string
-  `"NaN"` and a `Date` as a timestamp — and the filter then silently matches
-  nothing, or compares against a number nobody wrote
-  ([`docs/evidence/filter-validation.md`](./docs/evidence/filter-validation.md),
-  T3-19). This is the rule metadata already followed, and it is the one place
-  the filter check refuses something the service would take.
-
-- **A timed-out, reset, refused or unreachable connection is
-  `SERVICE_UNAVAILABLE`.** The SDK's HTTP handler raises `TimeoutError` for a
-  connection, socket-idle or request timeout and for
-  `ECONNRESET`/`EPIPE`/`ETIMEDOUT`, and its retry strategy treats that name as
-  transient alongside `RequestTimeoutException` — which this package already
-  mapped to `SERVICE_UNAVAILABLE`. That was `AWS_REQUEST_FAILED` before, so
-  retry logic keyed on the documented transient codes treated a timeout as a
-  hard failure; only `context.retryable` said otherwise. The same retry
-  strategy also matches five more Node.js system error codes directly by
-  `code`, without renaming the error, so the error keeps its own `name`:
-  `ECONNREFUSED` (refused), `EHOSTUNREACH`/`ENETUNREACH` (unreachable) and
-  `ENOTFOUND`/`EAI_AGAIN` (DNS failure). Those five are now
-  `SERVICE_UNAVAILABLE` too, instead of `AWS_REQUEST_FAILED`, when they fail
-  an AWS request — matched on the error's own `code`; the SDK also finds such
-  a code in the error's `cause`, which this package does not. A caller
-  branching on `AWS_REQUEST_FAILED` for a timeout, a reset, a refused or an
-  unreachable connection must switch to `SERVICE_UNAVAILABLE`.
-
-- **A `nonFilterableMetadataKeys` list no index could ever be created with is
-  refused at construction, not on the first write.** Merged with
-  `pageContentMetadataKey` (added unless it is `null`), more than 10 keys or a
-  key outside 1–63 characters can never be written to any index. It was
-  refused only once a write first created the index — after its `GetIndex`
-  and, for `addDocuments`, after the first batch was embedded — so a store
-  configured this way could sit unused, or serve reads, before the mistake
-  surfaced. A store configured with such a list now fails to construct, even
-  one that never writes, and the error's context names the bucket and index,
-  as every constructor error raised after those two names are checked does.
-  `CreateIndex` still re-checks the same rule, as defence.
-
-- **One order of checks on every public entry point, when several faults
-  coincide: every refusal the arguments alone decide (`VALIDATION`, and
-  `addVectors`' `INDEX_CONFIG_MISMATCH` for vectors that disagree on
-  dimension), then `ABORTED` for an already-fired signal, then an empty
-  input's free `[]`, then anything spent (resolving the embeddings model,
-  embedding, the AWS request).** Previously the order depended on the method. Observable
-  differences: `addVectors` and `delete` now report `VALIDATION`, not
-  `ABORTED`, for a malformed id alongside a fired signal, matching
-  `addDocuments` and `getByIds`; `addVectors`, `addDocuments` and `getByIds`
-  now refuse `batchSize: 0` even when the list they are given is empty,
-  instead of resolving `[]`, as `delete` already did; `addDocuments` and `getByIds` now report
-  `ABORTED` for a fired signal alongside a valid empty list, matching
-  `addVectors` and `delete`; and `addDocuments` on a store with no
-  embeddings model now resolves `[]` for `addDocuments([])` and reports
-  `VALIDATION` for invalid input, rather than always failing
-  `EMBEDDINGS_MISSING` first.
-
-- **An invalid retriever configuration fails at `asRetriever()`, not at the
-  first `invoke`.** A retriever's `k`, `filter`, `searchType`, `searchKwargs`
-  (an object holding `fetchK` and `lambda`, for `'mmr'`) and field `signal` are
-  checked when it is built — by the checks the search they configure applies,
-  in that search's order — and refused with `VALIDATION` naming `asRetriever`,
-  or `retriever.constructor` for a retriever constructed directly. They were
-  checked only once a search ran, so an `invoke` handed an already-fired
-  signal reported `ABORTED` for a retriever that could never have searched,
-  against the order above; a `searchType` other than `'similarity'` or `'mmr'`
-  ran as a similarity search; and a `searchKwargs` that was not an object was
-  spread into the search's options as nothing. `asRetriever`'s argument is
-  read as every options bag is: `null` means no fields, as `undefined` does,
-  and one that is neither a number nor an object — a string, an array, `true`
-  — is `VALIDATION`; `asRetriever(null)` threw a raw `TypeError`, and a string
-  built a default retriever. `retriever.invoke` likewise checks its query, and
-  then its `timeout` — a whole number of milliseconds from 1 to 2,147,483,647
-  when present — before it looks at its signal. **Migration:** a `try` that
-  caught a configuration `VALIDATION` from the first `invoke` must surround
-  `asRetriever()` instead.
-
-### Added
-
-- **An affiliation and trademark statement, and a maintainership line where a
-  reader looks first.** The package leads with two companies' marks — in its
-  own name, in a badge drawn in AWS's brand colour, and in the first sentence
-  of the README — and said nothing anywhere about who is behind it or whether
-  it is official. Using a mark to name the service a package talks to is
-  ordinary nominative use; what needs rebutting is the implied endorsement that
-  the presentation invites, and a disclaimer is the standard way to do it.
-  README and `SUPPORT.md` now both state that this is an independent project,
-  not affiliated with, endorsed by or sponsored by Amazon Web Services, Inc. or
-  LangChain, Inc., and name the trademark owners. The maintainership sentence
-  that was previously reachable only from `SUPPORT.md` — linked from the
-  third-to-last line of the README — is now in the README's opening, because
-  "who maintains this" and "is this official" are the same question asked
-  twice. `SUPPORT.md` additionally says where a problem with the *service* or
-  with `@langchain/core` belongs, which is not here.
-
-- **`asRetriever({ scoreThreshold })`.** Keeps only documents whose relevance
-  score — higher is better, the same conversion
-  `similaritySearchWithRelevanceScores` applies — reaches the threshold. It is
-  checked when the retriever is built, like every other field: combined with
-  `searchType: 'mmr'` it is refused, because MMR returns documents without
-  scores, and on a euclidean index with no `relevanceScoreFn` it is refused
-  rather than failing at the first query. This exists because the obvious
-  LangChain route is wrong against this store: `@langchain/classic`'s
-  `ScoreThresholdRetriever` filters on `similaritySearchWithScore`, which here
-  is AWS's raw distance, where lower is better — so it keeps the worst matches
-  and drops the best. `similaritySearchWithScore` still returns the distance;
-  what changed is that a threshold is now available that reads the right number.
-
-- **A misspelled configuration option is refused, not ignored.** `new
-  AmazonS3Vectors(embeddings, { …, createIndexIfNotExists: false })` — one
-  letter out — constructed a store that created the index with every default,
-  and an index's configuration cannot be changed afterwards. A key that differs
-  from an option only in case, or that is within two edits of one or the start
-  of one, now raises `VALIDATION` naming both. Unrecognised keys that are not
-  near misses are still accepted, because `@langchain/core`'s
-  `SemanticSimilarityExampleSelector` passes its own `k`, `filter`,
-  `exampleKeys` and `inputKeys` in the same object; the closest any of those
-  comes to an option here is four edits.
-
-- **`writeRateLimit`: writes are paced to AWS's per-index limits.** S3 Vectors
-  allows up to 1,000 `PutVectors`/`DeleteVectors` requests and 2,500 vectors a
-  second per index, and nothing here bounded either: `maxConcurrentBatchCalls`
-  caps one call's requests in flight, so eight concurrent writes on one store
-  had eighty. Measured against the live service, eight concurrent `addVectors`
-  of 25,000 vectors ran at 18,078 vectors/s, drew 120
-  `TooManyRequestsException`s and failed **every** call with 63,800 of 200,000
-  vectors written. Every store now paces its writes and deletes against one
-  shared budget in those two units, defaulting to AWS's own numbers; the same
-  load then wrote all 200,000 vectors with no failures and no throttling at
-  all. Two alternatives were measured on that load and neither worked: a
-  store-wide cap of ten requests in flight still ran at 6,937 vectors/s and
-  failed every call, and the SDK's `adaptive` retry mode fell to 774 vectors/s
-  and still failed every call — a concurrency cap does not bound a rate
-  (`docs/evidence/write-rate.md`). Set `writeRateLimit` to raise the rates if
-  you have measured your own headroom, or to `false` to pace nothing.
-
-- **`flattenMetadata`, for documents a loader or splitter produced.** S3 Vectors
-  stores no nested object, no `null`, no empty array and no mixed array — under
-  a non-filterable key just as much as a filterable one, measured against the
-  live service (`docs/evidence/metadata-value-types.md`). Every chunk
-  `@langchain/textsplitters` returns carries `loc: { lines: { from, to } }`, and
-  the PDF loaders in `@langchain/community` add `pdf: { … }` and `loc: { … }`,
-  so the standard ingestion pipeline was refused on its first write. This
-  exported helper turns those into the dotted keys the service does store
-  (`loc.lines.from`), drops the fields a loader leaves empty, and passes
-  everything else through untouched so a value it cannot flatten is still
-  refused by name at the write rather than silently converted. It refuses a
-  collision (`'loc.pageNumber'` alongside `loc: { pageNumber }`) instead of
-  picking one. It is a function you call, not a store option: what a store
-  writes stays what you passed it.
-
-- **Write batches are split to fit AWS's request limit.** S3 Vectors refuses a
-  request body over 20 MiB — exactly and inclusively: 20,971,520 bytes is
-  accepted and one byte more comes back `ValidationException` "Request body
-  exceeds max allowed size" (`docs/evidence/request-payload-limit.md`). The
-  default batch of 200 records at 4,096 dimensions carrying 39 KB of page
-  content is 23.9 MiB, and AWS's own guidance to write "batches up to the
-  maximum batch size of 500 vectors" reaches it sooner still. `addVectors` and
-  `addDocuments` now split such a batch across as many `PutVectors` requests as
-  it needs, before sending anything, so `batchSize` is the ceiling on records
-  per request rather than a promise of one request. Nothing changes for a batch
-  that already fits, which is every batch that was not being refused. A failure
-  partway through a split batch reports the ids its earlier requests wrote, as
-  a failure between batches always has.
-
-- **`error.context.recordIndex` and `error.context.recordId`.** A refusal about
-  one element of a list — a document, its metadata, a vector, a text or a
-  `metadatas` entry passed to fromTexts, or an id — now says which one: its
-  position in *your* input, counted over the whole call rather than within a
-  batch, and its id when it has one. The message leads with the same, as
-  `Document at index 400 (id "ticket-400"): …`. Both fields are optional and
-  appear only on errors about a single element of a list.
-
-- **`error.context.awsCommand`: the AWS request that failed.** The S3 Vectors
-  API operation — `GetIndex`, `CreateIndex`, `DeleteIndex`, `PutVectors`,
-  `DeleteVectors`, `QueryVectors`, `GetVectors` or `ListVectors` — set on every
-  error that wraps a failed AWS request, an `ABORTED` that cancelled one in
-  flight included, and absent from every other: a validation error, an abort
-  that cancelled no request, a failure of caller-supplied code, and an
-  `AWS_INVALID_RESPONSE` about a response that did arrive. Reads never reported
-  the request at all, and writes, deletes and `deleteIndex` reported it in
-  place of the method (see *Changed*). The message names both, as
-  `addDocuments failed on PutVectors (AccessDeniedException, HTTP 403, requestId …): …`.
-
-### Fixed
 
 - **The release workflow minted its npm credential in the same job that ran
   the whole development toolchain.** Trusted Publishing works by letting a job
