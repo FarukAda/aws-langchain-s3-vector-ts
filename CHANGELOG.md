@@ -429,6 +429,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Decision records, under `docs/decisions/`.** Ten decisions that are
+  expensive to reverse — peers rather than dependencies, the dual ESM/CJS
+  build, one error class with a code, creating the index on first write,
+  storing page content in a metadata key, pacing writes, primary sources only,
+  complete coverage as a gate, parsing at the boundary, and the layer gate —
+  each with the context that produced it, the decision in the active voice, and
+  what it cost as well as what it bought. The reasoning existed in commit
+  messages, contracts and the changelog; none of those answer "why is it like
+  this?" for someone arriving later. A contract test checks the five sections,
+  the numbering and the index.
+
 - **The filter and `k` carry the proof that they were checked.** Both were
   validated by a function returning `void`, which threw away what it had
   learned at the moment it learned it — so `queryPages` took `filter?: unknown`
