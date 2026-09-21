@@ -368,7 +368,9 @@ function assertConditions(
  *   realm (a `vm` context, a worker `postMessage`, `structuredClone`) passes
  *   while a class instance, `Map` or `Date` does not.
  *
- * Returns: nothing. Acceptance is the entire result.
+ * Returns: `undefined` for no filter; otherwise a copy of the accepted filter,
+ * branded, which is what a request sends — so a caller changing their object
+ * after this returns changes nothing that was checked.
  *
  * Throws: `VALIDATION`, naming the path and the rule, for:
  * - an array, a non-plain object, or `{}` where a condition belongs;
@@ -411,5 +413,24 @@ export function parseFilter(
   assertConditions(filter, '', operation, scope, 0);
   // The one place the brand is applied, which is what makes it mean anything:
   // every other module can only obtain a ParsedFilter by calling this.
-  return filter as ParsedFilter;
+  //
+  // Applied to a copy. A search embeds its query between this check and the
+  // request, and the caller's own object was what the request then sent: changed
+  // in that gap — a filter object reused to build the next query — AWS received
+  // conditions nothing here had seen, and answers every bad one with the same
+  // two words.
+  return copyOf(filter) as ParsedFilter;
+}
+
+/**
+ * A filter's own copy: every object and array in it rebuilt, every leaf as is.
+ *
+ * Only ever given a filter {@link assertConditions} has accepted, which is what
+ * makes this total: that check bounds the depth, and leaves nothing in it but
+ * plain objects, arrays, strings, finite numbers and booleans.
+ */
+function copyOf(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(copyOf);
+  if (!isPlainObject(value)) return value;
+  return Object.fromEntries(Object.keys(value).map((key) => [key, copyOf(value[key])]));
 }

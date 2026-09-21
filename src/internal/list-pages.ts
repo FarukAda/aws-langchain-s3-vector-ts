@@ -16,7 +16,7 @@ import { awsFailure } from '../shared/errors/wrap-error.js';
 import type { StoreScope } from '../shared/scope.js';
 import type { S3OutputVector } from '../types.js';
 import type { AwsOperation } from './operation.js';
-import { outputVectorsOf } from './output-vectors.js';
+import { assertResponseObject, embeddingOf, outputVectorsOf } from './output-vectors.js';
 import { checkAborted, sendOptions } from './signals.js';
 
 /**
@@ -26,45 +26,6 @@ import { checkAborted, sendOptions } from './signals.js';
  */
 const MIN_PAGE_SIZE = 1;
 const MAX_PAGE_SIZE = 1000;
-
-/**
- * Reject a record that arrived without a usable embedding.
- *
- * Accepts: the record, and how far the listing had got.
- *
- * Returns: nothing.
- *
- * Throws: {@link S3VectorsError} with code `AWS_INVALID_RESPONSE`, carrying
- * `pagesScanned` and `yielded`.
- *
- * Guarantees: raised here rather than by the caller, because this generator owns
- * the counters. Raised from `listVectors` instead, the one failure the
- * documentation singles out was the only listing failure that could not say how
- * far it had got.
- *
- * An empty `float32` is refused as well as a missing one. `[]` satisfied a check
- * for `undefined`, so a record with no embedding at all was yielded as though it
- * had one — and the migration case `listVectors` exists for would write
- * dimensionless vectors into the target index and look complete.
- */
-function assertRecordHasData(
-  vector: S3OutputVector,
-  scope: StoreScope,
-  operation: string,
-  pagesScanned: number,
-  yielded: number,
-): void {
-  const data = vector.data?.float32;
-  if (data !== undefined && data.length > 0) return;
-  throw new S3VectorsError(
-    `ListVectors returned vector '${vector.key}' ${
-      data === undefined ? 'without data' : 'with an empty embedding'
-    }, even though this call requested returnData: true. The response may be malformed, or ` +
-      'come from an incompatible SDK version or a mocked/stubbed client.',
-    S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-    { operation, ...scope, pagesScanned, yielded },
-  );
-}
 
 export interface ListPagesOptions extends AwsOperation {
   /** Whether each record should carry its embedding. */
@@ -186,20 +147,16 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
       throw explainListing(error, { operation, ...scope }, pagesScanned, yielded);
     }
 
-    if (typeof response !== 'object' || response === null) {
-      throw new S3VectorsError(
-        `ListVectors for index "${opts.indexName}" resolved without a response object. The ` +
-          'response may be malformed, or come from an incompatible SDK version or a ' +
-          'mocked/stubbed client.',
-        S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-        { operation, ...scope, pagesScanned, yielded },
-      );
-    }
+    assertResponseObject(response, 'ListVectors', { operation, ...scope, pagesScanned, yielded });
 
     pagesScanned++;
     for (const vector of outputVectorsOf(response.vectors, 'ListVectors', operation, scope)) {
+      // Refused here rather than by the caller, because this generator owns the
+      // counters: raised from `listVectors` instead, the one failure the
+      // documentation singles out was the only one that could not say how far
+      // the listing had got.
       if (opts.returnData) {
-        assertRecordHasData(vector, scope, operation, pagesScanned, yielded);
+        embeddingOf(vector, 'ListVectors', { operation, ...scope, pagesScanned, yielded });
       }
       yielded++;
       yield vector;

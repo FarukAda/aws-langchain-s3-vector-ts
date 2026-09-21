@@ -58,6 +58,7 @@ import {
   assertValidIndexConfig,
   failNonFilterableKeys,
   resolveClient,
+  STORE_CONFIG_KEYS,
 } from './shared/validation.js';
 import type {
   AmazonS3VectorsConfig,
@@ -104,7 +105,10 @@ const MMR_PARAMETERS = ['query', 'options'] as const;
  * A config that is not an object has nothing to split: it comes back whole, for
  * the constructor to refuse by name.
  *
- * Throws: nothing.
+ * Throws: nothing of its own — but it reads the caller's configuration, and a
+ * getter there is the caller's code. `fromDocuments` calls it inside the `try`
+ * that reports such a failure as `UNEXPECTED_ERROR`, and `fromTexts` reaches it
+ * through `fromDocuments`.
  *
  * Guarantees: the write options never reach the store. They travel in the same
  * object as the configuration, and `Serializable` keeps that object on the
@@ -120,9 +124,21 @@ function splitFactoryConfig(config: S3VectorsFactoryConfig): {
   writeOptions: S3VectorsAddOptions;
 } {
   if (!isObjectLike(config)) return { storeConfig: config, writeOptions: {} };
-  const { ids, batchSize, signal, ...storeConfig } = config;
+  const { ids, batchSize, signal, ...own } = config;
+  // The rest above is a copy of the own enumerable properties and of nothing
+  // else, while the constructor reads each option by name — so a configuration
+  // held behind accessors, or on a prototype, built a store and failed here.
+  // Loudly for the two required options; `distanceMetric` fell back to cosine
+  // in silence, on an index whose metric cannot be changed afterwards. Each
+  // option the copy missed is read by name too, once.
+  const byName: Record<string, unknown> = {};
+  for (const key of STORE_CONFIG_KEYS) {
+    if (Object.hasOwn(own, key)) continue;
+    const value: unknown = config[key];
+    if (value !== undefined) byName[key] = value;
+  }
   return {
-    storeConfig,
+    storeConfig: { ...own, ...byName },
     writeOptions: {
       ...(ids === undefined ? {} : { ids }),
       ...(batchSize === undefined ? {} : { batchSize }),
@@ -1340,12 +1356,16 @@ export class AmazonS3Vectors extends VectorStore {
     embeddings: EmbeddingsInterface,
     config: S3VectorsFactoryConfig,
   ): Promise<AmazonS3Vectors> {
-    // The store is built from the configuration alone; the write options go to
-    // the write and nowhere else.
-    const { storeConfig, writeOptions } = splitFactoryConfig(config);
     let instance: AmazonS3Vectors;
+    let writeOptions: S3VectorsAddOptions;
     try {
-      instance = new AmazonS3Vectors(embeddings, storeConfig);
+      // The store is built from the configuration alone; the write options go
+      // to the write and nowhere else. Split inside the `try`, because the split
+      // reads the caller's configuration and a read can throw: it stood above
+      // it, and a getter's error left this factory exactly as it was thrown.
+      const split = splitFactoryConfig(config);
+      writeOptions = split.writeOptions;
+      instance = new AmazonS3Vectors(embeddings, split.storeConfig);
     } catch (error: unknown) {
       // No store, so no bucket or index this package has validated to name.
       throw attachOperation(error, 'fromDocuments');

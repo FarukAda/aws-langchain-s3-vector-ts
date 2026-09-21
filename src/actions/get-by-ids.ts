@@ -54,13 +54,18 @@ export interface GetByIdsOptions extends Omit<BatchedOperation, 'operation'> {
  *   unconditionally rather than returning early itself.
  */
 export async function getByIds(opts: GetByIdsOptions): Promise<(Document | undefined)[]> {
-  const { ids } = opts;
   const scope: StoreScope = {
     vectorBucketName: opts.vectorBucketName,
     indexName: opts.indexName,
   };
 
-  assertIsArray('getByIds', scope, 'ids', ids);
+  assertIsArray('getByIds', scope, 'ids', opts.ids);
+  // Copied once, as every write copies its inputs. The answer below is built by
+  // walking the ids again *after* the request, and it walked the caller's own
+  // array: reordered meanwhile, documents landed in the wrong slots; appended
+  // to, an id that was in no request came back `undefined` — "AWS was asked, and
+  // it is not there" — about an id AWS was never asked about.
+  const ids = [...opts.ids];
   // `GetVectors` holds ids to the bounds a write does, and fails the whole
   // batch — every valid id in it — on one it refuses. A repeated id is fine: it
   // collapses into one request entry and fills every slot that asked for it.

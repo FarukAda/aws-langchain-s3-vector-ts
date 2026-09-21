@@ -258,8 +258,12 @@ export interface AmazonS3VectorsConfig {
    * the SDK's own `TimeoutError`, and a refused, reset or unreachable
    * connection (matched by its Node.js system error code) are retried by the
    * SDK. Not accepted together with `client`, which carries its own.
+   *
+   * The two modes the SDK defines. `'legacy'` was accepted here until 1.0 and
+   * is refused with `VALIDATION` now: the SDK has no such mode and ran
+   * `standard` for it without saying so.
    */
-  readonly retryMode?: 'standard' | 'adaptive' | 'legacy';
+  readonly retryMode?: 'standard' | 'adaptive';
 
   /**
    * Milliseconds the connection phase of a request may take before it is

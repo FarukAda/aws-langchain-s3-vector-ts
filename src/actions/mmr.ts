@@ -15,6 +15,7 @@ import { fetchVectorsByIds } from '../internal/get-vectors.js';
 import type { TopK } from '../internal/guards.js';
 import { parseQueryVector } from '../internal/limits.js';
 import type { AwsOperation } from '../internal/operation.js';
+import { embeddingOf } from '../internal/output-vectors.js';
 import { queryPages } from '../internal/query-pages.js';
 import { MAX_TOP_K } from '../shared/aws-limits.js';
 import { renderValue } from '../shared/describe.js';
@@ -194,12 +195,6 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
     vectorBucketName: opts.vectorBucketName,
     indexName: opts.indexName,
   };
-  // Explicitly typed so a call narrows below; an inferred arrow does not
-  // drive control-flow analysis even when it returns `never`.
-  const fail: (message: string, code: S3VectorsErrorCode) => never = (message, code) => {
-    throw new S3VectorsError(message, code, { operation, ...scope });
-  };
-
   // The rules `searchByVector` applies, which MMR skipped: the same unusable
   // embedding got a precise local error from one search method, and a bare AWS
   // rejection after a billable round trip from the other.
@@ -249,23 +244,12 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
     .filter((vector) => vector !== undefined);
   if (present.length === 0) return [];
 
-  const embeddings = present.map((vector) => {
-    const data = vector.data?.float32;
-    // An empty embedding is refused as well as a missing one, as `listPages`
-    // refuses it: `[]` satisfied a check for `undefined`, so a candidate with no
-    // embedding at all went into the selection as though it had one, and came
-    // back out of it ranked.
-    if (data === undefined || data.length === 0) {
-      fail(
-        `GetVectors returned vector '${vector.key}' ${
-          data === undefined ? 'without data' : 'with an empty embedding'
-        }, even though this call requested returnData: true. The response may be malformed, ` +
-          'or come from an incompatible SDK version or a mocked/stubbed client.',
-        S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-      );
-    }
-    return data;
-  });
+  // A candidate with no embedding is refused, empty as well as missing, by the
+  // same check a listing applies: it went into the selection as though it had
+  // one, and came back out of it ranked.
+  const embeddings = present.map((vector) =>
+    embeddingOf(vector, 'GetVectors', { operation, ...scope }),
+  );
 
   const selected = maximalMarginalRelevance(opts.queryVector, embeddings, lambda, k);
   return selected.map((index) =>

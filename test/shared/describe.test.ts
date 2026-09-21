@@ -27,6 +27,20 @@ describe('describeRecord', () => {
   });
 });
 
+describe('describeValue, for the kinds that are not objects', () => {
+  it.each([
+    ['a string', 'text', 'a string'],
+    ['a number', 7, 'a number'],
+    ['null', null, 'null'],
+    // The one kind that is also a value, so it takes no article: "received an
+    // undefined" is what a caller read on the likeliest first-run mistake there
+    // is, an unset environment variable where the bucket name belongs.
+    ['undefined', undefined, 'undefined'],
+  ])('describes %s', (_label, value, want) => {
+    expect(describeValue(value)).toBe(want);
+  });
+});
+
 describe('describeValue with a hostile object', () => {
   /** An object whose `constructor.name` is whatever the caller's data said. */
   const withConstructorName = (name: unknown): unknown => ({ constructor: { name } });

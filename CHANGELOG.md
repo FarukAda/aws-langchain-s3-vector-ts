@@ -61,6 +61,8 @@ All of these raise `VALIDATION` before anything billable is spent.
   store that only ever reads now fails to construct too. *(1.0.0)*
 - A misspelled configuration option, where before it was ignored and the default applied. *(1.0.0)*
 - An invalid retriever configuration, at `asRetriever()` rather than at the first `invoke()`. *(1.0.0)*
+- `retryMode: "legacy"`. The SDK has no such mode and ran `standard` for it; it no longer
+  compiles either. Use `"standard"`, which is what you were getting. *(1.0.0)*
 
 **What your `catch` blocks see**
 
@@ -90,6 +92,18 @@ All of these raise `VALIDATION` before anything billable is spent.
   with it. This widens the type, so existing code keeps compiling. *(1.0.0)*
 
 ### Breaking
+
+- **`retryMode` is `"standard"` or `"adaptive"`; `"legacy"` is refused.** It sat
+  in the option's type from `0.9.0` and passed validation, and it never did
+  anything: the SDK's `RETRY_MODES` enum has two members, and its retry
+  middleware asks only whether the mode is `adaptive`, so `"legacy"` ran
+  `standard` and said nothing — an option read as its default, which is what
+  this package's configuration checks exist to refuse. It is `VALIDATION` at
+  construction now and no longer compiles. Set `"standard"`, which is the
+  behaviour you had. Settled here because taking a member out of an accepted
+  input after `1.0.0` would be a major. The list is held to the installed SDK's
+  own enum by `test/contract/dependency-citations.test.ts`, so it cannot drift
+  the other way either.
 
 - **An embeddings model that throws is `EMBEDDINGS_FAILED`.** `embedDocuments`
   throwing on a write and `embedQuery` throwing on a text search both surfaced
@@ -535,6 +549,57 @@ All of these raise `VALIDATION` before anything billable is spent.
   `addDocuments failed on PutVectors (AccessDeniedException, HTTP 403, requestId …): …`.
 
 ### Fixed
+
+- **Writes waiting on the rate limit go in the order they asked.** Each waiter
+  polled the budget on its own, and a request is admitted once *its* size is
+  there — so a 100-vector request, needing a tenth of what a 1,000-vector one
+  does, was always ready first. While smaller writes kept arriving, a `delete`
+  beside an ingest or a second writer on the same store, the large one was
+  passed by every one of them and went when they stopped: queued first, it was
+  admitted last of 51. The limiter is a line now. Nothing is lost to it — the
+  request at the front is admitted on at most a second's worth, which is where
+  the bucket stops filling, so the rate is what it was — and a call aborted
+  while it waits leaves at once, without moving the one behind it past those
+  still in front.
+
+- **`fromTexts` and `fromDocuments` accept the configuration the constructor
+  accepts.** The factories take `ids`, `batchSize` and `signal` out of the
+  configuration with a rest destructure, which copies own enumerable
+  properties and nothing else, while the constructor reads each option by
+  name. A configuration held behind accessors or on a prototype — a settings
+  class over an environment — therefore built a store and failed in a factory:
+  loudly for `vectorBucketName` and `indexName`, and in silence for the rest.
+  A `distanceMetric` behind a getter fell back to `cosine`, and the index was
+  created with it, which cannot be changed afterwards. Each option the copy
+  missed is now read by name, once. Found beside it: `fromDocuments` split the
+  configuration outside its `try`, so a getter that threw there left the
+  factory uncoded, where `fromTexts` reported `UNEXPECTED_ERROR`. Both do now.
+
+- **A read uses its inputs as they were when it checked them.** Every write
+  copies its ids, documents and vectors on entry; two reads did not.
+  `getByIds` checked and fetched one list and then built its answer by walking
+  the caller's array again, after the request — reordered meanwhile, documents
+  landed in the wrong slots; appended to, an id that was in no request came back
+  `undefined`, which means "AWS was asked, and it is not there". And a search
+  sent the caller's own filter object after embedding the query, so a filter
+  reused to build the next query reached AWS with conditions nothing had
+  checked, to be answered with "Invalid filter". Both work from their own copy.
+  The filter a request carries is therefore equal to yours, and no longer the
+  same object.
+
+- **A lost `CreateIndex` race that could not be read back is not remembered.**
+  After a `ConflictException` the winner's index is read back, so that its key
+  set and metric are compared with this store's. When that `GetIndex` answered
+  404 — the index deleted in between, or the read lagging the write — both
+  comparisons had nothing to compare and passed, and existence was remembered
+  anyway: if the index then became readable, the store wrote to it for the rest
+  of its life without its configuration ever having been seen. The write still
+  goes ahead and asks nothing more, as before; the next one reads the index.
+
+- **"received undefined", not "received an undefined".** Every refusal that
+  names the kind of value it was given read that way for the likeliest first-run
+  mistake there is — an environment variable that was never set, where
+  `vectorBucketName` belongs.
 
 - **A getter that throws on your input comes back coded, from every method.**
   Reading a property off anything a caller hands over — a document, its
@@ -1259,6 +1324,24 @@ All of these raise `VALIDATION` before anything billable is spent.
   code, cause, `awsCommand` and stack.
 
 ### Internal
+
+- **The release body is found by comparing text.** `scripts/changelog-section.mjs`
+  built a `RegExp` from the version, behind an escape that was itself escaped
+  twice and matched nothing. `1.0.0` therefore went in as a pattern whose dots
+  stood for any character — the first heading that fitted won — and a version
+  with build metadata, `1.0.0+b1`, could not match its own heading, so the
+  `verify` job would have refused a release for having no section. Harmless
+  against this file as it stands; a heading is now a line that starts with
+  `## [<version>]`.
+
+- **One check for a response that is not one.** `GetVectors`, `QueryVectors`
+  and `ListVectors` each carried a copy of the `AWS_INVALID_RESPONSE` raised for
+  a client that resolves with no response object, and MMR and the listing each
+  carried a copy of the one for a record with no embedding. They are
+  `assertResponseObject` and `embeddingOf` in `src/internal/output-vectors.ts`;
+  messages, codes and context are unchanged. The index lifecycle's `GetIndex`,
+  `CreateIndex` and `DeleteIndex` sites now classify and wrap through
+  `awsFailure`, as the data plane already did.
 
 - **The release gate judges each check by its newest run.**
   `scripts/require-green-ci.mjs` counted a required check as satisfied if *any*

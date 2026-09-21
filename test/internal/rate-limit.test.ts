@@ -245,3 +245,108 @@ describe('a clock that steps backwards', () => {
     expect(Math.max(0, ...slept)).toBeLessThan(2_000);
   }, 15_000);
 });
+
+/**
+ * A clock for callers that wait at the same time. `fakeClock` above moves time
+ * forward for whoever sleeps, which is right for one caller and wrong for
+ * several: here a sleep is a wake-up time, and the clock goes to the earliest
+ * one each step, as a real one reaches it first.
+ */
+function sharedClock(): {
+  now: () => number;
+  sleep: (ms: number) => Promise<void>;
+  settle: () => Promise<void>;
+  run: () => Promise<void>;
+} {
+  let current = 0;
+  const asleep: { at: number; wake: () => void }[] = [];
+  const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+  return {
+    now: () => current,
+    sleep: (ms: number) =>
+      new Promise<void>((wake) => {
+        asleep.push({ at: current + ms, wake });
+      }),
+    settle,
+    run: async () => {
+      for (await settle(); asleep.length > 0; await settle()) {
+        asleep.sort((a, b) => a.at - b.at);
+        const next = asleep.shift()!;
+        current = next.at;
+        next.wake();
+      }
+    },
+  };
+}
+
+describe('who goes first when several writes wait', () => {
+  it('admits them in the order they arrived, so a large write is not overtaken by smaller ones behind it', async () => {
+    // Each waiter used to poll the budget on its own, and a request is admitted
+    // once *its* size is there: a 100-vector request needs a tenth of what a
+    // 1,000-vector one does, so it was always ready first. With smaller writes
+    // still arriving — a `delete` beside an ingest, two writers on one store —
+    // the large one waited until they stopped.
+    const clock = sharedClock();
+    const limiter = createWriteRateLimiter(
+      { vectorsPerSecond: 1000, requestsPerSecond: 1000 },
+      clock,
+    );
+    await limiter.acquire(1000, 'addVectors', SCOPE); // spend the second
+
+    const admitted: [string, number][] = [];
+    const arrive = (name: string, vectors: number): Promise<void> =>
+      limiter.acquire(vectors, 'addVectors', SCOPE).then(() => {
+        admitted.push([name, clock.now()]);
+      });
+    const all = [arrive('large', 1000), arrive('a', 100), arrive('b', 100), arrive('c', 100)];
+    await clock.run();
+    await Promise.all(all);
+
+    // The large write after the one second its thousand vectors take to come
+    // back, then a tenth of a second for each hundred behind it.
+    expect(admitted).toEqual([
+      ['large', 1000],
+      ['a', 1100],
+      ['b', 1200],
+      ['c', 1300],
+    ]);
+  });
+
+  it('lets a caller who gives up leave the line at once, without moving anyone behind it ahead', async () => {
+    const clock = sharedClock();
+    const limiter = createWriteRateLimiter(
+      { vectorsPerSecond: 1000, requestsPerSecond: 1000 },
+      clock,
+    );
+    await limiter.acquire(1000, 'addVectors', SCOPE);
+
+    const admitted: [string, number][] = [];
+    const controller = new AbortController();
+    const first = limiter.acquire(1000, 'addVectors', SCOPE).then(() => {
+      admitted.push(['first', clock.now()]);
+    });
+    const leaver = limiter
+      .acquire(100, 'delete', SCOPE, controller.signal)
+      .catch((e: unknown) => e as S3VectorsError);
+    const last = limiter.acquire(100, 'addVectors', SCOPE).then(() => {
+      admitted.push(['last', clock.now()]);
+    });
+
+    await clock.settle();
+    controller.abort();
+    const error = await leaver;
+
+    // Gone before the clock has moved: not held for the wait of the one ahead.
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.ABORTED);
+    expect(clock.now()).toBe(0);
+
+    await clock.run();
+    await Promise.all([first, last]);
+
+    // And the one behind it still waits for the one ahead of both.
+    expect(admitted).toEqual([
+      ['first', 1000],
+      ['last', 1100],
+    ]);
+  });
+});

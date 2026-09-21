@@ -242,6 +242,31 @@ describe('createIndexLifecycle().ensureExists — losing the creation race', () 
       lifecycle.ensureExists(3, undefined, 'ensureIndexExists'),
     ).resolves.toBeUndefined();
   });
+
+  it('does not remember an index it could not read, so the next write is the one that checks it', async () => {
+    // The re-read after a lost race answered 404, so both comparisons had
+    // nothing to compare and passed — and existence was remembered anyway. If
+    // the winner's index then became readable, this store wrote to it for the
+    // rest of its life without its key set or metric ever having been looked
+    // at, which is the one thing the re-read is for.
+    const { mock, lifecycle } = lifecycleExpecting(['mine']);
+    mock
+      .on(GetIndexCommand)
+      .rejectsOnce(awsError('NotFoundException'))
+      .rejectsOnce(awsError('NotFoundException'))
+      .resolves({
+        index: indexFixture({ metadataConfiguration: { nonFilterableMetadataKeys: ['theirs'] } }),
+      });
+    mock.on(CreateIndexCommand).rejects(awsError('ConflictException'));
+
+    await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');
+    const error = await lifecycle
+      .ensureExists(3, undefined, 'ensureIndexExists')
+      .catch((e: unknown) => e);
+
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
+    expect((error as Error).message).toContain('theirs');
+  });
 });
 
 describe('what the first write checks against the existing index', () => {

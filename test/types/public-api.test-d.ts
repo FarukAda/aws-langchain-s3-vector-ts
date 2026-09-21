@@ -93,6 +93,18 @@ void fullConfig;
 void badEncryption;
 void badTags;
 
+// `retryMode` is the SDK's own two modes. `'legacy'` sat in this union from
+// 0.9.0 and never did anything: the SDK reads any mode that is not `adaptive`
+// as `standard`. Settled before 1.0, because taking a member out of an accepted
+// input afterwards is a major.
+const adaptiveRetries: AmazonS3VectorsConfig = { ...config, retryMode: 'adaptive' };
+const standardRetries: AmazonS3VectorsConfig = { ...config, retryMode: 'standard' };
+// @ts-expect-error -- the SDK defines no 'legacy' retry mode
+const legacyRetries: AmazonS3VectorsConfig = { ...config, retryMode: 'legacy' };
+void adaptiveRetries;
+void standardRetries;
+void legacyRetries;
+
 // AWS diagnostics are typed on the error context: the public method, and the
 // request that failed as a field of its own.
 const ctx: S3VectorsErrorContext = {

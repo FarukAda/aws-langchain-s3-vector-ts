@@ -6,6 +6,8 @@ import { describe, it, expect } from '@jest/globals';
 
 import { classifyAwsError } from '../../src/shared/errors/classify.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
+import { isS3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
+import { assertValidConfig } from '../../src/shared/validation.js';
 
 /**
  * The citations name a version, a file and a line. All three have to be true of
@@ -128,5 +130,44 @@ describe('the error classifier keeps pace with the service model', () => {
   it.each(declared)('%s is classified as something other than the catch-all', (name) => {
     const error = Object.assign(new Error(`synthetic ${name}`), { name });
     expect(classifyAwsError(error)).not.toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
+  });
+});
+
+describe('the retry modes this package accepts are the ones the SDK defines', () => {
+  // `S3VectorsClientConfig` types `retryMode` as a bare string, so nothing in the
+  // SDK's types says which values mean anything; its `RETRY_MODES` enum does.
+  // This package's list is a copy of it, and a copy drifts: `'legacy'` was
+  // accepted here for four releases without the SDK ever having had such a mode.
+  const config = readFileSync(
+    fileURLToPath(
+      new URL('node_modules/@smithy/core/dist-types/submodules/retry/util-retry/config.d.ts', ROOT),
+    ),
+    'utf8',
+  );
+  const body = /enum RETRY_MODES \{([^}]*)\}/.exec(config)?.[1] ?? '';
+  const modes = [...body.matchAll(/\w+ = "(\w+)"/g)].map((m) => m[1]!);
+
+  const refusal = (retryMode: string): unknown => {
+    try {
+      assertValidConfig({ vectorBucketName: 'b', indexName: 'i', retryMode } as never);
+      return undefined;
+    } catch (error: unknown) {
+      return error;
+    }
+  };
+
+  it('reads the modes out of the SDK, so an empty scan cannot pass', () => {
+    expect(modes.length).toBeGreaterThanOrEqual(2);
+    expect(modes).toContain('adaptive');
+  });
+
+  it.each(modes)('accepts "%s"', (mode) => {
+    expect(refusal(mode)).toBeUndefined();
+  });
+
+  it.each(['legacy', 'Standard', ''])('refuses "%s", which the SDK does not define', (mode) => {
+    expect(modes).not.toContain(mode);
+    const error = refusal(mode);
+    expect(isS3VectorsError(error) && error.code).toBe(S3VectorsErrorCode.VALIDATION);
   });
 });

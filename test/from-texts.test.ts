@@ -1,4 +1,8 @@
-import { PutVectorsCommand, type S3VectorsClient } from '@aws-sdk/client-s3vectors';
+import {
+  CreateIndexCommand,
+  PutVectorsCommand,
+  type S3VectorsClient,
+} from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 
@@ -10,6 +14,7 @@ import {
   createMockClient,
   createMockEmbeddings,
   mockExistingIndex,
+  mockIndexAutoCreated,
 } from './helpers.js';
 
 describe('AmazonS3Vectors.fromTexts', () => {
@@ -271,6 +276,97 @@ describe('AmazonS3Vectors.fromTexts names the element it refuses (R3)', () => {
     ).catch((e: unknown) => e);
     expect((error as S3VectorsError).context.recordIndex).toBe(1);
   });
+});
+
+describe('AmazonS3Vectors static factories — a configuration read through accessors', () => {
+  /**
+   * Settings as a class over an environment holds them: every option a getter
+   * on the prototype, none of them an own property. The constructor reads each
+   * by name and has always accepted this.
+   */
+  class Settings {
+    readonly #client: S3VectorsClient;
+
+    constructor(client: S3VectorsClient) {
+      this.#client = client;
+    }
+
+    get vectorBucketName(): string {
+      return 'bucket-behind-a-getter';
+    }
+
+    get indexName(): string {
+      return 'index-behind-a-getter';
+    }
+
+    get distanceMetric(): 'euclidean' {
+      return 'euclidean';
+    }
+
+    get client(): S3VectorsClient {
+      return this.#client;
+    }
+  }
+
+  /** The same, carrying one of the write options the factories take — also behind a getter. */
+  class SettingsWithIds extends Settings {
+    get ids(): string[] {
+      return ['chosen-id'];
+    }
+  }
+
+  const factories = [
+    [
+      'fromTexts',
+      (settings: Settings) =>
+        AmazonS3Vectors.fromTexts(['a'], {}, createMockEmbeddings(3), settings),
+    ],
+    [
+      'fromDocuments',
+      (settings: Settings) =>
+        AmazonS3Vectors.fromDocuments(
+          [new Document({ pageContent: 'a' })],
+          createMockEmbeddings(3),
+          settings,
+        ),
+    ],
+  ] as const;
+
+  it.each(factories)(
+    '%s creates the index the settings describe, not one with the defaults',
+    async (_label, build) => {
+      // The factory took the write options out with a rest destructure, which
+      // copies own enumerable properties and nothing else: every option here was
+      // dropped. The two required ones failed loudly; `distanceMetric` fell back
+      // to cosine in silence, and an index's metric cannot be changed afterwards.
+      const { client, mock } = createMockClient();
+      mockIndexAutoCreated(mock);
+
+      const store = await build(new Settings(client));
+
+      expect(store.vectorBucketName).toBe('bucket-behind-a-getter');
+      const created = mock.commandCalls(CreateIndexCommand)[0]!.args[0].input;
+      expect(created).toMatchObject({
+        vectorBucketName: 'bucket-behind-a-getter',
+        indexName: 'index-behind-a-getter',
+        distanceMetric: 'euclidean',
+      });
+    },
+  );
+
+  it.each(factories)(
+    '%s still gives the write its options, and the store none of them',
+    async (_label, build) => {
+      const { client, mock } = createMockClient();
+      mockIndexAutoCreated(mock);
+
+      const store = await build(new SettingsWithIds(client));
+
+      const put = mock.commandCalls(PutVectorsCommand)[0]!.args[0].input;
+      expect(put.vectors!.map((v) => v.key)).toEqual(['chosen-id']);
+      expect(store.lc_kwargs as Record<string, unknown>).not.toHaveProperty('ids');
+    },
+  );
 });
 
 describe('AmazonS3Vectors static factories — the signal', () => {

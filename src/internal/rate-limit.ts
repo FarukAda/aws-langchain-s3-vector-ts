@@ -7,7 +7,7 @@
  * so concurrency can be tuned without any call site knowing there is a budget.
  */
 import type { StoreScope } from '../shared/scope.js';
-import { checkAborted } from './signals.js';
+import { checkAborted, raceAbort } from './signals.js';
 
 /**
  * The write rate AWS documents per vector index.
@@ -48,6 +48,10 @@ export interface WriteRateLimiter {
    *
    * Throws: `ABORTED` when the signal fires while waiting, or has already
    * fired — a caller who has given up should not be held by a queue.
+   *
+   * Guarantees: requests are admitted in the order they asked, whatever their
+   * sizes, so none waits for longer than the ones ahead of it take. A request
+   * that gives up leaves its place without moving anyone past those in front.
    */
   acquire(
     vectors: number,
@@ -185,6 +189,21 @@ export function createWriteRateLimiter(
   const vectors = bucket(config.vectorsPerSecond, clock);
   const requests = bucket(config.requestsPerSecond, clock);
 
+  // Settles once every request that arrived so far has gone, or given up. Each
+  // arrival waits on it and then puts its own turn in its place, which is the
+  // whole queue: requests are admitted in the order they arrived.
+  //
+  // They used to poll the budgets independently, and a request is admitted once
+  // *its* size is there — so a 100-vector request, needing a tenth of what a
+  // 1,000-vector one does, was always ready first. While smaller writes kept
+  // arriving, a `delete` beside an ingest or a second writer on the store, the
+  // large one was passed by every one of them and went when they stopped.
+  //
+  // In line, nothing is lost to the wait: the request at the front is admitted
+  // on at most a second's worth (`admittedOn`), which is where a bucket stops
+  // filling, so no vector that could have been written is refused a place.
+  let line: Promise<void> = Promise.resolve();
+
   return {
     async acquire(
       count: number,
@@ -192,20 +211,38 @@ export function createWriteRateLimiter(
       scope: StoreScope,
       signal?: AbortSignal,
     ): Promise<void> {
-      for (;;) {
-        checkAborted(operation, signal, scope);
-        // Both asked, neither charged, and only both together committed — so
-        // the budget that was ready does not pay for the one that was not.
-        const wait = Math.max(requests.waitFor(1), vectors.waitFor(count));
-        if (wait === 0) {
-          requests.take(1);
-          vectors.take(count);
-          return;
+      checkAborted(operation, signal, scope);
+      const ahead = line;
+      let leave!: () => void;
+      line = new Promise<void>((resolve) => {
+        leave = resolve;
+      });
+      try {
+        // Raced, so a caller who gives up is not held for the wait of whoever is
+        // in front. `ahead` only ever resolves.
+        await raceAbort(() => ahead, signal, operation, scope);
+        for (;;) {
+          checkAborted(operation, signal, scope);
+          // Both asked, neither charged, and only both together committed — so
+          // the budget that was ready does not pay for the one that was not.
+          const wait = Math.max(requests.waitFor(1), vectors.waitFor(count));
+          if (wait === 0) {
+            requests.take(1);
+            vectors.take(count);
+            return;
+          }
+          // In slices, because a sleep cannot be interrupted and the signal is
+          // only read between them. A wait used to be a second at most; a debt
+          // can be many, and a caller who has given up should not be held for it.
+          await clock.sleep(Math.min(wait, LONGEST_SLEEP_MS));
         }
-        // In slices, because a sleep cannot be interrupted and the signal is
-        // only read between them. A wait used to be a second at most; a debt
-        // can be many, and a caller who has given up should not be held for it.
-        await clock.sleep(Math.min(wait, LONGEST_SLEEP_MS));
+      } finally {
+        // Whoever is behind goes once everyone ahead of *them* has. For a
+        // request that was admitted that is now. For one that left the line
+        // early it is not — releasing straight away would start the one behind
+        // beside the one still in front, which is the overtaking this line
+        // exists to end.
+        void ahead.then(leave);
       }
     },
   };

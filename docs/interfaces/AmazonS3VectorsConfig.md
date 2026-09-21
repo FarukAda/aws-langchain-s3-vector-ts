@@ -39,7 +39,7 @@ favour.
 
 > `readonly` `optional` **connectionTimeout?**: `number`
 
-Defined in: [types.ts:271](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L271)
+Defined in: [types.ts:275](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L275)
 
 Milliseconds the connection phase of a request may take before it is
 abandoned, defaulting to 5,000. `0` disables it. Not accepted together
@@ -308,7 +308,7 @@ relevance scores on a euclidean index without this option raises
 
 > `readonly` `optional` **requestTimeout?**: `number`
 
-Defined in: [types.ts:306](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L306)
+Defined in: [types.ts:310](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L310)
 
 Milliseconds a whole request and response may take, as a **total
 deadline**. No default, and `0` disables it. Not accepted together with
@@ -330,14 +330,18 @@ times this value, plus backoff.
 
 ### retryMode?
 
-> `readonly` `optional` **retryMode?**: `"standard"` \| `"adaptive"` \| `"legacy"`
+> `readonly` `optional` **retryMode?**: `"standard"` \| `"adaptive"`
 
-Defined in: [types.ts:262](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L262)
+Defined in: [types.ts:266](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L266)
 
 AWS SDK retry mode. Throttling (`TooManyRequestsException`), 5xx errors,
 the SDK's own `TimeoutError`, and a refused, reset or unreachable
 connection (matched by its Node.js system error code) are retried by the
 SDK. Not accepted together with `client`, which carries its own.
+
+The two modes the SDK defines. `'legacy'` was accepted here until 1.0 and
+is refused with `VALIDATION` now: the SDK has no such mode and ran
+`standard` for it without saying so.
 
 ***
 
@@ -345,7 +349,7 @@ SDK. Not accepted together with `client`, which carries its own.
 
 > `readonly` `optional` **socketTimeout?**: `number`
 
-Defined in: [types.ts:287](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L287)
+Defined in: [types.ts:291](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L291)
 
 Milliseconds a socket may sit **idle** before the request is failed,
 defaulting to 60,000. `0` disables it. Not accepted together with

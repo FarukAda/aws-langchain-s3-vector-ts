@@ -6,7 +6,7 @@ import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError, type S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import type { AmazonS3VectorsConfig } from '../src/types.js';
-import { BASE_CONFIG, createMockClient, createTestStore } from './helpers.js';
+import { BASE_CONFIG, createMockClient, createMockEmbeddings, createTestStore } from './helpers.js';
 
 /**
  * A getter is the caller's code, and it runs inside this package.
@@ -177,6 +177,41 @@ describe('a getter that throws on caller-supplied input comes back coded', () =>
     expect(isS3VectorsError(error)).toBe(true);
     expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
     expect((error as S3VectorsError).context.operation).toBe('constructor');
+  });
+
+  // The factories read the configuration before the constructor does: the three
+  // write options are taken out of it, and every option is read by name.
+  it.each([
+    ['a write option', 'ids'],
+    ['a store option', 'distanceMetric'],
+  ])('a static factory, reading %s out of its configuration', async (_what, option) => {
+    const { client, mock } = createMockClient();
+    const config = (): AmazonS3VectorsConfig => throwingOn({ ...BASE_CONFIG, client }, option);
+
+    const errors = await Promise.all([
+      AmazonS3Vectors.fromTexts(['a'], {}, createMockEmbeddings(3), config()).catch(
+        (e: unknown) => e,
+      ),
+      AmazonS3Vectors.fromDocuments(
+        [new Document({ pageContent: 'a' })],
+        createMockEmbeddings(3),
+        config(),
+      ).catch((e: unknown) => e),
+    ]);
+
+    expect(errors.map((error) => isS3VectorsError(error) && error.code)).toEqual([
+      S3VectorsErrorCode.UNEXPECTED_ERROR,
+      S3VectorsErrorCode.UNEXPECTED_ERROR,
+    ]);
+    expect(errors.map((error) => (error as S3VectorsError).context.operation)).toEqual([
+      'fromTexts',
+      'fromDocuments',
+    ]);
+    expect(errors.map((error) => ((error as S3VectorsError).cause as Error).message)).toEqual([
+      BOOM,
+      BOOM,
+    ]);
+    expect(mock.calls()).toHaveLength(0);
   });
 });
 

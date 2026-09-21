@@ -109,7 +109,7 @@ function safeName(name: unknown): string | undefined {
  *
  * Accepts: anything, including `null` and values from another realm.
  *
- * Returns: `'null'`, `'an array'`, `'a Map instance'`, `'a number'` — enough
+ * Returns: `'null'`, `'undefined'`, `'an array'`, `'a Map instance'`, `'a number'` — enough
  * for a caller to see what they passed, without echoing it. That matters
  * because these messages are written for options like `credentials`: an error
  * that printed the value would put a secret in a log line.
@@ -128,6 +128,11 @@ function safeName(name: unknown): string | undefined {
  */
 export function describeValue(value: unknown, objectFallback = 'an object'): string {
   if (value === null) return 'null';
+  // Like `null`, a kind that is also a value, so it takes no article. It used
+  // to fall through to the `typeof` wording below and read "received an
+  // undefined" — on the likeliest first-run mistake there is, an environment
+  // variable that was never set where a bucket name belongs.
+  if (value === undefined) return 'undefined';
   if (Array.isArray(value)) return 'an array';
   const type = typeof value;
   if (type !== 'object') return `${articleFor(type)} ${type}`;
@@ -168,11 +173,9 @@ export function describeValue(value: unknown, objectFallback = 'an object'): str
  * {@link describeValue} where it might be a credential.
  */
 export function renderValue(value: unknown): string {
-  // Returned as literals rather than through `String()`: they read better as
-  // themselves — "received undefined" against `describeValue`'s "received an
-  // undefined" — and naming them avoids stringifying an `unknown` at all.
-  if (value === null) return 'null';
-  if (value === undefined) return 'undefined';
+  // `null` and `undefined` are not special here: `describeValue` names both as
+  // themselves, which is what this wants for them too.
+  //
   // Tested on `value` directly rather than on a stored `typeof`, so the type is
   // narrowed to the three that convert safely — which is also what proves to a
   // reader, and to the linter, that nothing here can reach `Object.toString`.

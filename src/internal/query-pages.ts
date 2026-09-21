@@ -18,7 +18,7 @@ import type { ParsedFilter } from './filter.js';
 import type { TopK } from './guards.js';
 import type { QueryVector } from './limits.js';
 import type { AwsOperation } from './operation.js';
-import { outputVectorsOf } from './output-vectors.js';
+import { assertResponseObject, outputVectorsOf } from './output-vectors.js';
 import { checkAborted, sendOptions } from './signals.js';
 
 /**
@@ -161,9 +161,6 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
     vectorBucketName: opts.vectorBucketName,
     indexName: opts.indexName,
   };
-  const fail = (message: string, code: S3VectorsErrorCode): never => {
-    throw new S3VectorsError(message, code, { operation, ...scope });
-  };
 
   checkAborted(operation, signal, scope);
 
@@ -190,14 +187,7 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
     // The response object itself, not only its fields: a client that resolves
     // with undefined would otherwise produce a raw TypeError on the reads
     // below, breaking the guarantee that every failure is coded.
-    if (typeof response !== 'object' || response === null) {
-      fail(
-        `QueryVectors for index "${opts.indexName}" resolved without a response object. The ` +
-          'response may be malformed, or come from an incompatible SDK version or a ' +
-          'mocked/stubbed client.',
-        S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-      );
-    }
+    assertResponseObject(response, 'QueryVectors', { operation, ...scope });
 
     if (pageCount === 0) {
       assertMetricMatches(response.distanceMetric, distanceMetric, operation, scope);

@@ -111,6 +111,9 @@ describe('a store-built client cannot be waited on forever', () => {
 describe('the options that build the client are validated', () => {
   it.each([
     ['retryMode', 'bogus'],
+    // Accepted from 0.9.0 to rc.2 and never honoured: the SDK has no such mode
+    // and ran `standard`, so a caller who set it was told nothing.
+    ['retryMode', 'legacy'],
     ['retryMode', 42],
     ['maxAttempts', 0],
     ['maxAttempts', -1],

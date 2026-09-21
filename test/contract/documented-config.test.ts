@@ -3,6 +3,8 @@ import { join } from 'node:path';
 
 import { describe, it, expect } from '@jest/globals';
 
+import { STORE_CONFIG_KEYS } from '../../src/shared/validation.js';
+
 /**
  * The README's two machine-checkable tables are complete.
  *
@@ -112,5 +114,15 @@ describe('the documented configuration table lists every option', () => {
 
   it('has a row for every field', () => {
     expect(fields().filter((field) => !documented.has(field))).toEqual([]);
+  });
+
+  it('is read by name in full, so no option is lost on its way through a factory', () => {
+    // `STORE_CONFIG_KEYS` is what `fromTexts` and `fromDocuments` read a
+    // configuration by, and what the misspelt-option check knows. An option added
+    // to the type and not to the list would be dropped from a configuration held
+    // behind accessors, in silence, and an index created without it.
+    expect(
+      fields().filter((field) => !(STORE_CONFIG_KEYS as readonly string[]).includes(field)),
+    ).toEqual([]);
   });
 });

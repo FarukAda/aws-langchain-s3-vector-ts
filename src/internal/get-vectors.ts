@@ -10,15 +10,14 @@ import { GetVectorsCommand } from '@aws-sdk/client-s3vectors';
 
 import { chunk } from '../shared/batching.js';
 import { rebuildWithContext } from '../shared/errors/decorate.js';
-import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
-import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
+import type { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { awsFailure } from '../shared/errors/wrap-error.js';
 import type { StoreScope } from '../shared/scope.js';
 import type { S3OutputVector } from '../types.js';
 import { openWindow } from './concurrency.js';
 import { assertBatchSize } from './guards.js';
 import type { AwsOperation } from './operation.js';
-import { outputVectorsOf } from './output-vectors.js';
+import { assertResponseObject, outputVectorsOf } from './output-vectors.js';
 import { checkAborted, sendOptions } from './signals.js';
 
 /**
@@ -70,15 +69,7 @@ async function fetchOneBatch(
     }),
     sendOptions(opts.signal),
   );
-  if (typeof response !== 'object' || response === null) {
-    throw new S3VectorsError(
-      `GetVectors for index "${opts.indexName}" resolved without a response object. The ` +
-        'response may be malformed, or come from an incompatible SDK version or a ' +
-        'mocked/stubbed client.',
-      S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-      { operation: opts.operation, ...scope },
-    );
-  }
+  assertResponseObject(response, 'GetVectors', { operation: opts.operation, ...scope });
   return outputVectorsOf(response.vectors, 'GetVectors', opts.operation, scope);
 }
 

@@ -693,7 +693,11 @@ describe('parseFilter — array and non-plain-object filters', () => {
     await expect(
       store.similaritySearchVectorWithScore([1, 2, 3], 4, filter as never),
     ).resolves.toEqual([]);
-    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.filter).toBe(filter);
+    // Its content, not the object itself: what is sent is this package's own
+    // copy of the filter it checked (test/read-input-snapshot.test.ts).
+    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.filter).toEqual({
+      genre: 'x',
+    });
   });
 });
 

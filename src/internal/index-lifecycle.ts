@@ -35,7 +35,7 @@ import { classifyAwsError } from '../shared/errors/classify.js';
 import { attachOperation, rebuildWithContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
-import { wrapAwsError } from '../shared/errors/wrap-error.js';
+import { awsFailure, wrapAwsError } from '../shared/errors/wrap-error.js';
 import type { StoreScope } from '../shared/scope.js';
 import type { DistanceMetric, VectorDataType } from '../types.js';
 import { checkAborted, raceAbort, sendOptions } from './signals.js';
@@ -191,7 +191,7 @@ export async function describeIndex(
     };
   } catch (error: unknown) {
     if (isAwsNotFoundException(error)) return { exists: false };
-    throw wrapAwsError(error, classifyAwsError(error), 'GetIndex', {
+    throw awsFailure(error, 'GetIndex', {
       operation,
       vectorBucketName: ctx.vectorBucketName,
       indexName: ctx.indexName,
@@ -588,7 +588,7 @@ async function createIndex(
     );
   } catch (error: unknown) {
     if (isAwsConflictException(error)) return 'raced';
-    throw wrapAwsError(error, classifyAwsError(error), 'CreateIndex', {
+    throw awsFailure(error, 'CreateIndex', {
       operation,
       vectorBucketName: ctx.vectorBucketName,
       indexName: ctx.indexName,
@@ -675,6 +675,14 @@ export function createIndexLifecycle(
               operation,
             );
             assertIndexMetricAgrees(winner, config.distanceMetric, ctx, operation);
+            // `CreateIndex` said it is there and `GetIndex` said it is not: the
+            // winner's index was deleted in between, or the read lagged the
+            // write. Both comparisons above had nothing to compare and passed.
+            // This write goes ahead, as it always has, and asks nothing more —
+            // but existence is not remembered, so the next one reads the index
+            // it could not. Remembered, that index was written to for the life
+            // of the store without its keys or metric ever having been seen.
+            if (!winner.exists) return;
           }
           knownToExist = true;
         } finally {
@@ -726,7 +734,7 @@ export function createIndexLifecycle(
           sendOptions(signal),
         );
       } catch (error: unknown) {
-        const failure = wrapAwsError(error, classifyAwsError(error), 'DeleteIndex', {
+        const failure = awsFailure(error, 'DeleteIndex', {
           operation,
           vectorBucketName: ctx.vectorBucketName,
           indexName: ctx.indexName,

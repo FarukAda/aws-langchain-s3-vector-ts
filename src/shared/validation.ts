@@ -114,13 +114,19 @@ const CLIENT_EXCLUSIVE_OPTIONS = [
 /**
  * Retry modes the SDK accepts. `S3VectorsClientConfig` types `retryMode` as a
  * bare `string`, so there is no enum object to check against the way
- * `DistanceMetric` and `DataType` are — these are the three
- * `@smithy/util-retry` defines, and the set `AmazonS3VectorsConfig` already
- * declares.
+ * `DistanceMetric` and `DataType` are — these are the two the SDK's own
+ * `RETRY_MODES` enum defines, and the set `AmazonS3VectorsConfig` declares.
+ * `test/contract/dependency-citations.test.ts` reads that enum out of the
+ * installed SDK and holds this list to it.
+ *
+ * `'legacy'` was a third member from 0.9.0. The SDK never had one: its retry
+ * middleware asks only whether the mode is `adaptive`, so `'legacy'` ran
+ * `standard` — an option read as its default with nothing said, which is what
+ * this validation exists to refuse.
  *
  * @see https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-smithy-util-retry/Enum/RETRY_MODES/
  */
-const RETRY_MODES = ['standard', 'adaptive', 'legacy'] as const;
+const RETRY_MODES = ['standard', 'adaptive'] as const;
 
 /**
  * Connection-phase ceiling for a client this store builds. Generous: it bounds
@@ -528,10 +534,15 @@ function assertClientExclusivity(config: AmazonS3VectorsConfig): void {
 }
 
 /**
- * Every key a store configuration may carry: the options themselves, plus the
- * three write options the static factories take in the same object.
+ * Every option the store itself reads, by name.
+ *
+ * Exported for the static factories, which have to hand the constructor a copy
+ * of the configuration without the write options in it — and a copy made by
+ * spreading holds own enumerable properties only. An option behind an accessor
+ * or on a prototype is read by name, as the constructor reads it, and this is
+ * the list of names.
  */
-const KNOWN_CONFIG_KEYS: readonly string[] = [
+export const STORE_CONFIG_KEYS = [
   'vectorBucketName',
   'indexName',
   'dataType',
@@ -555,10 +566,13 @@ const KNOWN_CONFIG_KEYS: readonly string[] = [
   'connectionTimeout',
   'socketTimeout',
   'requestTimeout',
-  'ids',
-  'batchSize',
-  'signal',
-];
+] as const satisfies readonly (keyof AmazonS3VectorsConfig)[];
+
+/**
+ * Every key a store configuration may carry: the options themselves, plus the
+ * three write options the static factories take in the same object.
+ */
+const KNOWN_CONFIG_KEYS: readonly string[] = [...STORE_CONFIG_KEYS, 'ids', 'batchSize', 'signal'];
 
 /** Shortest edit distance between two keys, capped at 3 because nothing further matters. */
 function editDistance(a: string, b: string): number {

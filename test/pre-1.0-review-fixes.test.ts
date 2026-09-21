@@ -447,7 +447,10 @@ describe('F9 — a plain filter object from another realm is accepted', () => {
     expect(Object.getPrototypeOf(foreign)).not.toBe(Object.prototype);
 
     await expect(store.similaritySearchVectorWithScore([1, 2, 3], 4, foreign)).resolves.toEqual([]);
-    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.filter).toBe(foreign);
+    // Its content: the request carries this package's own copy of the filter.
+    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.filter).toEqual({
+      genre: 'scifi',
+    });
   });
 
   it('still rejects a class instance and a Map from another realm', async () => {

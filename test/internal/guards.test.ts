@@ -216,7 +216,7 @@ describe('assertQueryText', () => {
   });
 
   it.each([
-    ['undefined', undefined, 'an undefined'],
+    ['undefined', undefined, 'undefined'],
     ['an array, as a repeated query-string parameter arrives', ['a', 'b'], 'an array'],
     ['a number', 42, 'a number'],
   ])('refuses %s', (_label, query, kind) => {
