@@ -17,9 +17,17 @@ import { readFileSync } from 'node:fs';
 
 import { isMain } from './is-main.mjs';
 
-/** `## [1.0.0-rc.3] - 2026-09-20`, and the same without a date. */
-const headingFor = (version) =>
-  new RegExp(`^## \\[${version.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\]`, 'm');
+/**
+ * Whether a line is `version`'s heading: `## [1.0.0-rc.3] - 2026-09-20`, and the
+ * same without a date.
+ *
+ * Compared as text. This was a `RegExp` built from the version, behind an escape
+ * that was itself escaped twice and so matched nothing: `1.0.0` went in as a
+ * pattern whose dots stood for any character, and `1.0.0+b1` as one that could
+ * not match its own heading. The closing bracket is what keeps `1.0.0` from
+ * matching `1.0.0-rc.3`.
+ */
+const isHeadingFor = (version) => (line) => line.startsWith(`## [${version}]`);
 
 /**
  * The body of `version`'s section: everything after its heading, up to the
@@ -27,8 +35,7 @@ const headingFor = (version) =>
  */
 export function sectionFor(changelog, version) {
   const lines = changelog.split('\n');
-  const heading = headingFor(version);
-  const start = lines.findIndex((line) => heading.test(line));
+  const start = lines.findIndex(isHeadingFor(version));
   if (start === -1) return undefined;
   const rest = lines.slice(start + 1);
   const end = rest.findIndex((line) => line.startsWith('## ') || /^\[[^\]]+\]:\s/.test(line));

@@ -89,6 +89,23 @@ describe('sectionFor', () => {
     expect(section(doc, '1.0.0-rc.3')).toBe('- rc three');
   });
 
+  it('reads the version as text, so a dot in it is a dot', () => {
+    // The version went into a `RegExp` unescaped — the escape that was meant to
+    // stop that was itself escaped twice and matched nothing — so `1.0.0` was a
+    // pattern in which each dot stood for any character, and the first heading
+    // that fitted it won.
+    const doc = '## [1x0y0]\n\n- some other heading\n\n## [1.0.0]\n\n- the release\n';
+    expect(section(doc, '1.0.0')).toBe('- the release');
+  });
+
+  it('finds a version that carries build metadata', () => {
+    // `+` is a quantifier: unescaped, `1.0.0+b1` asks for "0, one or more times,
+    // then b1" and never matches its own heading — so a release that has a
+    // section was refused for having none.
+    const doc = '## [1.0.0+b1] - 2026-10-01\n\n- a rebuild\n';
+    expect(section(doc, '1.0.0+b1')).toBe('- a rebuild');
+  });
+
   it('extracts this package’s own current release section', () => {
     // The real file, so a restructuring that breaks extraction fails here
     // rather than producing an empty GitHub Release.
