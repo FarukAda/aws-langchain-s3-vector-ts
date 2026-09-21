@@ -68,6 +68,8 @@ All of these raise `VALIDATION` before anything billable is spent.
   report the AWS command there instead. *(1.0.0)*
 - A timed-out, reset, refused or unreachable connection is `SERVICE_UNAVAILABLE`, not
   `AWS_REQUEST_FAILED`. Branch on the former. *(1.0.0)*
+- An embeddings model that throws is `EMBEDDINGS_FAILED`, not `UNEXPECTED_ERROR`. If you
+  retried on the latter to ride out a provider outage, retry on the former. *(1.0.0)*
 - `ResourceNotFoundException` is no longer read as an absent index. *(rc.2)*
 - `context.instance` is non-enumerable, so loggers stop serialising the whole store. *(rc.1)*
 - When several things are wrong at once, one order decides which is reported. *(1.0.0)*
@@ -88,6 +90,34 @@ All of these raise `VALIDATION` before anything billable is spent.
   with it. This widens the type, so existing code keeps compiling. *(1.0.0)*
 
 ### Breaking
+
+- **An embeddings model that throws is `EMBEDDINGS_FAILED`.** `embedDocuments`
+  throwing on a write and `embedQuery` throwing on a text search both surfaced
+  as `UNEXPECTED_ERROR` — the code a bug in a `relevanceScoreFn`, a callback
+  handler that throws and input malformed enough to bypass validation share. A
+  provider rate-limiting or falling over is the likeliest production failure
+  this package sees that is not AWS's, and the one a caller answers with a
+  retry policy; sharing a code meant that policy retried the bugs too, or that
+  the caller had to walk `error.cause` to tell them apart. It has a code of its
+  own now, raised by `addDocuments`, `fromDocuments`, `fromTexts`,
+  `similaritySearch`, `similaritySearchWithScore`,
+  `similaritySearchWithRelevanceScores`, `maxMarginalRelevanceSearch` and
+  `retriever.invoke`. Everything else about the error is as it was: the
+  provider's own error is `error.cause`, there is no `context.awsCommand`, a
+  model built on an AWS SDK still carries `context.awsErrorName` and
+  `context.retryable` about its own service, and a write still carries
+  `context.writtenIds` and `context.attemptedIds`. A model that *returns*
+  something unusable, rather than throwing, is still `VALIDATION`.
+
+  This is done now because it cannot be done later: the codes are append-only
+  for `1.x`, and one is "never reassigned to a different condition" — so moving
+  this failure to a code of its own after `1.0.0` would have needed a major.
+  The executable contracts agree with the change rather than merely permit it:
+  with the model's failure coded separately, the conformance run found
+  `UNEXPECTED_ERROR` unreachable from `addDocuments`, `similaritySearch`,
+  `similaritySearchWithScore` and `maxMarginalRelevanceSearch`, none of which
+  runs any other caller-supplied code, and it is no longer among the codes
+  those four declare.
 
 - **The id arrays on `error.context` are `readonly` arrays, and frozen.** They
   were declared `readonly writtenIds?: string[]` — the *property* readonly, the
@@ -505,6 +535,160 @@ All of these raise `VALIDATION` before anything billable is spent.
   `addDocuments failed on PutVectors (AccessDeniedException, HTTP 403, requestId …): …`.
 
 ### Fixed
+
+- **A getter that throws on your input comes back coded, from every method.**
+  Reading a property off anything a caller hands over — a document, its
+  metadata, a filter, an options bag, the configuration — runs whatever getter
+  is behind it, and a getter can throw: a lazily loaded ORM field whose session
+  has closed, a revoked `Proxy`, a config object that raises "missing
+  environment variable" on access. Those reads happen inside this package's
+  own validation, which had no `catch` around it, so the getter's error left
+  `addVectors`, `addDocuments`, all four searches, `maxMarginalRelevanceSearch`,
+  `delete`, `deleteIndex`, `getByIds`, `listDocuments`, `listVectors` and both
+  constructors exactly as it was thrown — uncoded, with `isS3VectorsError`
+  reporting `false`, on the path whose whole job is to refuse bad input by name.
+  `asRetriever`, `retriever.invoke` and the static factories already reported it
+  as `UNEXPECTED_ERROR`, "input malformed enough to bypass validation"; the
+  rest of the surface now gives the same answer, naming the method that was
+  called and keeping what the getter threw as `error.cause`. Every public method
+  of the store runs through one boundary rather than each read being guarded,
+  because the reads are spread through every module a call passes through. An
+  error this package raised passes that boundary untouched — the same object.
+
+  The boundary also turns a future gap in validation from a raw `TypeError`
+  into `UNEXPECTED_ERROR`, which would be a way to hide one. It is not: no
+  entry point in the executable contracts declares that code, so the
+  conformance run still fails on it — checked by disabling a validation and
+  watching it report "threw UNEXPECTED_ERROR, which the contract does not
+  declare".
+
+- **`deleteIndex` no longer reports success against a bucket that does not
+  exist.** AWS answers a missing index and a missing *bucket* with the same
+  `NotFoundException` — "the specified resource can't be found" — and the
+  exception carries nothing but a message, which this package never branches
+  on. `deleteIndex` resolves on that 404, which is right for the first cause and
+  was wrong for the second: a store pointed at a mistyped bucket reported a
+  production index destroyed, and the index lived on. Every other operation
+  already fails against a bucket that is not there; this one alone swallowed
+  it. A 404 from `DeleteIndex` is now followed by one `GetVectorBucket`, and a
+  bucket that does not exist is `NOT_FOUND`, carrying `awsCommand:
+  "DeleteIndex"` and saying that nothing was deleted. An index that was already
+  gone still resolves, so a retry after an ambiguous failure is as safe as it
+  was.
+
+  The question costs nothing on the path where the index was there to delete,
+  and needs `s3vectors:GetVectorBucket`, which deleting an index does not. Only
+  a definite "no such bucket" changes the outcome: a denied, throttled or
+  failed check leaves the 404 resolving as before, because failing a caller's
+  retry of an already-deleted index over a *diagnostic* would turn a working
+  least-privilege setup into a failing one. A signal that cancels the question
+  is `ABORTED`, with `awsCommand: "GetVectorBucket"` — a ninth value that field
+  can take. That AWS gives `DeleteIndex` against a missing bucket this same 404
+  is the API reference's statement, not a live probe of this package's: if the
+  service answers it some other way, that answer already surfaces as its own
+  class and the question is simply never asked.
+
+- **Two failures could still reach a caller uncoded.** Both are the guarantee
+  this package makes about every failure, broken by an input it should have
+  refused. `fromDocuments(docs, embeddings, undefined)` — what a store assembled
+  at runtime from an empty environment passes — destructured the config before
+  anything had checked it, and escaped as `TypeError: Cannot destructure
+  property 'ids' of 'config'`, where the constructor given the same value has
+  always raised `VALIDATION`; `fromTexts` reported it as `UNEXPECTED_ERROR`.
+  Both factories now refuse it as the constructor does, under their own name.
+  And `classifyAwsError` looked a thrown value's `name` up in a table, which
+  coerces it: a `name` with no primitive conversion — an object with no
+  prototype, or a `toString` that throws — raised "Cannot convert object to
+  primitive value" from inside every AWS `catch`, replacing the failure being
+  reported with a failure to describe it. The comment beside that lookup said
+  the coercion "finds nothing". The name is now only looked up when it is a
+  string. Reachable only from a custom or mocked client, which is a supported
+  injection point.
+
+- **`maxMarginalRelevanceSearch` told a caller to pass its signal to an
+  argument it does not have.** A signal in the callbacks slot was refused with
+  the text searches' wording — "passed as the 4th argument … pass the signal as
+  the 5th: `maxMarginalRelevanceSearch(query, k, filter, undefined, signal)`" —
+  but this method's callbacks slot is its third argument and the signal its
+  fourth. A caller who did as told passed a number where the options belong and
+  was refused a second time. Both positions and the recommended call are now
+  derived from the parameters each method actually takes, so the message cannot
+  describe a sibling: `maxMarginalRelevanceSearch(query, options, undefined,
+  signal)`.
+
+- **A failed read stops issuing requests.** `getByIds`, and the candidate fetch
+  inside `maxMarginalRelevanceSearch`, launched every remaining `GetVectors`
+  batch after one had failed, so that `context.foundIds` named as much as it
+  could. What that bought was requests that could not help: a read that was
+  denied was denied again for every batch still queued, a throttled index was
+  sent all of them — each retried by the SDK — before the caller heard anything,
+  and a cancelled call went on issuing. No batch is dispatched once one has
+  failed, exactly as `addVectors`, `addDocuments` and `delete` have always
+  behaved; the error is still thrown only after every batch already in flight
+  has settled, so `foundIds` remains complete for everything that was
+  dispatched. A persistent failure now costs at most `maxConcurrentBatchCalls`
+  requests rather than one per batch.
+
+- **`writeRateLimit` holds a rate smaller than one request.** A request carrying
+  more than one second's budget was admitted once a second's worth was
+  available, and *charged* only that second's worth — so `vectorsPerSecond: 100`
+  with 500-vector batches wrote 500 a second, and `requestsPerSecond: 0.1` sent
+  one a second: five and ten times what a caller had asked for, and asked for in
+  order to share an index's budget with another writer. `delete` batches 500
+  ids by default, so this was not an exotic configuration. Such a request is
+  still sent as soon as a full second's budget is there, rather than waiting
+  for ever, but it is charged everything it carries and the requests after it
+  wait that debt out — the rate holds on average, in bursts of one request.
+  Nothing changes at the defaults, where no request exceeds a second's budget.
+  Because a wait can now be longer than a second, it is slept in slices of at
+  most one: a `signal` that fires is still noticed within a second.
+
+- **An embeddings client's own timeout is no longer reported as an AWS one.**
+  `AbortSignal.timeout()` and `fetch` reject with a `DOMException` named
+  `TimeoutError`, which is what an embeddings client that has nothing to do
+  with AWS throws when its endpoint is slow. It shares that name with the AWS
+  SDK's own timeout, so the failure arrived carrying `awsErrorName:
+  "TimeoutError"` and `retryable: true` — the misattribution `wrapCallerError`
+  is documented as preventing. The SDK's is a plain `Error`; in caller-supplied
+  code a `DOMException` of that name is no longer AWS-shaped. At an AWS request
+  site it still is: there a request of this package's is what timed out,
+  whoever raised it.
+
+- **`asRetriever` refuses `tags` that is not a list of strings.** The tags are
+  spread into a new list with the store's type appended, and a string is
+  iterable — `tags: 'prod'` built a retriever tagged `p`, `r`, `o`, `d` on every
+  trace it produced. It is `VALIDATION` now, as a number, a list holding
+  something that is not a string, and a list with a hole in it are; the numeric
+  form's positional `tags` is held to the same check. This package refuses the
+  silent spread of a string everywhere else it could happen, and this was the
+  place it did not.
+
+- **`ids: null` and `pageSize: null` mean "not given".** `null` has always read
+  as absence for an options bag, a `signal`, a filter, a `client` and
+  `searchKwargs`, because a DTO layer or a config assembled at runtime defaults
+  an absent field to it. `ids` and `pageSize` alone read it as a value: a write
+  with `ids: null` was refused with "ids must be an array", and a listing with
+  `pageSize: null` with a range error. Both now fall back as `undefined` does.
+  `delete({ ids: null })` is still refused, since `ids` is required there, and
+  now says so rather than complaining about its type.
+
+- **MMR refuses a candidate with an empty embedding.** `[]` satisfied the check
+  for a missing one, so a candidate with no embedding at all went into the
+  selection as though it had one and came back out ranked. `listVectors` has
+  always refused the same value as `AWS_INVALID_RESPONSE`; MMR now does too.
+  Reachable only from a non-conforming client.
+
+- **`createIndexIfNotExist: false` was documented as skipping nothing that
+  matters.** The option's own documentation, the configuration table and the IAM
+  section all said that with `false` "nothing is checked there that AWS does
+  not already enforce on the write itself". That is not so: an existing index's
+  distance metric and non-filterable metadata keys are compared with the store's
+  configuration only against the `GetIndex` a first write issues, and `false`
+  issues none. AWS enforces the dimension on a write and nothing else, so with
+  `false` a write-only workload catches neither mismatch — the metric is still
+  verified on every read, the non-filterable keys never. The behaviour is
+  unchanged and deliberate (it is what lets a store run with no control-plane
+  permission); all four places now say what it costs.
 
 - **Documentation that had drifted behind the code it describes.** An audit
   after the release preparation, since prose is the one thing no gate reads:
@@ -1143,6 +1327,18 @@ All of these raise `VALIDATION` before anything billable is spent.
   left out of the graph — which CycloneDX reads as unknown — and the document's
   scope note says so.
 
+- **Four things stated twice are stated once.** The tag-length rule was written
+  out at construction and again at `CreateIndex`, under two wordings; the
+  wordings stay, because each names a different thing to fix, and the rule is
+  one pair of functions beside the limits it reads. `mmrSearch` re-checked `k`,
+  `fetchK` and `lambda` after `resolveMmrParameters` had; `lambda` is branded
+  now as `k` and `fetchK` already were, so an unchecked one cannot arrive and
+  the second check is gone. `fetchVectorsByIds` took an optional `maxConcurrent`
+  defaulting to 10 that no caller relied on — and which once let MMR issue ten
+  requests at a time from a store configured for one — so it is required. And
+  the doc comment describing `assertBooleanOption` sat above
+  `assertConcurrency`, which had none of its own.
+
 - **Only a `success` satisfies the release gate.** `scripts/require-green-ci.mjs`
   counted `skipped` and `neutral` as succeeded, for conditional jobs — but none
   of the fourteen required checks is conditional, so neither can arrive
@@ -1166,8 +1362,9 @@ All of these raise `VALIDATION` before anything billable is spent.
   in one process, so several processes writing to one index can still exceed
   the limit between them; and a request carrying more vectors than one second's
   budget (`batchSize` above `vectorsPerSecond`) cannot fit under the rate at
-  all, so it is charged one second's worth and sent after waiting that second
-  rather than waiting for ever. `maxMarginalRelevanceSearch` selects with
+  all, so it is sent once a full second's budget is there rather than waiting
+  for ever (what it is then *charged* was wrong, and is fixed above).
+  `maxMarginalRelevanceSearch` selects with
   core's `maximalMarginalRelevance`, which measures diversity by cosine
   similarity whatever the index's metric is — so on a **euclidean** index
   holding zero-norm vectors, which euclidean accepts and cosine refuses, the

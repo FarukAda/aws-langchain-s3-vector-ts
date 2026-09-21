@@ -50,7 +50,7 @@ import { renderValue, type RecordRef } from './shared/describe.js';
 import { attachInstance, attachOperation } from './shared/errors/decorate.js';
 import { S3VectorsErrorCode } from './shared/errors/error-code.js';
 import { S3VectorsError } from './shared/errors/s3-vectors-error.js';
-import { wrapCallerError } from './shared/errors/wrap-error.js';
+import { wrapCallerError, wrapEmbeddingsError } from './shared/errors/wrap-error.js';
 import { isObjectLike } from './shared/objects.js';
 import { isStubEmbeddings, StubEmbeddings } from './shared/stub-embeddings.js';
 import {
@@ -81,6 +81,100 @@ const DEFAULT_MAX_CONCURRENT_BATCH_CALLS = 10;
 
 /** Default metadata key to store page_content in. */
 const DEFAULT_PAGE_CONTENT_KEY = '_page_content';
+
+/**
+ * What a text search takes before its `Callbacks` slot, as a caller writes it.
+ * The refusal of a signal passed in that slot is built from this, so the slot it
+ * names and the call it recommends are this method's rather than a sibling's.
+ */
+const TEXT_SEARCH_PARAMETERS = ['query', 'k', 'filter'] as const;
+
+/** The same for `maxMarginalRelevanceSearch`, whose callbacks slot is its third argument. */
+const MMR_PARAMETERS = ['query', 'options'] as const;
+
+/**
+ * Split a static factory's one argument into the store's configuration and the
+ * options of the one write the factory performs.
+ *
+ * Accepts: whatever the caller passed as `config`.
+ *
+ * Returns: the configuration without `ids`, `batchSize` and `signal`, and those
+ * three as an options bag — each omitted rather than set to `undefined` when it
+ * was not given, so the bag says "not given" the way an absent property does.
+ * A config that is not an object has nothing to split: it comes back whole, for
+ * the constructor to refuse by name.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: the write options never reach the store. They travel in the same
+ * object as the configuration, and `Serializable` keeps that object on the
+ * instance as `lc_kwargs` — so a million-id list, and the caller's signal,
+ * would stay there for the store's lifetime and print with it. And nothing is
+ * destructured before it is known to be an object: `undefined`, which a store
+ * assembled at runtime from an empty environment hands over, used to escape
+ * from here as "Cannot destructure property 'ids' of 'config'" — a raw
+ * TypeError, from the one input the constructor's own check exists for.
+ */
+function splitFactoryConfig(config: S3VectorsFactoryConfig): {
+  storeConfig: AmazonS3VectorsConfig;
+  writeOptions: S3VectorsAddOptions;
+} {
+  if (!isObjectLike(config)) return { storeConfig: config, writeOptions: {} };
+  const { ids, batchSize, signal, ...storeConfig } = config;
+  return {
+    storeConfig,
+    writeOptions: {
+      ...(ids === undefined ? {} : { ids }),
+      ...(batchSize === undefined ? {} : { batchSize }),
+      ...(signal === undefined ? {} : { signal }),
+    },
+  };
+}
+
+/**
+ * Everything the constructor reads out of its arguments before `super()`.
+ *
+ * Accepts: the constructor's own two arguments, as given.
+ *
+ * Returns: the embeddings model the base class is handed — the argument, else
+ * `config.embeddings`, else a stub that refuses to embed — and the
+ * configuration as the base class may keep it. LangChain's `Serializable` copies
+ * its second argument onto `this.lc_kwargs` verbatim, and that field is
+ * enumerable, so `util.inspect(store)` / `console.log(store)` — and therefore
+ * any logger that renders an error's `context.instance` — would print the
+ * caller's `credentials` (a static secretAccessKey included) in clear text. Live
+ * objects (the SDK client, the embeddings models) don't belong in a kwargs
+ * snapshot either. Everything else is plain config.
+ *
+ * Throws: `VALIDATION` for a configuration `assertValidConfig` refuses, before
+ * any default is applied — a store that cannot work should not exist; and
+ * `UNEXPECTED_ERROR`, naming the constructor, when reading the configuration
+ * itself throws.
+ *
+ * Guarantees: a function rather than lines in the constructor, because it needs
+ * a `try` and `super()` may not sit inside one.
+ */
+function readForSuper(
+  embeddings: EmbeddingsInterface | undefined,
+  config: AmazonS3VectorsConfig,
+): { model: EmbeddingsInterface; serializableKwargs: Record<string, unknown> } {
+  try {
+    assertValidConfig(config);
+    const {
+      credentials: _credentials,
+      client: _client,
+      embeddings: _embeddings,
+      queryEmbeddings: _queryEmbeddings,
+      ...serializableKwargs
+    } = config;
+    return {
+      model: embeddings ?? config.embeddings ?? new StubEmbeddings(),
+      serializableKwargs,
+    };
+  } catch (error: unknown) {
+    throw attachOperation(error, 'constructor');
+  }
+}
 
 /**
  * LangChain vector store backed by **Amazon S3 Vectors**.
@@ -228,105 +322,102 @@ export class AmazonS3Vectors extends VectorStore {
   constructor(embeddings: EmbeddingsInterface | undefined, config: AmazonS3VectorsConfig) {
     // Before `super()`, which copies config onto `lc_kwargs`, and before any
     // default is applied: a store that cannot work should not exist.
-    assertValidConfig(config);
-    // LangChain's Serializable base copies its second argument onto
-    // `this.lc_kwargs` verbatim. That field is enumerable, so
-    // `util.inspect(store)` / `console.log(store)` — and therefore any
-    // logger that renders an error's `context.instance` — would print the
-    // caller's `credentials` (a static secretAccessKey included) in clear
-    // text. Live objects (the SDK client, the embeddings models) don't
-    // belong in a kwargs snapshot either. Everything else is plain config.
-    const {
-      credentials: _credentials,
-      client: _client,
-      embeddings: _embeddings,
-      queryEmbeddings: _queryEmbeddings,
-      ...serializableKwargs
-    } = config;
-    super(embeddings ?? config.embeddings ?? new StubEmbeddings(), serializableKwargs);
+    const { model, serializableKwargs } = readForSuper(embeddings, config);
+    super(model, serializableKwargs);
 
-    this.vectorBucketName = config.vectorBucketName;
-    this.indexName = config.indexName;
-    assertValidIndexConfig(this.vectorBucketName, this.indexName);
-    this.dataType = config.dataType ?? 'float32';
-    this.distanceMetric = config.distanceMetric ?? 'cosine';
-    this.nonFilterableMetadataKeys = config.nonFilterableMetadataKeys;
-    this.pageContentMetadataKey =
-      config.pageContentMetadataKey === undefined
-        ? DEFAULT_PAGE_CONTENT_KEY
-        : config.pageContentMetadataKey;
-    this.createIndexIfNotExist = config.createIndexIfNotExist ?? true;
-    this.encryptionConfiguration = config.encryptionConfiguration;
-    this.tags = config.tags;
-    // Checked in assertValidConfig, with every other configuration option.
-    this.maxConcurrentBatchCalls =
-      config.maxConcurrentBatchCalls ?? DEFAULT_MAX_CONCURRENT_BATCH_CALLS;
-    this.#writeRateLimit = createWriteRateLimiter(
-      config.writeRateLimit === false
-        ? false
-        : {
-            vectorsPerSecond:
-              config.writeRateLimit?.vectorsPerSecond ?? DEFAULT_WRITE_RATE_LIMIT.vectorsPerSecond,
-            requestsPerSecond:
-              config.writeRateLimit?.requestsPerSecond ??
-              DEFAULT_WRITE_RATE_LIMIT.requestsPerSecond,
-          },
-    );
-    this.#relevanceScoreFn = config.relevanceScoreFn;
-    this.#queryEmbeddings = config.queryEmbeddings;
+    // Everything below reads the caller's `config`, and a read can throw: an
+    // option behind a getter — a config object that raises "missing environment
+    // variable" on access, say — is the caller's code running here. It comes
+    // back coded, as it does from every method (see `#asOperation`). `super()`
+    // has to stay a root-level statement, which is why what is read before it
+    // lives in `readForSuper` and the rest sits in this `try`.
+    try {
+      this.vectorBucketName = config.vectorBucketName;
+      this.indexName = config.indexName;
+      assertValidIndexConfig(this.vectorBucketName, this.indexName);
+      this.dataType = config.dataType ?? 'float32';
+      this.distanceMetric = config.distanceMetric ?? 'cosine';
+      this.nonFilterableMetadataKeys = config.nonFilterableMetadataKeys;
+      this.pageContentMetadataKey =
+        config.pageContentMetadataKey === undefined
+          ? DEFAULT_PAGE_CONTENT_KEY
+          : config.pageContentMetadataKey;
+      this.createIndexIfNotExist = config.createIndexIfNotExist ?? true;
+      this.encryptionConfiguration = config.encryptionConfiguration;
+      this.tags = config.tags;
+      // Checked in assertValidConfig, with every other configuration option.
+      this.maxConcurrentBatchCalls =
+        config.maxConcurrentBatchCalls ?? DEFAULT_MAX_CONCURRENT_BATCH_CALLS;
+      this.#writeRateLimit = createWriteRateLimiter(
+        config.writeRateLimit === false
+          ? false
+          : {
+              vectorsPerSecond:
+                config.writeRateLimit?.vectorsPerSecond ??
+                DEFAULT_WRITE_RATE_LIMIT.vectorsPerSecond,
+              requestsPerSecond:
+                config.writeRateLimit?.requestsPerSecond ??
+                DEFAULT_WRITE_RATE_LIMIT.requestsPerSecond,
+            },
+      );
+      this.#relevanceScoreFn = config.relevanceScoreFn;
+      this.#queryEmbeddings = config.queryEmbeddings;
 
-    // A value check on config.serviceId, not a prototype-chain check —
-    // survives a bundler duplicating @aws-sdk/client-s3vectors across a
-    // module boundary, which would make a legitimate client fail instanceof/
-    // isPrototypeOf. Mirrors the intent of this file's Symbol.for-registry
-    // brands (S3VectorsError, StubEmbeddings) for a third-party class this
-    // library can't stamp a brand onto itself.
-    //
-    // `null` is treated exactly like an omitted client — an optional field
-    // defaulted to `null` by a DI framework or an untyped caller means "not
-    // provided", and this file already reads a `null` filter as "no filter"
-    // (see parseFilter). Previously `null !== undefined` was true here,
-    // so evaluation reached `null.config` and threw a raw, uncoded
-    // TypeError, breaking the guarantee that every failure is typed.
-    //
-    // A non-nullish value that isn't an S3VectorsClient is a different
-    // thing: a real caller mistake. It throws rather than warning and
-    // falling back, because the fallback builds a client from the ambient
-    // credential chain and default region — so a caller who passed an
-    // explicit but wrong client could silently read and write against a
-    // different AWS account or region than they intended.
-    this.#client = resolveClient(config, this.#scope);
+      // A value check on config.serviceId, not a prototype-chain check —
+      // survives a bundler duplicating @aws-sdk/client-s3vectors across a
+      // module boundary, which would make a legitimate client fail instanceof/
+      // isPrototypeOf. Mirrors the intent of this file's Symbol.for-registry
+      // brands (S3VectorsError, StubEmbeddings) for a third-party class this
+      // library can't stamp a brand onto itself.
+      //
+      // `null` is treated exactly like an omitted client — an optional field
+      // defaulted to `null` by a DI framework or an untyped caller means "not
+      // provided", and this file already reads a `null` filter as "no filter"
+      // (see parseFilter). Previously `null !== undefined` was true here,
+      // so evaluation reached `null.config` and threw a raw, uncoded
+      // TypeError, breaking the guarantee that every failure is typed.
+      //
+      // A non-nullish value that isn't an S3VectorsClient is a different
+      // thing: a real caller mistake. It throws rather than warning and
+      // falling back, because the fallback builds a client from the ambient
+      // credential chain and default region — so a caller who passed an
+      // explicit but wrong client could silently read and write against a
+      // different AWS account or region than they intended.
+      this.#client = resolveClient(config, this.#scope);
 
-    this.#nonFilterableMetadataKeys = resolveNonFilterableMetadataKeys({
-      dataType: this.dataType,
-      distanceMetric: this.distanceMetric,
-      pageContentMetadataKey: this.pageContentMetadataKey,
-      nonFilterableMetadataKeys: this.nonFilterableMetadataKeys,
-    });
-
-    // A metadata-key list no index could ever be created with can never be written to
-    // any index either, so it is refused here — for every store, including one
-    // that only ever reads — rather than only once a write first creates the
-    // index. `CreateIndex` re-checks the same rule as defence.
-    assertMetadataKeysCreatable(this.#nonFilterableMetadataKeys, (message) =>
-      failNonFilterableKeys(this.pageContentMetadataKey, this.#scope, message),
-    );
-
-    this.#lifecycle = createIndexLifecycle(
-      {
-        client: this.#client,
-        vectorBucketName: this.vectorBucketName,
-        indexName: this.indexName,
-      },
-      {
+      this.#nonFilterableMetadataKeys = resolveNonFilterableMetadataKeys({
         dataType: this.dataType,
         distanceMetric: this.distanceMetric,
         pageContentMetadataKey: this.pageContentMetadataKey,
         nonFilterableMetadataKeys: this.nonFilterableMetadataKeys,
-        encryptionConfiguration: this.encryptionConfiguration,
-        tags: this.tags,
-      },
-    );
+      });
+
+      // A metadata-key list no index could ever be created with can never be written to
+      // any index either, so it is refused here — for every store, including one
+      // that only ever reads — rather than only once a write first creates the
+      // index. `CreateIndex` re-checks the same rule as defence.
+      assertMetadataKeysCreatable(this.#nonFilterableMetadataKeys, (message) =>
+        failNonFilterableKeys(this.pageContentMetadataKey, this.#scope, message),
+      );
+
+      this.#lifecycle = createIndexLifecycle(
+        {
+          client: this.#client,
+          vectorBucketName: this.vectorBucketName,
+          indexName: this.indexName,
+        },
+        {
+          dataType: this.dataType,
+          distanceMetric: this.distanceMetric,
+          pageContentMetadataKey: this.pageContentMetadataKey,
+          nonFilterableMetadataKeys: this.nonFilterableMetadataKeys,
+          encryptionConfiguration: this.encryptionConfiguration,
+          tags: this.tags,
+        },
+      );
+    } catch (error: unknown) {
+      throw attachOperation(error, 'constructor');
+    }
   }
 
   // ── Getters ───────────────────────────────────────────────────────────
@@ -388,20 +479,22 @@ export class AmazonS3Vectors extends VectorStore {
     documents: DocumentInterface[],
     options?: S3VectorsAddOptions,
   ): Promise<string[]> {
-    assertOptionsBag('addVectors', this.#scope, options);
-    // No signal check here: it belongs after `addVectors()`'s own input
-    // validation, not before it, so an invalid call with a fired signal is
-    // VALIDATION rather than ABORTED. The action checks it in the right place.
-    return await addVectors({
-      vectors,
-      documents,
-      ids: options?.ids,
-      batchSize: options?.batchSize,
-      maxConcurrent: this.maxConcurrentBatchCalls,
-      signal: options?.signal,
-      writeConfig: this.#writeConfig,
-      putBatch: this.#putBatch.bind(this),
-      ...this.#scope,
+    return await this.#asOperation('addVectors', async () => {
+      assertOptionsBag('addVectors', this.#scope, options);
+      // No signal check here: it belongs after `addVectors()`'s own input
+      // validation, not before it, so an invalid call with a fired signal is
+      // VALIDATION rather than ABORTED. The action checks it in the right place.
+      return await addVectors({
+        vectors,
+        documents,
+        ids: options?.ids,
+        batchSize: options?.batchSize,
+        maxConcurrent: this.maxConcurrentBatchCalls,
+        signal: options?.signal,
+        writeConfig: this.#writeConfig,
+        putBatch: this.#putBatch.bind(this),
+        ...this.#scope,
+      });
     });
   }
 
@@ -462,7 +555,7 @@ export class AmazonS3Vectors extends VectorStore {
    * something other than one storable vector per document, or
    * `INDEX_CONFIG_MISMATCH` when that batch's vectors disagree on dimension.
    * A model that throws surfaces as
-   * `UNEXPECTED_ERROR`. On any failure after the first batch started, the
+   * `EMBEDDINGS_FAILED`. On any failure after the first batch started, the
    * error's `context.writtenIds` lists every id durably written before it and
    * `context.attemptedIds` every id the call resolved. A failure stops further
    * batches from being embedded or written, and is thrown only after every
@@ -472,20 +565,22 @@ export class AmazonS3Vectors extends VectorStore {
     documents: DocumentInterface[],
     options?: S3VectorsAddOptions,
   ): Promise<string[]> {
-    assertOptionsBag('addDocuments', this.#scope, options);
-    return await addDocuments({
-      documents,
-      ids: options?.ids,
-      batchSize: options?.batchSize,
-      maxConcurrent: this.maxConcurrentBatchCalls,
-      signal: options?.signal,
-      // Resolved lazily, inside the action, so an invalid or empty call never
-      // asks for a model — a store built with none can still tell VALIDATION
-      // and "nothing to do" apart from EMBEDDINGS_MISSING.
-      getEmbeddings: () => this.#getIndexEmbeddings(),
-      writeConfig: this.#writeConfig,
-      putBatch: this.#putBatch.bind(this),
-      ...this.#scope,
+    return await this.#asOperation('addDocuments', async () => {
+      assertOptionsBag('addDocuments', this.#scope, options);
+      return await addDocuments({
+        documents,
+        ids: options?.ids,
+        batchSize: options?.batchSize,
+        maxConcurrent: this.maxConcurrentBatchCalls,
+        signal: options?.signal,
+        // Resolved lazily, inside the action, so an invalid or empty call never
+        // asks for a model — a store built with none can still tell VALIDATION
+        // and "nothing to do" apart from EMBEDDINGS_MISSING.
+        getEmbeddings: () => this.#getIndexEmbeddings(),
+        writeConfig: this.#writeConfig,
+        putBatch: this.#putBatch.bind(this),
+        ...this.#scope,
+      });
     });
   }
 
@@ -526,17 +621,19 @@ export class AmazonS3Vectors extends VectorStore {
     filter?: this['FilterType'],
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
-    const operation = 'similaritySearchVectorWithScore';
-    return await searchByVector({
-      client: this.#client,
-      operation,
-      distanceMetric: this.distanceMetric,
-      queryVector: query,
-      k: parseK(operation, this.#scope, k),
-      filter: parseFilter(filter, operation, this.#scope),
-      pageContentMetadataKey: this.pageContentMetadataKey,
-      signal,
-      ...this.#scope,
+    return await this.#asOperation('similaritySearchVectorWithScore', async () => {
+      const operation = 'similaritySearchVectorWithScore';
+      return await searchByVector({
+        client: this.#client,
+        operation,
+        distanceMetric: this.distanceMetric,
+        queryVector: query,
+        k: parseK(operation, this.#scope, k),
+        filter: parseFilter(filter, operation, this.#scope),
+        pageContentMetadataKey: this.pageContentMetadataKey,
+        signal,
+        ...this.#scope,
+      });
     });
   }
 
@@ -563,7 +660,7 @@ export class AmazonS3Vectors extends VectorStore {
    * `k`, the filter, a signal in the callbacks slot or a `signal` that is not an
    * `AbortSignal`, and `ABORTED` for a signal that has already fired — all
    * before the billable `embedQuery`; `EMBEDDINGS_MISSING` when no query-side
-   * model is configured; `UNEXPECTED_ERROR` when that model throws; otherwise
+   * model is configured; `EMBEDDINGS_FAILED` when that model throws; otherwise
    * whatever {@link similaritySearchVectorWithScore} raises for the embedded
    * query.
    */
@@ -574,14 +671,21 @@ export class AmazonS3Vectors extends VectorStore {
     _callbacks?: Callbacks,
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
-    // Everything cheap and synchronous runs before the billable — and
-    // uncancellable — embedQuery call: a signal in the wrong slot, an
-    // invalid k, an invalid filter, or a signal that already fired should
-    // not cost an embedding round trip before failing. parseFilter runs
-    // again inside _queryVectors for the direct-vector entry points;
-    // running it twice here is free.
-    rejectSignalInCallbacksSlot('similaritySearchWithScore', this.#scope, _callbacks);
-    return await this.#textSearch('similaritySearchWithScore', query, k, filter, signal);
+    return await this.#asOperation('similaritySearchWithScore', async () => {
+      // Everything cheap and synchronous runs before the billable — and
+      // uncancellable — embedQuery call: a signal in the wrong slot, an
+      // invalid k, an invalid filter, or a signal that already fired should
+      // not cost an embedding round trip before failing. parseFilter runs
+      // again inside _queryVectors for the direct-vector entry points;
+      // running it twice here is free.
+      rejectSignalInCallbacksSlot(
+        'similaritySearchWithScore',
+        this.#scope,
+        _callbacks,
+        TEXT_SEARCH_PARAMETERS,
+      );
+      return await this.#textSearch('similaritySearchWithScore', query, k, filter, signal);
+    });
   }
 
   /**
@@ -600,7 +704,7 @@ export class AmazonS3Vectors extends VectorStore {
    * `k`, the filter or a `signal` that is not an `AbortSignal`, `ABORTED` for
    * an already-fired signal — all before `embedQuery`, which is billable and
    * cannot be cancelled; `EMBEDDINGS_MISSING` when no query-side model is
-   * configured; `UNEXPECTED_ERROR` when that model throws; otherwise whatever
+   * configured; `EMBEDDINGS_FAILED` when that model throws; otherwise whatever
    * the vector search raises.
    */
   async #textSearch(
@@ -662,13 +766,20 @@ export class AmazonS3Vectors extends VectorStore {
     _callbacks?: Callbacks,
     signal?: AbortSignal,
   ): Promise<Document[]> {
-    // Checked here as well as in the delegate: this forwards `undefined`
-    // into that slot, so the delegate's own check can never see what this
-    // caller actually passed.
-    rejectSignalInCallbacksSlot('similaritySearch', this.#scope, _callbacks);
-    return (await this.#textSearch('similaritySearch', query, k, filter, signal)).map(
-      ([doc]) => doc,
-    );
+    return await this.#asOperation('similaritySearch', async () => {
+      // Checked here as well as in the delegate: this forwards `undefined`
+      // into that slot, so the delegate's own check can never see what this
+      // caller actually passed.
+      rejectSignalInCallbacksSlot(
+        'similaritySearch',
+        this.#scope,
+        _callbacks,
+        TEXT_SEARCH_PARAMETERS,
+      );
+      return (await this.#textSearch('similaritySearch', query, k, filter, signal)).map(
+        ([doc]) => doc,
+      );
+    });
   }
 
   /**
@@ -705,16 +816,23 @@ export class AmazonS3Vectors extends VectorStore {
     callbacks?: Callbacks,
     signal?: AbortSignal,
   ): Promise<[Document, number][]> {
-    rejectSignalInCallbacksSlot('similaritySearchWithRelevanceScores', this.#scope, callbacks);
-    const scoreFn = this.#selectRelevanceScoreFn();
-    const results = await this.#textSearch(
-      'similaritySearchWithRelevanceScores',
-      query,
-      k,
-      filter,
-      signal,
-    );
-    return results.map(([doc, distance]) => [doc, this.#score(scoreFn, distance)]);
+    return await this.#asOperation('similaritySearchWithRelevanceScores', async () => {
+      rejectSignalInCallbacksSlot(
+        'similaritySearchWithRelevanceScores',
+        this.#scope,
+        callbacks,
+        TEXT_SEARCH_PARAMETERS,
+      );
+      const scoreFn = this.#selectRelevanceScoreFn();
+      const results = await this.#textSearch(
+        'similaritySearchWithRelevanceScores',
+        query,
+        k,
+        filter,
+        signal,
+      );
+      return results.map(([doc, distance]) => [doc, this.#score(scoreFn, distance)]);
+    });
   }
 
   /**
@@ -752,7 +870,7 @@ export class AmazonS3Vectors extends VectorStore {
    * `embedQuery`; `VALIDATION` for an embedded query vector S3 Vectors would
    * refuse (not an array, a dimension outside 1–4096, a non-finite component,
    * zero norm on a cosine index), before any request; `EMBEDDINGS_MISSING` when
-   * no query-side model is configured; `UNEXPECTED_ERROR` when that model
+   * no query-side model is configured; `EMBEDDINGS_FAILED` when that model
    * throws; otherwise whatever the search and fetch raise.
    */
   override async maxMarginalRelevanceSearch(
@@ -761,46 +879,53 @@ export class AmazonS3Vectors extends VectorStore {
     callbacks?: Callbacks,
     signal?: AbortSignal,
   ): Promise<Document[]> {
-    rejectSignalInCallbacksSlot('maxMarginalRelevanceSearch', this.#scope, callbacks);
-    assertQueryText('maxMarginalRelevanceSearch', this.#scope, query);
-    assertOptionsBag('maxMarginalRelevanceSearch', this.#scope, options);
-    if (options === undefined || options === null) {
-      throw validationError(
+    return await this.#asOperation('maxMarginalRelevanceSearch', async () => {
+      rejectSignalInCallbacksSlot(
         'maxMarginalRelevanceSearch',
         this.#scope,
-        'maxMarginalRelevanceSearch requires an options object; `k`, `fetchK` and `lambda` ' +
-          'each have a default, but the argument itself is not optional.',
+        callbacks,
+        MMR_PARAMETERS,
       );
-    }
-    // Before the embed, not after it. `mmrSearch` checks these too and checks
-    // them first, but the store calls it *after* embedding — so an impossible
-    // `k` cost a billable, uncancellable round trip before failing, which is
-    // exactly what this method's own documentation promised it would not.
-    const { k, fetchK, lambda } = resolveMmrParameters(
-      options,
-      'maxMarginalRelevanceSearch',
-      this.#scope,
-    );
-    const parsedFilter = parseFilter(options.filter, 'maxMarginalRelevanceSearch', this.#scope);
+      assertQueryText('maxMarginalRelevanceSearch', this.#scope, query);
+      assertOptionsBag('maxMarginalRelevanceSearch', this.#scope, options);
+      if (options === undefined || options === null) {
+        throw validationError(
+          'maxMarginalRelevanceSearch',
+          this.#scope,
+          'maxMarginalRelevanceSearch requires an options object; `k`, `fetchK` and `lambda` ' +
+            'each have a default, but the argument itself is not optional.',
+        );
+      }
+      // Before the embed, not after it. `mmrSearch` checks these too and checks
+      // them first, but the store calls it *after* embedding — so an impossible
+      // `k` cost a billable, uncancellable round trip before failing, which is
+      // exactly what this method's own documentation promised it would not.
+      const { k, fetchK, lambda } = resolveMmrParameters(
+        options,
+        'maxMarginalRelevanceSearch',
+        this.#scope,
+      );
+      const parsedFilter = parseFilter(options.filter, 'maxMarginalRelevanceSearch', this.#scope);
 
-    // embedQuery has no signal support, so it cannot self-cancel — check
-    // before spending a billable, uncancellable call.
-    this.#checkAborted('maxMarginalRelevanceSearch', signal);
-    const queryVector = await this.#embedQuery('maxMarginalRelevanceSearch', query);
+      // embedQuery has no signal support, so it cannot self-cancel — check
+      // before spending a billable, uncancellable call.
+      this.#checkAborted('maxMarginalRelevanceSearch', signal);
+      const queryVector = await this.#embedQuery('maxMarginalRelevanceSearch', query);
 
-    return mmrSearch({
-      client: this.#client,
-      operation: 'maxMarginalRelevanceSearch',
-      distanceMetric: this.distanceMetric,
-      queryVector,
-      k,
-      fetchK,
-      lambda,
-      filter: parsedFilter,
-      pageContentMetadataKey: this.pageContentMetadataKey,
-      maxConcurrent: this.maxConcurrentBatchCalls,
-      signal,
-      ...this.#scope,
+      return mmrSearch({
+        client: this.#client,
+        operation: 'maxMarginalRelevanceSearch',
+        distanceMetric: this.distanceMetric,
+        queryVector,
+        k,
+        fetchK,
+        lambda,
+        filter: parsedFilter,
+        pageContentMetadataKey: this.pageContentMetadataKey,
+        maxConcurrent: this.maxConcurrentBatchCalls,
+        signal,
+        ...this.#scope,
+      });
     });
   }
 
@@ -835,25 +960,27 @@ export class AmazonS3Vectors extends VectorStore {
    * maps to, carrying `context.deletedIds`.
    */
   override async delete(params: S3VectorsDeleteOptions): Promise<void> {
-    // `params`, not `options`, because this overrides `VectorStore.delete` and
-    // the parameter name is core's. Every method this package declares itself
-    // calls the same thing `options`, which is the word its errors use too.
-    assertOptionsBag('delete', this.#scope, params);
-    // Named rather than spread: `params` is whatever a caller passed, and
-    // spreading it let an extra `client` key send this delete through a
-    // different client. `deleteAll` is read by the action, which refuses it.
-    const { ids, batchSize, signal, deleteAll } = (params ?? {}) as S3VectorsDeleteOptions & {
-      deleteAll?: unknown;
-    };
-    await deleteVectors({
-      client: this.#client,
-      ids,
-      ...(batchSize === undefined ? {} : { batchSize }),
-      ...(signal === undefined ? {} : { signal }),
-      ...(deleteAll === undefined ? {} : { deleteAll }),
-      maxConcurrent: this.maxConcurrentBatchCalls,
-      rateLimit: this.#writeRateLimit,
-      ...this.#scope,
+    return await this.#asOperation('delete', async () => {
+      // `params`, not `options`, because this overrides `VectorStore.delete` and
+      // the parameter name is core's. Every method this package declares itself
+      // calls the same thing `options`, which is the word its errors use too.
+      assertOptionsBag('delete', this.#scope, params);
+      // Named rather than spread: `params` is whatever a caller passed, and
+      // spreading it let an extra `client` key send this delete through a
+      // different client. `deleteAll` is read by the action, which refuses it.
+      const { ids, batchSize, signal, deleteAll } = (params ?? {}) as S3VectorsDeleteOptions & {
+        deleteAll?: unknown;
+      };
+      await deleteVectors({
+        client: this.#client,
+        ids,
+        ...(batchSize === undefined ? {} : { batchSize }),
+        ...(signal === undefined ? {} : { signal }),
+        ...(deleteAll === undefined ? {} : { deleteAll }),
+        maxConcurrent: this.maxConcurrentBatchCalls,
+        rateLimit: this.#writeRateLimit,
+        ...this.#scope,
+      });
     });
   }
 
@@ -874,6 +1001,14 @@ export class AmazonS3Vectors extends VectorStore {
    * It is idempotent: deleting an index that is already gone resolves cleanly,
    * so a retry after an ambiguous network failure is safe.
    *
+   * **A bucket that is not there is a different answer.** AWS reports a missing
+   * index and a missing bucket with the same 404, so when `DeleteIndex` answers
+   * one this asks `GetVectorBucket` which it was. A bucket that does not exist
+   * is `NOT_FOUND` — nothing was deleted, and the index you meant may still be
+   * there under the name you mistyped. The question costs nothing when the
+   * index was there to delete, and needs `s3vectors:GetVectorBucket`; without
+   * that permission it cannot be answered, and a 404 resolves as before.
+   *
    * If the index must survive, delete vectors by id instead — S3 Vectors has
    * no truncate operation.
    *
@@ -882,12 +1017,16 @@ export class AmazonS3Vectors extends VectorStore {
    * rejects before any request; one that fires while an index creation is
    * being awaited ends this caller's wait without cancelling that shared work.
    * @returns Nothing.
-   * @throws {S3VectorsError} `ABORTED` for a fired signal; otherwise the class
-   * the `DeleteIndex` failure maps to. A missing index is not a failure.
+   * @throws {S3VectorsError} `ABORTED` for a fired signal; `NOT_FOUND`, carrying
+   * `awsCommand: "DeleteIndex"`, when the vector bucket does not exist;
+   * otherwise the class the `DeleteIndex` failure maps to. A missing index is
+   * not a failure.
    */
   async deleteIndex(options?: S3VectorsDeleteIndexOptions): Promise<void> {
-    assertOptionsBag('deleteIndex', this.#scope, options);
-    await this.#lifecycle.deleteIndex(options?.signal, 'deleteIndex');
+    return await this.#asOperation('deleteIndex', async () => {
+      assertOptionsBag('deleteIndex', this.#scope, options);
+      await this.#lifecycle.deleteIndex(options?.signal, 'deleteIndex');
+    });
   }
 
   /**
@@ -935,15 +1074,17 @@ export class AmazonS3Vectors extends VectorStore {
     ids: string[],
     options?: S3VectorsGetByIdsOptions,
   ): Promise<(Document | undefined)[]> {
-    assertOptionsBag('getByIds', this.#scope, options);
-    return await getByIds({
-      client: this.#client,
-      ids,
-      batchSize: options?.batchSize,
-      maxConcurrent: this.maxConcurrentBatchCalls,
-      pageContentMetadataKey: this.pageContentMetadataKey,
-      signal: options?.signal,
-      ...this.#scope,
+    return await this.#asOperation('getByIds', async () => {
+      assertOptionsBag('getByIds', this.#scope, options);
+      return await getByIds({
+        client: this.#client,
+        ids,
+        batchSize: options?.batchSize,
+        maxConcurrent: this.maxConcurrentBatchCalls,
+        pageContentMetadataKey: this.pageContentMetadataKey,
+        signal: options?.signal,
+        ...this.#scope,
+      });
     });
   }
 
@@ -981,15 +1122,24 @@ export class AmazonS3Vectors extends VectorStore {
     // `next()` — exactly where an out-of-range `pageSize` fails. Throwing
     // synchronously from a method documented to return a generator would make
     // one of the two validations escape a `try` wrapped around the loop.
-    assertOptionsBag('listDocuments', this.#scope, options);
-    yield* listDocuments({
-      client: this.#client,
-      operation: 'listDocuments',
-      pageContentMetadataKey: this.pageContentMetadataKey,
-      pageSize: options?.pageSize,
-      signal: options?.signal,
-      ...this.#scope,
-    });
+    //
+    // The `try` is what {@link #asOperation} is for every other method, written
+    // out because a generator's body cannot be handed to a function: whatever
+    // leaves this is one of this package's errors, a getter that threw on the
+    // options bag included.
+    try {
+      assertOptionsBag('listDocuments', this.#scope, options);
+      yield* listDocuments({
+        client: this.#client,
+        operation: 'listDocuments',
+        pageContentMetadataKey: this.pageContentMetadataKey,
+        pageSize: options?.pageSize,
+        signal: options?.signal,
+        ...this.#scope,
+      });
+    } catch (error: unknown) {
+      throw attachOperation(error, 'listDocuments', this.#scope);
+    }
   }
 
   /**
@@ -1017,16 +1167,20 @@ export class AmazonS3Vectors extends VectorStore {
    * index that looks complete and is not.
    */
   async *listVectors(options?: S3VectorsListOptions): AsyncGenerator<S3VectorsRecord> {
-    // See {@link listDocuments} for why this is a generator.
-    assertOptionsBag('listVectors', this.#scope, options);
-    yield* listVectors({
-      client: this.#client,
-      operation: 'listVectors',
-      pageContentMetadataKey: this.pageContentMetadataKey,
-      pageSize: options?.pageSize,
-      signal: options?.signal,
-      ...this.#scope,
-    });
+    // See {@link listDocuments} for why this is a generator, and for the `try`.
+    try {
+      assertOptionsBag('listVectors', this.#scope, options);
+      yield* listVectors({
+        client: this.#client,
+        operation: 'listVectors',
+        pageContentMetadataKey: this.pageContentMetadataKey,
+        pageSize: options?.pageSize,
+        signal: options?.signal,
+        ...this.#scope,
+      });
+    } catch (error: unknown) {
+      throw attachOperation(error, 'listVectors', this.#scope);
+    }
   }
 
   /**
@@ -1063,14 +1217,16 @@ export class AmazonS3Vectors extends VectorStore {
    * @returns A retriever bound to this store. Building one issues no request.
    * @throws {S3VectorsError} Every error names `asRetriever` as its operation.
    * `VALIDATION` for a `kOrFields` that is neither a number nor an object — a
-   * string, an array, `true`; then for a `searchType` other than `'similarity'`
+   * string, an array, `true`; then for a `tags` that is not a list of strings,
+   * which would otherwise be spread into one tag per character; then for a
+   * `searchType` other than `'similarity'`
    * or `'mmr'`; then, by the checks the search that type dispatches to applies,
    * for `'mmr'` a `searchKwargs` that is not an object (`null` means none) and
    * `k`, `searchKwargs.fetchK` and `searchKwargs.lambda`, and for either the
    * filter; then a `signal` that is not an `AbortSignal`. A signal that has
    * already fired is accepted here and is `ABORTED` when the retriever runs.
    * `UNEXPECTED_ERROR` for anything else that throws while it is built, such as
-   * a `tags` that is not a list.
+   * a getter on the fields object that throws.
    */
   override asRetriever(
     kOrFields?: number | AmazonS3VectorsRetrieverFields<this>,
@@ -1184,12 +1340,9 @@ export class AmazonS3Vectors extends VectorStore {
     embeddings: EmbeddingsInterface,
     config: S3VectorsFactoryConfig,
   ): Promise<AmazonS3Vectors> {
-    // The write options travel in the same object as the store configuration,
-    // and `Serializable` keeps that object on the instance as `lc_kwargs` — so
-    // a million-id list, and the caller's signal, would stay there for the
-    // store's lifetime and print with it. The store is built from the
-    // configuration alone.
-    const { ids, batchSize, signal, ...storeConfig } = config;
+    // The store is built from the configuration alone; the write options go to
+    // the write and nowhere else.
+    const { storeConfig, writeOptions } = splitFactoryConfig(config);
     let instance: AmazonS3Vectors;
     try {
       instance = new AmazonS3Vectors(embeddings, storeConfig);
@@ -1198,13 +1351,7 @@ export class AmazonS3Vectors extends VectorStore {
       throw attachOperation(error, 'fromDocuments');
     }
     try {
-      await instance.addDocuments(docs, {
-        // Omitted rather than passed as `undefined`, so the options bag says
-        // "not given" the way an absent property does.
-        ...(ids === undefined ? {} : { ids }),
-        ...(batchSize === undefined ? {} : { batchSize }),
-        ...(signal === undefined ? {} : { signal }),
-      });
+      await instance.addDocuments(docs, writeOptions);
     } catch (error: unknown) {
       throw attachInstance(error, 'fromDocuments', instance.#scope, instance);
     }
@@ -1280,22 +1427,59 @@ export class AmazonS3Vectors extends VectorStore {
   }
 
   /**
+   * Run a public method's work, so that whatever leaves it is one of this
+   * package's errors and names that method.
+   *
+   * Accepts: the public method the caller invoked, and its whole body.
+   *
+   * Returns: whatever the work resolves with.
+   *
+   * Throws: an error this package raised, exactly as it was — the same object,
+   * since it already names this method, and the layer nearest a failure owns its
+   * message and its class. Anything else is `UNEXPECTED_ERROR` naming
+   * `operation`, with what was thrown as the `cause`.
+   *
+   * Guarantees: this is what makes "every failure is an `S3VectorsError`" true
+   * of the input itself and not only of what is done with it. Reading a property
+   * off anything a caller hands over — a document, its metadata, a filter, an
+   * options bag — runs whatever getter is behind it, and a getter is the
+   * caller's code: a lazily loaded ORM field whose session has closed, a revoked
+   * `Proxy`. Those reads happen inside this package's own validation, which had
+   * no `catch` around it, so the getter's error left every method here exactly
+   * as it was thrown, uncoded. `asRetriever`, `retriever.invoke` and the static
+   * factories already reported it as `UNEXPECTED_ERROR`; this is the same
+   * answer, given by the rest of the surface.
+   *
+   * It wraps the whole body rather than each read, because the reads are spread
+   * through every module a call passes through and a rule restated at each of
+   * them is a rule one of them will not have.
+   */
+  async #asOperation<T>(operation: string, work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (error: unknown) {
+      throw attachOperation(error, operation, this.#scope);
+    }
+  }
+
+  /**
    * Embed a query, surfacing a provider failure as a coded error.
    *
-   * The write path has always done this: an `embedDocuments` that throws comes
-   * back as `UNEXPECTED_ERROR`. Every read path let the same failure through
-   * untouched, so the most likely production failure on a read — the embeddings
-   * provider rate-limiting or falling over — was the one a `catch` branching on
-   * `isS3VectorsError` would miss.
+   * The write path has always coded an `embedDocuments` that throws. Every read
+   * path let the same failure through untouched, so the most likely production
+   * failure on a read — the embeddings provider rate-limiting or falling over —
+   * was the one a `catch` branching on `isS3VectorsError` would miss. Both are
+   * `EMBEDDINGS_FAILED` now, a code of their own, so that a caller can retry a
+   * provider outage without also retrying a bug.
    *
    * An `EMBEDDINGS_MISSING` raised by the lookup passes through unchanged:
-   * `wrapCallerError` returns an error that is already ours.
+   * `wrapEmbeddingsError` returns an error that is already ours.
    */
   async #embedQuery(operation: string, query: string): Promise<number[]> {
     try {
       return await this.#getQueryEmbeddings(operation).embedQuery(query);
     } catch (error: unknown) {
-      throw wrapCallerError(error, { operation, ...this.#scope });
+      throw wrapEmbeddingsError(error, { operation, ...this.#scope });
     }
   }
 

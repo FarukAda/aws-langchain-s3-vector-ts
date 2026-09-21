@@ -166,7 +166,7 @@ export const mmrContract: EntryPointContract<MmrInput> = {
     S3VectorsErrorCode.VALIDATION,
     S3VectorsErrorCode.ABORTED,
     S3VectorsErrorCode.EMBEDDINGS_MISSING,
-    S3VectorsErrorCode.UNEXPECTED_ERROR,
+    S3VectorsErrorCode.EMBEDDINGS_FAILED,
     S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
     S3VectorsErrorCode.AWS_INVALID_RESPONSE,
     S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED,

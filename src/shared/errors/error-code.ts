@@ -46,6 +46,23 @@ export enum S3VectorsErrorCode {
   NOT_FOUND = 'NOT_FOUND',
   /** An operation needed an embedding model but none was configured. */
   EMBEDDINGS_MISSING = 'EMBEDDINGS_MISSING',
+  /**
+   * The embeddings model threw: `embedDocuments` on a write, `embedQuery` on a
+   * text search. The provider's own error is the `cause`.
+   *
+   * A class of its own because it is the likeliest production failure this
+   * package sees that is not AWS's — a provider rate-limiting or falling over —
+   * and a caller's response to it is a retry policy of its own. It used to
+   * share `UNEXPECTED_ERROR` with a bug in caller-supplied code and with input
+   * that bypassed validation, so retrying the one meant retrying the others.
+   *
+   * No request of this package's failed, so no `awsCommand` is set. An
+   * AWS-SDK-based model (Bedrock embeddings, say) that throws its own service
+   * exception still carries `awsErrorName` and `retryable`, about *that*
+   * service. A model that returns something unusable, rather than throwing, is
+   * `VALIDATION`.
+   */
+  EMBEDDINGS_FAILED = 'EMBEDDINGS_FAILED',
   /** An underlying AWS S3 Vectors request failed, and no narrower class applies. */
   AWS_REQUEST_FAILED = 'AWS_REQUEST_FAILED',
   /** `TooManyRequestsException` (429). Retry after backoff. */
@@ -119,8 +136,12 @@ export enum S3VectorsErrorCode {
   PAGE_LIMIT_EXCEEDED = 'PAGE_LIMIT_EXCEEDED',
   /**
    * A failure that didn't come from an AWS request — a raw throw from
-   * caller-supplied code (e.g. an embeddings model) or caller input that
-   * bypassed validation (e.g. a malformed argument to a static factory).
+   * caller-supplied code other than the embeddings model (a `relevanceScoreFn`,
+   * a callback handler; the model has `EMBEDDINGS_FAILED`) or caller input that
+   * bypassed validation — above all a getter that throws when a document, a
+   * filter, an options bag or the configuration is read, which is the
+   * caller's code running inside the check. Every public method and both
+   * constructors report it this way.
    * Distinct from `AWS_REQUEST_FAILED`, which is reserved for an actual
    * AWS S3 Vectors request failing.
    */

@@ -70,3 +70,37 @@ export const TAG_KEY_MIN_LENGTH = 1;
 export const TAG_KEY_MAX_LENGTH = 128;
 export const TAG_VALUE_MIN_LENGTH = 0;
 export const TAG_VALUE_MAX_LENGTH = 256;
+
+/**
+ * Whether a tag key is a length `CreateIndex` accepts.
+ *
+ * Accepts: a tag key, already known to be a string.
+ *
+ * Returns: `true` for 1–128 characters.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: this is the rule, stated once. The numbers above were once
+ * defined twice; the comparison built from them still was — once where
+ * `config.tags` is checked at construction, once where an index is created —
+ * each under its own wording. The two sites keep their wording, because each
+ * names a different thing to fix, and share this.
+ */
+export function isTagKeyLength(key: string): boolean {
+  return key.length >= TAG_KEY_MIN_LENGTH && key.length <= TAG_KEY_MAX_LENGTH;
+}
+
+/**
+ * Whether a tag value is a length `CreateIndex` accepts.
+ *
+ * Accepts: a tag value, already known to be a string.
+ *
+ * Returns: `true` for 0–256 characters; an empty value is a valid tag.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: stated once, for the reason {@link isTagKeyLength} gives.
+ */
+export function isTagValueLength(value: string): boolean {
+  return value.length >= TAG_VALUE_MIN_LENGTH && value.length <= TAG_VALUE_MAX_LENGTH;
+}

@@ -77,12 +77,25 @@ function assertTimeout(operation: string, scope: StoreScope, timeout: unknown): 
 }
 
 /**
- * The constructor's fields, refused before core reads them.
+ * The constructor's fields, read once and refused before core reads them.
  *
- * Core's constructor reads `fields.vectorStore`, and this class reads that
- * store's bucket and index, so fields that are not an object, or hold no store
- * object, would otherwise escape as a raw `TypeError`. No store is known, so
- * the error names none.
+ * Accepts: whatever the constructor was given.
+ *
+ * Returns: a plain copy of the fields, which is what core's constructor and
+ * this class's own then read.
+ *
+ * Throws: `VALIDATION`, naming `retriever.constructor` and no bucket or index,
+ * for fields that are not an object or hold no store object — core's constructor
+ * reads `fields.vectorStore`, and this class reads that store's bucket and
+ * index, so either would otherwise escape as a raw `TypeError`. And
+ * `UNEXPECTED_ERROR`, under the same name, when reading the fields itself
+ * throws.
+ *
+ * Guarantees: every field is read exactly once, here, inside a `try`. A field
+ * behind a getter is the caller's code, and core's constructor reads the fields
+ * too — from inside `super()`, which may not sit in a `try`. Copying them first
+ * is what lets a getter that throws come back coded rather than from core,
+ * untouched; after this, nothing reads the caller's object again.
  */
 function requireRetrieverInput<T>(fields: T): T {
   const fail: (detail: string) => never = (detail) => {
@@ -92,16 +105,21 @@ function requireRetrieverInput<T>(fields: T): T {
       { operation: 'retriever.constructor' },
     );
   };
-  if (!isObjectLike(fields)) {
-    fail(`the fields must be an object (received ${renderValue(fields)}).`);
+  try {
+    if (!isObjectLike(fields)) {
+      fail(`the fields must be an object (received ${renderValue(fields)}).`);
+    }
+    const read = { ...fields };
+    if (!isObjectLike(read.vectorStore)) {
+      fail(
+        'fields.vectorStore must be the store to read from ' +
+          `(received ${renderValue(read.vectorStore)}).`,
+      );
+    }
+    return read;
+  } catch (error: unknown) {
+    throw attachOperation(error, 'retriever.constructor');
   }
-  if (!isObjectLike(fields.vectorStore)) {
-    fail(
-      'fields.vectorStore must be the store to read from ' +
-        `(received ${renderValue(fields.vectorStore)}).`,
-    );
-  }
-  return fields;
 }
 
 /**
@@ -238,12 +256,22 @@ export class AmazonS3VectorsRetriever<
    * object (`null` means none), `k`, `fetchK` and `lambda`, and for either
    * `filter`; then a `signal` that is not an `AbortSignal`. A signal that has
    * already fired is not refused here: it is `ABORTED` when the retriever runs.
+   * `UNEXPECTED_ERROR`, under the same operation, when reading the fields — or
+   * something inside one, such as a filter's own field — throws.
    */
   constructor(fields: AmazonS3VectorsRetrieverInput<V>) {
-    super(requireRetrieverInput(fields));
-    this.signal = fields.signal;
-    this.scoreThreshold = fields.scoreThreshold;
-    this.#assertSearchFields('retriever.constructor');
+    // Read once, before `super()`; nothing below touches the caller's object.
+    const read = requireRetrieverInput(fields);
+    super(read);
+    try {
+      this.signal = read.signal;
+      this.scoreThreshold = read.scoreThreshold;
+      this.#assertSearchFields('retriever.constructor');
+    } catch (error: unknown) {
+      // The copy above is shallow, so a getter *inside* a field — a filter's own
+      // — still runs here, in the checks. It comes back coded all the same.
+      throw attachOperation(error, 'retriever.constructor', this.#scope);
+    }
   }
 
   /** The bucket and index this retriever's errors name. */
@@ -462,9 +490,10 @@ export class AmazonS3VectorsRetriever<
  * `undefined` or `null` means no fields, as for every options bag.
  * @throws {S3VectorsError} Every error names `asRetriever`, the method the
  * caller invoked: `VALIDATION` for a `kOrFields` that is neither a number nor
- * an object, by the options-bag check every method applies; whatever the
- * retriever's constructor refuses; and `UNEXPECTED_ERROR` for anything else
- * that throws while it is built, such as a `tags` that is not a list. A
+ * an object, by the options-bag check every method applies, and for a `tags`
+ * that is not a list of strings; whatever the retriever's constructor refuses;
+ * and `UNEXPECTED_ERROR` for anything else that throws while it is built, such
+ * as a getter on the fields object that throws. A
  * `searchType` reaches the constructor as given, so one it does not recognise
  * is refused rather than read as `'similarity'`.
  */
@@ -498,6 +527,39 @@ export function createRetriever<V extends AmazonS3Vectors>(
   }
 }
 
+/**
+ * The run tags a retriever is built with, read out of whatever the caller gave.
+ *
+ * Accepts: `undefined` or `null` (no tags), or a list of strings.
+ *
+ * Returns: the list, copied, so appending the store's type to it does not write
+ * to the caller's own array.
+ *
+ * Throws: `VALIDATION`, naming `tags`, for anything else — a string, a number, a
+ * list holding something that is not a string, a list with a hole in it.
+ *
+ * Guarantees: refused rather than spread. The tags are spread into a new list
+ * with the store's type appended, as core's own `asRetriever` does, and a
+ * string is iterable — so `tags: 'prod'` spread without complaint into one tag
+ * per character, on every trace the retriever ever produced. This package
+ * refuses the silent spread of a string everywhere else it could happen — a
+ * document's `metadata`, a write's `ids` — and this was the place it did not.
+ * Spread before it is checked, because `every` skips a hole and a copy has none.
+ */
+function parseTags(scope: StoreScope, tags: unknown): string[] {
+  if (tags === undefined || tags === null) return [];
+  const list: unknown[] | undefined = Array.isArray(tags) ? [...(tags as unknown[])] : undefined;
+  if (list === undefined || !list.every((tag) => typeof tag === 'string')) {
+    throw validationError(
+      'asRetriever',
+      scope,
+      `tags must be a list of strings (received ${renderValue(tags)}). Anything else that can be ` +
+        'iterated — a string, above all — would be spread into one tag per element.',
+    );
+  }
+  return list;
+}
+
 /** {@link createRetriever} without the renaming: the two argument shapes, already checked, resolved into one retriever. */
 function buildRetriever<V extends AmazonS3Vectors>(
   store: V,
@@ -523,7 +585,13 @@ function buildRetriever<V extends AmazonS3Vectors>(
     // The store type is appended rather than replacing the caller's tags,
     // matching core (`@langchain/core@1.2.11` `dist/vectorstores.js`
     // `asRetriever`), so tracing keeps identifying the backend.
-    tags: [...(fields.tags ?? tags ?? []), store._vectorstoreType()],
+    tags: [
+      ...parseTags(
+        { vectorBucketName: store.vectorBucketName, indexName: store.indexName },
+        fields.tags ?? tags,
+      ),
+      store._vectorstoreType(),
+    ],
     // Each option is omitted rather than set to `undefined`. Core declares them
     // optional but not `undefined`-valued, so handing one an explicit undefined
     // is a type error under `exactOptionalPropertyTypes` — and absence is what

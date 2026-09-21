@@ -82,6 +82,24 @@ describe('classifyAwsError', () => {
     expect(classifyAwsError({})).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
   });
 
+  // A `name` that cannot become a property key. Looking it up in a table
+  // coerces it first, and the coercion itself throws — from inside every AWS
+  // `catch`, where it replaced the failure being reported with a TypeError
+  // about describing it.
+  it.each([
+    ['an object with no prototype', Object.create(null) as unknown],
+    [
+      'an object whose toString throws',
+      {
+        toString: (): string => {
+          throw new Error('no');
+        },
+      },
+    ],
+  ])('maps a name that is %s to AWS_REQUEST_FAILED rather than throwing', (_label, name) => {
+    expect(classifyAwsError({ name, message: 'x' })).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
+  });
+
   it('does not confuse a throttle with a server fault: they are different codes', () => {
     expect(classifyAwsError(named('TooManyRequestsException'))).not.toBe(
       classifyAwsError(named('InternalServerException')),
@@ -173,5 +191,10 @@ describe('isTransientNetworkFailure', () => {
       code: 'ECONNREFUSED',
     });
     expect(isTransientNetworkFailure(error)).toBe(false);
+  });
+
+  it('reads the code of an error whose name cannot become a property key, rather than throwing', () => {
+    const error = { name: Object.create(null) as unknown, code: 'ECONNREFUSED' };
+    expect(isTransientNetworkFailure(error)).toBe(true);
   });
 });

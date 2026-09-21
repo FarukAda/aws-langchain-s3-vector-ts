@@ -10,11 +10,14 @@ import {
   CreateIndexCommand,
   DeleteIndexCommand,
   GetIndexCommand,
+  GetVectorBucketCommand,
   type EncryptionConfiguration,
   type S3VectorsClient,
 } from '@aws-sdk/client-s3vectors';
 
 import {
+  isTagKeyLength,
+  isTagValueLength,
   MAX_DIMENSION,
   MAX_NON_FILTERABLE_KEYS,
   METADATA_KEY_MAX_LENGTH,
@@ -29,7 +32,7 @@ import { renderValue } from '../shared/describe.js';
 import { isAwsConflictException } from '../shared/errors/aws-conflict.js';
 import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
 import { classifyAwsError } from '../shared/errors/classify.js';
-import { attachOperation } from '../shared/errors/decorate.js';
+import { attachOperation, rebuildWithContext } from '../shared/errors/decorate.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError } from '../shared/errors/s3-vectors-error.js';
 import { wrapAwsError } from '../shared/errors/wrap-error.js';
@@ -402,7 +405,10 @@ export interface IndexLifecycle {
    * except a response reporting the index absent, which resolves —
    * the requested state already holds. AWS returns a 404 `NotFoundException`
    * for an index that is already gone (docs/evidence/delete-absent.md), so
-   * resolving is this package's decision, not the service's.
+   * resolving is this package's decision, not the service's. The same 404 is
+   * what a missing *bucket* produces, so it is followed by `GetVectorBucket`
+   * (see `bucketPresence`): a bucket that is not there is `NOT_FOUND`, and an
+   * `ABORTED` that cancelled that question carries it as `awsCommand`.
    *
    * Guarantees: an index creation already in flight completes before the
    * deletion is issued, so no in-flight creation can outlive this call. A
@@ -489,12 +495,12 @@ function assertTagsCreatable(
   fail: (message: string) => never,
 ): void {
   for (const [key, value] of Object.entries(tags ?? {})) {
-    if (key.length < TAG_KEY_MIN_LENGTH || key.length > TAG_KEY_MAX_LENGTH) {
+    if (!isTagKeyLength(key)) {
       fail(
         `Tag key ${JSON.stringify(key)} must be ${TAG_KEY_MIN_LENGTH}-${TAG_KEY_MAX_LENGTH} characters.`,
       );
     }
-    if (value.length < TAG_VALUE_MIN_LENGTH || value.length > TAG_VALUE_MAX_LENGTH) {
+    if (!isTagValueLength(value)) {
       fail(
         `Tag value for ${JSON.stringify(key)} must be ${TAG_VALUE_MIN_LENGTH}-${TAG_VALUE_MAX_LENGTH} characters.`,
       );
@@ -720,15 +726,87 @@ export function createIndexLifecycle(
           sendOptions(signal),
         );
       } catch (error: unknown) {
-        if (!isAwsNotFoundException(error)) {
-          throw wrapAwsError(error, classifyAwsError(error), 'DeleteIndex', {
-            operation,
-            vectorBucketName: ctx.vectorBucketName,
-            indexName: ctx.indexName,
-          });
+        const failure = wrapAwsError(error, classifyAwsError(error), 'DeleteIndex', {
+          operation,
+          vectorBucketName: ctx.vectorBucketName,
+          indexName: ctx.indexName,
+        });
+        if (!isAwsNotFoundException(error)) throw failure;
+
+        // A 404: nothing of this name exists, whichever of the two is missing,
+        // so the next write has to look again either way.
+        knownToExist = false;
+        if ((await bucketPresence(ctx, signal, operation)) === 'absent') {
+          throw rebuildWithContext(
+            failure,
+            `${failure.message} The vector bucket "${ctx.vectorBucketName}" does not exist ` +
+              '(GetVectorBucket answered 404 as well), so this is not an index that was already ' +
+              'gone: nothing was deleted, and an index of this name may still exist in the ' +
+              'bucket you meant. Check `vectorBucketName` and the region.',
+            failure.context,
+          );
         }
       }
       knownToExist = false;
     },
   };
+}
+
+/**
+ * Whether the vector bucket is there — asked only once `DeleteIndex` has
+ * answered 404, to learn which of the two things it named is missing.
+ *
+ * Accepts: the client and bucket, the caller's signal, and the public method to
+ * name in an abort.
+ *
+ * Returns: `'present'` when `GetVectorBucket` resolves — proven by the 200,
+ * never by the body; `'absent'` when it fails `NotFoundException`
+ * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_GetVectorBucket.html);
+ * `'unknown'` for any other failure — a denied request above all, since asking
+ * needs `s3vectors:GetVectorBucket`, which deleting an index does not.
+ *
+ * Throws: `ABORTED`, carrying `awsCommand: "GetVectorBucket"`, when the signal
+ * cancelled the request. A cancellation is the caller's, and is never read as
+ * "could not tell".
+ *
+ * Guarantees, and why it exists. AWS answers a missing index and a missing
+ * bucket with the same `NotFoundException` — "the specified resource can't be
+ * found" (`API_S3VectorBuckets_DeleteIndex.html`) — and the exception carries
+ * nothing but a message, which this package never branches on. `deleteIndex`
+ * resolves on that 404, which is right for the first cause and was wrong for
+ * the second: a store pointed at a mistyped bucket reported a production index
+ * destroyed, and the index lived on. Every other operation already fails
+ * against a bucket that is not there; this one alone swallowed it.
+ *
+ * It costs nothing on the path where the index was there to delete, and one
+ * request on the path where it was not. And only a definite `'absent'` changes
+ * the outcome: the check is a courtesy on top of a documented idempotent
+ * success, so a caller granted `s3vectors:DeleteIndex` alone — who cannot ask —
+ * still gets that success when they retry a delete that had already landed.
+ * Failing them because a diagnostic was denied would turn a working
+ * least-privilege setup into a failing one.
+ */
+async function bucketPresence(
+  ctx: IndexContext,
+  signal: AbortSignal | undefined,
+  operation: string,
+): Promise<'present' | 'absent' | 'unknown'> {
+  try {
+    await ctx.client.send(
+      new GetVectorBucketCommand({ vectorBucketName: ctx.vectorBucketName }),
+      sendOptions(signal),
+    );
+    return 'present';
+  } catch (error: unknown) {
+    if (isAwsNotFoundException(error)) return 'absent';
+    const code = classifyAwsError(error);
+    if (code === S3VectorsErrorCode.ABORTED) {
+      throw wrapAwsError(error, code, 'GetVectorBucket', {
+        operation,
+        vectorBucketName: ctx.vectorBucketName,
+        indexName: ctx.indexName,
+      });
+    }
+    return 'unknown';
+  }
 }

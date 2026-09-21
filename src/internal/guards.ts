@@ -191,37 +191,57 @@ export function assertIdsOption(
 }
 
 /**
+ * `3rd`, `4th`, `5th`: the only positions a callbacks slot, or the signal after
+ * it, occupies on any method here.
+ */
+const ordinal = (position: number): string => `${position}${position === 3 ? 'rd' : 'th'}`;
+
+/**
  * Reject an `AbortSignal` handed to the `Callbacks` parameter slot.
  *
- * Accepts: whatever arrived in that slot — `undefined`, a `CallbackManager`, a
- * handler array, a `CallbackHandlerMethods` object, an `EventTarget`, an
- * `AbortController`, or a signal.
+ * Accepts:
+ * - `value` — whatever arrived in that slot: `undefined`, a `CallbackManager`,
+ *   a handler array, a `CallbackHandlerMethods` object, an `EventTarget`, an
+ *   `AbortController`, or a signal.
+ * - `leadingParameters` — the method's parameters before its callbacks slot, as
+ *   a caller writes them: `query, k, filter` for the text searches, and
+ *   `query, options` for MMR.
  *
  * Returns: nothing. Everything but a signal is accepted, including every shape
  * core actually puts there.
  *
- * Throws: `VALIDATION`, naming the fifth slot, for an `AbortSignal`.
+ * Throws: `VALIDATION` for an `AbortSignal`, naming the slot it arrived in, the
+ * slot after it where the signal belongs, and the call to make instead.
  *
- * Guarantees: `@langchain/core` reserves the fourth argument of the text-based
- * searches for `Callbacks`, which this store accepts and ignores; the signal
- * belongs in the fifth. A signal passed fourth used to be silently discarded —
- * the search ran to completion, having spent a billable `embedQuery`, and the
- * caller's cancellation simply never happened. Silently dropping a
- * cancellation is the one outcome this package treats as unacceptable
- * elsewhere, so this fails closed and names the right slot instead.
+ * Guarantees: `@langchain/core` reserves a `Callbacks` argument on each of
+ * these methods — the fourth of the text-based searches, the third of
+ * `maxMarginalRelevanceSearch` — which this store accepts and ignores; the
+ * signal belongs in the slot after it. A signal passed there used to be
+ * silently discarded — the search ran to completion, having spent a billable
+ * `embedQuery`, and the caller's cancellation simply never happened. Silently
+ * dropping a cancellation is the one outcome this package treats as
+ * unacceptable elsewhere, so this fails closed and names the right slot instead.
+ *
+ * Both positions and the remedy are derived from `leadingParameters` rather
+ * than written into the message. Written in, they were the text searches' —
+ * and MMR, which shares this check and not their signature, told its caller to
+ * pass the signal fifth to a method that takes four arguments.
  */
 export function rejectSignalInCallbacksSlot(
   operation: string,
   scope: StoreScope,
   value: unknown,
+  leadingParameters: readonly string[],
 ): void {
   if (isAbortSignalLike(value)) {
+    const slot = leadingParameters.length + 1;
+    const remedy = [...leadingParameters, 'undefined', 'signal'].join(', ');
     throw validationError(
       operation,
       scope,
-      'An AbortSignal was passed as the 4th argument, which is the Callbacks slot — it ' +
-        'would be ignored and the search would run uncancelled. Pass the signal as the 5th ' +
-        `argument instead: ${operation}(query, k, filter, undefined, signal).`,
+      `An AbortSignal was passed as the ${ordinal(slot)} argument, which is the Callbacks slot — ` +
+        'it would be ignored and the search would run uncancelled. Pass the signal as the ' +
+        `${ordinal(slot + 1)} argument instead: ${operation}(${remedy}).`,
     );
   }
 }

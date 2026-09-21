@@ -36,6 +36,19 @@ reports the index as absent, that is treated as success", and this file licenses
 the clause. Without it the contract would assert an AWS behaviour nobody had
 checked.
 
+**What this probe did not cover: a missing bucket.** The probe ran against a
+bucket that existed. The API reference gives `DeleteIndex` a single 404 —
+`NotFoundException`, "the specified resource can't be found" — and the exception
+carries nothing that says *which* resource, so resolving on it also resolved for
+a store pointed at a bucket that was never there. Since `1.0.0` a 404 from
+`DeleteIndex` is followed by `GetVectorBucket`, and a bucket that does not exist
+is `NOT_FOUND` rather than a success. That `DeleteIndex` answers a missing bucket
+with this same exception is the API reference's statement and has **not** been
+probed here: the CI role's policy is scoped to one bucket, so a request naming
+any other would be expected to meet IAM rather than the question of whether the
+bucket exists. If the service answers a missing bucket some other way, that answer
+surfaces as its own class and the question is never asked.
+
 **Note the asymmetry**: absent *vectors* are a 200, absent *indexes* are a 404.
 The two idempotency guarantees this package offers are therefore built
 differently — one is the service's, one is ours.

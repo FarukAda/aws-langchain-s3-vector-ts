@@ -23,8 +23,10 @@ export interface S3VectorsErrorContext {
   readonly operation: string;
   /**
    * The S3 Vectors API operation whose request failed: `"GetIndex"`,
-   * `"CreateIndex"`, `"DeleteIndex"`, `"PutVectors"`, `"DeleteVectors"`,
-   * `"QueryVectors"`, `"GetVectors"` or `"ListVectors"`.
+   * `"CreateIndex"`, `"DeleteIndex"`, `"GetVectorBucket"`, `"PutVectors"`,
+   * `"DeleteVectors"`, `"QueryVectors"`, `"GetVectors"` or `"ListVectors"`.
+   * (`"GetVectorBucket"` only on an `ABORTED` that cancelled the question
+   * `deleteIndex` asks after a 404; its other failures are never surfaced.)
    *
    * Set on every error that wraps a failed AWS request, whatever code it was
    * given — `ABORTED` included, when the signal cancelled that request in
@@ -129,7 +131,10 @@ export interface S3VectorsErrorContext {
    *
    * A cause is **AWS-shaped** when it carries the SDK's `$metadata`, when its
    * name follows the service-exception convention (`…Exception`), or when it is
-   * the SDK's own `TimeoutError` — wherever it was thrown. So an AWS-SDK-based
+   * the SDK's own `TimeoutError` — wherever it was thrown. (The SDK's is a plain
+   * `Error`. A `DOMException` of that name raised by caller-supplied code is the
+   * web platform's — `AbortSignal.timeout()`, `fetch` — and is not AWS-shaped.)
+   * So an AWS-SDK-based
    * embeddings model (Bedrock embeddings, say) that throws its own service
    * exception is AWS-shaped too, and its error carries this field, though never
    * an {@link awsCommand}: it is about that model's service, not a request of

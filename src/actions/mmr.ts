@@ -24,6 +24,20 @@ import { createDocument } from '../shared/metadata.js';
 import type { StoreScope } from '../shared/scope.js';
 import type { DistanceMetric } from '../types.js';
 
+declare const mmrLambda: unique symbol;
+
+/**
+ * A `lambda` that has been checked to lie in [0, 1].
+ *
+ * {@link resolveMmrParameters} is the only way to obtain one, exactly as it is
+ * for the `k` and `fetchK` it returns beside it — so {@link mmrSearch} cannot be
+ * handed a trade-off nobody checked, and does not check all three a second time
+ * to be sure, which it used to.
+ *
+ * The brand is phantom: at run time it is the caller's own number.
+ */
+export type MmrLambda = number & { readonly [mmrLambda]: true };
+
 export interface MmrSearchOptions extends AwsOperation {
   /** The store's metric, verified against the query response. */
   readonly distanceMetric: DistanceMetric;
@@ -33,8 +47,11 @@ export interface MmrSearchOptions extends AwsOperation {
   readonly k: TopK;
   /** Candidates to consider before selecting. */
   readonly fetchK: TopK;
-  /** 0 favours diversity entirely, 1 favours relevance entirely. */
-  readonly lambda: number;
+  /**
+   * 0 favours diversity entirely, 1 favours relevance entirely. Only
+   * {@link resolveMmrParameters} can produce one.
+   */
+  readonly lambda: MmrLambda;
   /** A metadata filter, applied to the candidate query. */
   readonly filter?: ParsedFilter | undefined;
   /** Where page content is stored, so it can be lifted back out. */
@@ -123,15 +140,15 @@ export function resolveMmrParameters(
   options: { readonly k?: number; readonly fetchK?: number; readonly lambda?: number },
   operation: string,
   scope: StoreScope,
-): { k: TopK; fetchK: TopK; lambda: number } {
+): { k: TopK; fetchK: TopK; lambda: MmrLambda } {
   const k = options.k ?? 4;
   const fetchK = options.fetchK ?? 20;
   const lambda = options.lambda ?? 0.5;
   assertMmrParameters(k, fetchK, lambda, operation, scope);
   // Branded here rather than re-checked downstream: assertMmrParameters holds
-  // both to the same 1–10,000 bound parseK does, and this is the only place a
-  // caller's k and fetchK are resolved.
-  return { k: k as TopK, fetchK: fetchK as TopK, lambda };
+  // `k` and `fetchK` to the same 1–10,000 bound parseK does and `lambda` to
+  // [0, 1], and this is the only place a caller's three numbers are resolved.
+  return { k: k as TopK, fetchK: fetchK as TopK, lambda: lambda as MmrLambda };
 }
 
 /**
@@ -147,11 +164,12 @@ export function resolveMmrParameters(
  *
  * Returns: at most `k` documents, most relevant first.
  *
- * Throws: `VALIDATION` for `k`, `fetchK`, `lambda`, the filter, or a query
- * vector S3 Vectors would refuse (see `parseQueryVector`) — all before any
- * request; `ABORTED` for `signal`; `AWS_INVALID_RESPONSE` when a vector comes
- * back without data despite `returnData`; otherwise whatever the underlying
- * search and fetch raise.
+ * Throws: `VALIDATION` for a query vector S3 Vectors would refuse (see
+ * `parseQueryVector`), before any request — `k`, `fetchK`, `lambda` and the
+ * filter arrive already checked, by the only functions that can produce them;
+ * `ABORTED` for `signal`; `AWS_INVALID_RESPONSE` when a vector comes back
+ * without data, or with an empty embedding, despite `returnData`; otherwise
+ * whatever the underlying search and fetch raise.
  *
  * Guarantees: a candidate the search listed but the fetch no longer holds —
  * deleted between the two calls — is skipped silently. MMR is a ranking
@@ -182,7 +200,6 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
     throw new S3VectorsError(message, code, { operation, ...scope });
   };
 
-  assertMmrParameters(k, fetchK, lambda, operation, scope);
   // The rules `searchByVector` applies, which MMR skipped: the same unusable
   // embedding got a precise local error from one search method, and a bare AWS
   // rejection after a billable round trip from the other.
@@ -234,11 +251,16 @@ export async function mmrSearch(opts: MmrSearchOptions): Promise<Document[]> {
 
   const embeddings = present.map((vector) => {
     const data = vector.data?.float32;
-    if (data === undefined) {
+    // An empty embedding is refused as well as a missing one, as `listPages`
+    // refuses it: `[]` satisfied a check for `undefined`, so a candidate with no
+    // embedding at all went into the selection as though it had one, and came
+    // back out of it ranked.
+    if (data === undefined || data.length === 0) {
       fail(
-        `GetVectors returned vector '${vector.key}' without data, even though this call ` +
-          'requested returnData: true. The response may be malformed, or come from an ' +
-          'incompatible SDK version or a mocked/stubbed client.',
+        `GetVectors returned vector '${vector.key}' ${
+          data === undefined ? 'without data' : 'with an empty embedding'
+        }, even though this call requested returnData: true. The response may be malformed, ` +
+          'or come from an incompatible SDK version or a mocked/stubbed client.',
         S3VectorsErrorCode.AWS_INVALID_RESPONSE,
       );
     }

@@ -27,6 +27,7 @@ import { prepareRecords, type WriteRecord } from '../internal/records.js';
 import { requestRuns } from '../internal/request-size.js';
 import { checkAborted } from '../internal/signals.js';
 import { describeValue } from '../shared/describe.js';
+import { wrapEmbeddingsError } from '../shared/errors/wrap-error.js';
 import type { MetadataConfig } from '../shared/metadata.js';
 import type { StoreScope } from '../shared/scope.js';
 import type { DistanceMetric } from '../types.js';
@@ -98,7 +99,8 @@ export interface AddDocumentsOptions extends Omit<AddVectorsOptions, 'vectors'> 
 /**
  * Resolve the ids for a write and check everything about them.
  *
- * Accepts: the documents, and the caller's `ids` if any.
+ * Accepts: the documents, and the caller's `ids` if any — `undefined` and
+ * `null` both meaning none.
  *
  * Returns: one id per document — the caller's, else the document's own `id`
  * (which is what makes a read-modify-write round trip update in place), else a
@@ -118,10 +120,14 @@ function resolveIds(
   operation: string,
   scope: StoreScope,
   documents: DocumentInterface[],
-  ids: string[] | undefined,
+  given: string[] | null | undefined,
   countLabel: string,
   count: number,
 ): string[] {
+  // `null` is "not given", as it is for the options bag itself, a signal, a
+  // filter and a client: a DTO layer defaulting an absent field to `null` means
+  // absence. `ids` alone read it as a value, and refused the write.
+  const ids = given ?? undefined;
   assertIdsOption(operation, scope, ids);
   assertDocumentObjects(operation, scope, documents);
   const resolved = resolveWriteIds(documents, ids);
@@ -275,7 +281,7 @@ export async function addVectors(opts: AddVectorsOptions): Promise<string[]> {
  * - `INDEX_CONFIG_MISMATCH` when the batch's vectors disagree on dimension.
  *
  * Every failure after the first batch started — those above, an embeddings
- * model that throws (`UNEXPECTED_ERROR`), `ABORTED`, or an AWS failure —
+ * model that throws (`EMBEDDINGS_FAILED`), `ABORTED`, or an AWS failure —
  * carries `context.writtenIds` and `context.attemptedIds`.
  *
  * Guarantees:
@@ -325,7 +331,16 @@ export async function addDocuments(opts: AddDocumentsOptions): Promise<string[]>
   const embeddings = opts.getEmbeddings();
 
   const embed = async (batch: readonly WriteRecord[], offset: number): Promise<number[][]> => {
-    const embedded: unknown = await embeddings.embedDocuments(batch.map((record) => record.text));
+    let embedded: unknown;
+    try {
+      embedded = await embeddings.embedDocuments(batch.map((record) => record.text));
+    } catch (error: unknown) {
+      // Coded here, where it is known to be the model that threw. Left to the
+      // pipeline it became whatever a failure nobody had classified becomes —
+      // `UNEXPECTED_ERROR`, the same as a bug — and the one failure a caller
+      // retries could not be told from the ones they should not.
+      throw wrapEmbeddingsError(error, { operation: 'addDocuments', ...scope });
+    }
     if (!Array.isArray(embedded)) {
       throw validationError(
         'addDocuments',

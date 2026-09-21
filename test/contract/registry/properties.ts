@@ -35,6 +35,22 @@ function fail(property: string, symbol: string, caseLabel: string, detail: strin
  * rather than `instanceof`, carrying a code the contract lists. A raw
  * `TypeError` from a response shape, or an untouched provider error, fails
  * here.
+ *
+ * **Why no entry point declares `UNEXPECTED_ERROR`.** The store's public
+ * methods normalise whatever is thrown inside them, so a gap in validation no
+ * longer arrives here raw: `null.id` comes back as `UNEXPECTED_ERROR`, coded
+ * and well-formed. Declared in a contract, that code would make every such gap
+ * a permitted outcome, and this property — the one that found them — would stop
+ * finding them. Left undeclared, a gap still fails here, as "threw
+ * UNEXPECTED_ERROR, which the contract does not declare"; disabling
+ * `assertDocumentObjects` and running this suite shows exactly that. So a
+ * failure of that shape is a missing check in `src/`, never a missing entry in
+ * `mayThrow`.
+ *
+ * The one honest source of that code on these entry points — a getter that
+ * throws on the caller's own input — is outside what a corpus of values can
+ * build, since the harness reads its inputs too. It is pinned in
+ * `test/hostile-getters.test.ts` instead.
  */
 export function checkClosedEscape<I>(
   contract: EntryPointContract<I>,

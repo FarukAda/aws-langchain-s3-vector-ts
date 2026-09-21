@@ -131,7 +131,7 @@ export const addDocumentsContract: EntryPointContract<AddDocumentsInput> = {
     S3VectorsErrorCode.ABORTED,
     S3VectorsErrorCode.EMBEDDINGS_MISSING,
     S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
-    S3VectorsErrorCode.UNEXPECTED_ERROR,
+    S3VectorsErrorCode.EMBEDDINGS_FAILED,
     S3VectorsErrorCode.THROTTLED,
     S3VectorsErrorCode.ACCESS_DENIED,
     S3VectorsErrorCode.AWS_REJECTED,
@@ -147,7 +147,10 @@ export const addDocumentsContract: EntryPointContract<AddDocumentsInput> = {
     [S3VectorsErrorCode.EMBEDDINGS_MISSING]: SCOPE,
     [S3VectorsErrorCode.INDEX_CONFIG_MISMATCH]: SCOPE,
     // An embeddings model that throws fails a batch like any other failure does.
-    [S3VectorsErrorCode.UNEXPECTED_ERROR]: WRITE_FAILURE,
+    // It is the only caller-supplied code a write runs, so with a code of its
+    // own there is nothing left here that can reach UNEXPECTED_ERROR — which
+    // the conformance run confirmed by finding that code unreachable.
+    [S3VectorsErrorCode.EMBEDDINGS_FAILED]: WRITE_FAILURE,
     [S3VectorsErrorCode.THROTTLED]: REQUEST_FAILURE,
     [S3VectorsErrorCode.ACCESS_DENIED]: REQUEST_FAILURE,
     [S3VectorsErrorCode.AWS_REJECTED]: REQUEST_FAILURE,

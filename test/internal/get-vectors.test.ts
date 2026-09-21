@@ -24,6 +24,7 @@ function setup() {
       ids,
       returnData: false,
       returnMetadata: true,
+      maxConcurrent: 10,
       ...overrides,
     });
   return { mock, run };
@@ -199,5 +200,49 @@ describe('how the read path fans out', () => {
 
     held.open();
     await pending;
+  });
+
+  it('stops issuing requests once a batch has failed', async () => {
+    // Every remaining batch used to go out after a failure, so that `foundIds`
+    // named as much as possible. What that bought was requests that could not
+    // help: a denied read denied forty-nine more times, a throttled index sent
+    // every batch still queued — each retried by the SDK — before the caller
+    // heard anything. The write path and `delete` have always stopped feeding
+    // their window on a failure; this is the same window, and now the same rule.
+    const { mock, run } = setup();
+    mock.on(GetVectorsCommand).callsFake((input: { keys: string[] }) => {
+      if (input.keys.includes('k0')) throw awsError('AccessDeniedException');
+      return echo()(input);
+    });
+    const keys = Array.from({ length: 1000 }, (_, i) => `k${i}`);
+
+    const error = await run(keys, { maxConcurrent: 2 }).catch((e: unknown) => e);
+
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+    // The failing batch, and the one sibling already in flight beside it.
+    expect(mock.commandCalls(GetVectorsCommand)).toHaveLength(2);
+    // That sibling landed, and is still reported.
+    expect((error as { context: { foundIds?: string[] } }).context.foundIds).toHaveLength(100);
+  });
+
+  it('issues nothing further once the signal has cancelled a batch in flight', async () => {
+    const { mock, run } = setup();
+    const ac = new AbortController();
+    let call = 0;
+    mock.on(GetVectorsCommand).callsFake((input: { keys: string[] }) => {
+      if (call++ === 1) {
+        // What the SDK does to a request in flight when its signal fires.
+        ac.abort();
+        throw awsError('AbortError');
+      }
+      return echo()(input);
+    });
+    const keys = Array.from({ length: 1000 }, (_, i) => `k${i}`);
+
+    const error = await run(keys, { maxConcurrent: 1, signal: ac.signal }).catch((e: unknown) => e);
+
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.ABORTED);
+    expect(mock.commandCalls(GetVectorsCommand)).toHaveLength(2);
+    expect((error as { context: { foundIds?: string[] } }).context.foundIds).toHaveLength(100);
   });
 });

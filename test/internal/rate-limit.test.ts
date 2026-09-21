@@ -88,7 +88,25 @@ describe('the write rate limiter', () => {
     expect(clock.slept).toEqual([1000, 1000, 1000, 1000, 1000]);
   });
 
-  it('never asks for more than one full budget, so a large batch still passes', async () => {
+  it("lets a batch larger than a second's budget through, rather than waiting for ever", async () => {
+    const clock = fakeClock();
+    const limiter = createWriteRateLimiter(
+      { vectorsPerSecond: 100, requestsPerSecond: 1000 },
+      clock,
+    );
+
+    // It can never be under the cap, so it goes once a full second's budget is there.
+    await limiter.acquire(500, 'addVectors', SCOPE);
+
+    expect(clock.slept).toEqual([]);
+  });
+
+  it('holds the configured rate when every request carries more than a second of it', async () => {
+    // Each of these used to be charged one second's worth whatever it carried,
+    // so 100 vectors/s with 500-vector batches wrote 500 a second — five times
+    // the rate the caller set, and set in order to share the index's budget
+    // with another writer. A batch is charged what it carries, and the ones
+    // after it wait out the debt.
     const clock = fakeClock();
     const limiter = createWriteRateLimiter(
       { vectorsPerSecond: 100, requestsPerSecond: 1000 },
@@ -97,8 +115,48 @@ describe('the write rate limiter', () => {
 
     await limiter.acquire(500, 'addVectors', SCOPE);
     await limiter.acquire(500, 'addVectors', SCOPE);
+    await limiter.acquire(500, 'addVectors', SCOPE);
 
-    // A batch larger than a second's budget costs a second, not five.
+    // 1,000 vectors beyond the opening burst, at 100 a second.
+    expect(clock.slept.reduce((total, ms) => total + ms, 0)).toBe(10_000);
+  });
+
+  it('holds a request rate below one a second', async () => {
+    const clock = fakeClock();
+    const limiter = createWriteRateLimiter(
+      { vectorsPerSecond: 2500, requestsPerSecond: 0.125 },
+      clock,
+    );
+
+    await limiter.acquire(1, 'delete', SCOPE);
+    await limiter.acquire(1, 'delete', SCOPE);
+
+    // One request every eight seconds, not one a second. An eighth, because it
+    // is exact in binary and the arithmetic here is then exact too.
+    expect(clock.slept.reduce((total, ms) => total + ms, 0)).toBe(8_000);
+  });
+
+  it('never sleeps for longer than a second at a time, so an abort is noticed within one', async () => {
+    const clock = fakeClock();
+    const controller = new AbortController();
+    const limiter = createWriteRateLimiter(
+      { vectorsPerSecond: 100, requestsPerSecond: 1000 },
+      {
+        now: clock.now,
+        sleep: async (ms: number) => {
+          controller.abort();
+          await clock.sleep(ms);
+        },
+      },
+    );
+
+    await limiter.acquire(500, 'addVectors', SCOPE, controller.signal);
+    // Five seconds of debt to wait out — and a caller who gives up during it.
+    const error = await limiter
+      .acquire(500, 'addVectors', SCOPE, controller.signal)
+      .catch((e: unknown) => e as S3VectorsError);
+
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.ABORTED);
     expect(clock.slept).toEqual([1000]);
   });
 

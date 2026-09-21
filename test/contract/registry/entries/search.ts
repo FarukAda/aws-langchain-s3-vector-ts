@@ -204,7 +204,7 @@ const SEARCH_CODES = new Set([
   S3VectorsErrorCode.VALIDATION,
   S3VectorsErrorCode.ABORTED,
   S3VectorsErrorCode.EMBEDDINGS_MISSING,
-  S3VectorsErrorCode.UNEXPECTED_ERROR,
+  S3VectorsErrorCode.EMBEDDINGS_FAILED,
   S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
   S3VectorsErrorCode.AWS_INVALID_RESPONSE,
   S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED,
@@ -273,14 +273,14 @@ export const similaritySearchVectorContract: EntryPointContract<SearchInput> = {
   // the point of declaring a closed set at all: it takes an embedding, so it
   // needs no model and cannot raise EMBEDDINGS_MISSING; it has no signal
   // parameter — core's abstract member has three positional arguments — so it
-  // cannot raise ABORTED; and it runs no caller-supplied code, so nothing can
-  // reach UNEXPECTED_ERROR. The conformance run rejected the wider set.
+  // cannot raise ABORTED; and with no model to call, nothing can reach
+  // EMBEDDINGS_FAILED either. The conformance run rejected the wider set.
   mayThrow: new Set(
     [...SEARCH_CODES].filter(
       (code) =>
         code !== S3VectorsErrorCode.EMBEDDINGS_MISSING &&
         code !== S3VectorsErrorCode.ABORTED &&
-        code !== S3VectorsErrorCode.UNEXPECTED_ERROR,
+        code !== S3VectorsErrorCode.EMBEDDINGS_FAILED,
     ),
   ),
   requiredContext: REQUIRED_CONTEXT,

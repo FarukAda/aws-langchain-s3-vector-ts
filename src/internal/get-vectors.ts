@@ -26,7 +26,6 @@ import { checkAborted, sendOptions } from './signals.js';
  * (https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-limitations.html).
  */
 const MAX_IDS_PER_CALL = 100;
-const DEFAULT_MAX_CONCURRENT = 10;
 
 export interface FetchVectorsOptions extends AwsOperation {
   /** The ids to fetch. Duplicates collapse; an empty list issues no request. */
@@ -37,8 +36,15 @@ export interface FetchVectorsOptions extends AwsOperation {
   readonly returnMetadata: boolean;
   /** Ids per request; 1–100, defaulting to the documented maximum. */
   readonly batchSize?: number | undefined;
-  /** Requests in flight at once. Defaults to 10 when the caller says nothing. */
-  readonly maxConcurrent?: number | undefined;
+  /**
+   * Requests in flight at once: the store's `maxConcurrentBatchCalls`.
+   *
+   * Required. It was optional with a default of 10, and MMR — which did not
+   * pass it — issued ten requests at a time from a store configured for one.
+   * A cap a caller sets to bound their own request rate is not advisory, so
+   * there is no default here for a caller to fall into.
+   */
+  readonly maxConcurrent: number;
 }
 
 /**
@@ -137,6 +143,11 @@ function withFoundIds(
  * carrying `awsCommand: "GetVectors"` and `context.foundIds` — every id a
  * sibling batch retrieved before the failure, so a caller need not refetch from
  * scratch.
+ *
+ * Guarantees: no further batch is dispatched once one has failed, and the
+ * failure is thrown only after every batch already in flight has settled — so
+ * a persistent failure costs at most `maxConcurrent` requests rather than one
+ * per batch, and `foundIds` is complete for everything that was dispatched.
  */
 export async function fetchVectorsByIds(
   opts: FetchVectorsOptions,
@@ -162,13 +173,17 @@ export async function fetchVectorsByIds(
   // crosses ten such boundaries, and MMR with a large `fetchK` takes the same
   // route. `concurrency.ts` already said a window "is now the only one"; this
   // is the site that claim was written about.
-  const window = openWindow<S3OutputVector[]>(opts.maxConcurrent ?? DEFAULT_MAX_CONCURRENT);
-  // Every batch is launched, even after one has failed — unlike the write
-  // path, which stops feeding its window. A read's contract is that
-  // `context.foundIds` names every id a sibling retrieved, so that a caller
-  // retrying does not re-fetch them; abandoning the rest would shrink that
-  // answer to whatever happened to be in flight when the failure landed.
+  const window = openWindow<S3OutputVector[]>(opts.maxConcurrent);
+  // No batch is launched once one has failed, exactly as on the write path.
+  // This loop used to launch every one of them regardless, so that
+  // `context.foundIds` named as many ids as it could — and what that bought was
+  // requests that could not help: a read that was denied was denied again for
+  // every batch still queued, a throttled index was sent all of them, each
+  // retried by the SDK, before the caller heard anything, and a cancelled call
+  // went on issuing. `foundIds` still names every id a batch already in flight
+  // retrieved; what it no longer costs is the rest of the list.
   for (const batch of chunk(unique, batchSize)) {
+    if (window.hasFailed()) break;
     await window.launch(async () => await fetchOneBatch(opts, scope, batch));
   }
 

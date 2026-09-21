@@ -36,9 +36,10 @@ import { wrapCallerError } from './wrap-error.js';
  * callers (`settleGroup`/`writeFirstBatch` see only an already-wrapped
  * `S3VectorsError` from a failed `PutVectors`/`DeleteVectors`, which the
  * `isS3VectorsError` check above returns unchanged), so a value reaching the
- * wrapping branch here came from caller-supplied code (an `embedDocuments`
- * that threw) or from input that bypassed validation — never a bare AWS SDK
- * error. Neither is "an AWS request failed", and neither should pick up
+ * wrapping branch here came from caller-supplied code or from input that
+ * bypassed validation — never a bare AWS SDK error, and no longer an
+ * `embedDocuments` that threw, which arrives already coded `EMBEDDINGS_FAILED`
+ * by the one place that knows it was the model. Neither is "an AWS request failed", and neither should pick up
  * `awsErrorName`/`retryable` from a Node.js system error code that happens to
  * match one of the SDK's own.
  */

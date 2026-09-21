@@ -8,7 +8,7 @@
 
 > **S3VectorsFactoryConfig** = [`AmazonS3VectorsConfig`](../interfaces/AmazonS3VectorsConfig.md) & [`S3VectorsAddOptions`](../interfaces/S3VectorsAddOptions.md)
 
-Defined in: [types.ts:379](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L379)
+Defined in: [types.ts:390](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L390)
 
 The argument [AmazonS3Vectors.fromTexts](../classes/AmazonS3Vectors.md#fromtexts) and
 [AmazonS3Vectors.fromDocuments](../classes/AmazonS3Vectors.md#fromdocuments) take: a store configuration and the

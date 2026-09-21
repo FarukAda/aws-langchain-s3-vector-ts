@@ -464,7 +464,7 @@ describe('a failed AWS request names the public method and, separately, the requ
     };
     const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
     const error = await store.similaritySearch('q', 1).catch((e: unknown) => e);
-    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.EMBEDDINGS_FAILED);
     expect(contextOf(error)).toMatchObject({
       operation: 'similaritySearch',
       awsErrorName: 'AccessDeniedException',
@@ -707,7 +707,7 @@ describe('a retriever invocation names itself, whatever fails underneath', () =>
       },
     ],
     [
-      S3VectorsErrorCode.UNEXPECTED_ERROR,
+      S3VectorsErrorCode.EMBEDDINGS_FAILED,
       (): Promise<unknown> => storeWithFailingModel().asRetriever().invoke('q'),
     ],
     [
@@ -872,12 +872,45 @@ describe("a retriever's other public methods name themselves", () => {
   });
 
   it('asRetriever, for a field that throws while the retriever is built', () => {
-    // `tags` is spread into a list, as core's own `asRetriever` spreads it; a
-    // value that is not iterable fails there, and reaches the caller coded.
+    // Anything the fields object does on being read is the caller's code
+    // running inside this method, and reaches the caller coded.
     const { store } = createTestStore();
-    const error = captureSync(() => store.asRetriever({ tags: 5 as never }));
+    const fields = {
+      get k(): number {
+        throw new Error('a getter that throws');
+      },
+    };
+    const error = captureSync(() => store.asRetriever(fields));
     expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
     expect(contextOf(error)).toEqual({ operation: 'asRetriever', ...BASE_CONFIG });
+  });
+
+  it.each([
+    ['a string', 'abc'],
+    ['a number', 5],
+    ['a list holding something that is not a string', ['a', 5]],
+    ['a list with a hole in it', ['a', , 'c']], // eslint-disable-line no-sparse-arrays -- the hole is the input
+  ])('asRetriever, for `tags` that is %s', (_label, tags) => {
+    // `tags` is spread into a list with the store's type appended. A string is
+    // iterable, so it spread without complaint — into one tag per character,
+    // on every trace the retriever ever produced.
+    const { store } = createTestStore();
+    const error = captureSync(() => store.asRetriever({ tags: tags as never }));
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain('tags');
+    expect(contextOf(error)).toEqual({ operation: 'asRetriever', ...BASE_CONFIG });
+  });
+
+  it('asRetriever, for `tags` that is a string in the numeric form', () => {
+    const { store } = createTestStore();
+    const error = captureSync(() => store.asRetriever(4, undefined, undefined, 'abc' as never));
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+  });
+
+  it('asRetriever still appends the store type to the tags it is given', () => {
+    const { store } = createTestStore();
+    expect(store.asRetriever({ tags: ['mine'] }).tags).toEqual(['mine', 'amazonS3Vectors']);
+    expect(store.asRetriever({ tags: null as never }).tags).toEqual(['amazonS3Vectors']);
   });
 
   it.each([

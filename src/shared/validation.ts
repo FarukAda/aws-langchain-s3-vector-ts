@@ -11,6 +11,8 @@ import { DataType, DistanceMetric, S3VectorsClient, SseType } from '@aws-sdk/cli
 
 import type { AmazonS3VectorsConfig } from '../types.js';
 import {
+  isTagKeyLength,
+  isTagValueLength,
   METADATA_KEY_MAX_LENGTH,
   METADATA_KEY_MIN_LENGTH,
   TAG_KEY_MAX_LENGTH,
@@ -238,11 +240,12 @@ function assertTimeoutOption(value: unknown, option: string): void {
 }
 
 /**
- * A boolean option, checked rather than coerced.
+ * `maxConcurrentBatchCalls`: an integer of 1 or more.
  *
- * @throws {S3VectorsError} `VALIDATION`. The case that matters is a config
- * assembled from environment variables, where every non-empty string is truthy:
- * `createIndexIfNotExist: 'false'` read as "yes, create it", and created it.
+ * @throws {S3VectorsError} `VALIDATION`. It is the size of the window every
+ * batched operation runs in, so it is a count of requests in flight: `0`, a
+ * negative number and a fraction have no meaning as one, and a string read out
+ * of an environment variable is not a number at all.
  */
 function assertConcurrency(value: unknown): void {
   if (value === undefined) return;
@@ -253,6 +256,13 @@ function assertConcurrency(value: unknown): void {
   }
 }
 
+/**
+ * A boolean option, checked rather than coerced.
+ *
+ * @throws {S3VectorsError} `VALIDATION`. The case that matters is a config
+ * assembled from environment variables, where every non-empty string is truthy:
+ * `createIndexIfNotExist: 'false'` read as "yes, create it", and created it.
+ */
 function assertBooleanOption(value: unknown, option: string): void {
   if (value === undefined) return;
   if (typeof value !== 'boolean') {
@@ -423,7 +433,7 @@ function assertTags(value: unknown): void {
     );
   }
   for (const [key, tagValue] of Object.entries(value)) {
-    if (key.length < TAG_KEY_MIN_LENGTH || key.length > TAG_KEY_MAX_LENGTH) {
+    if (!isTagKeyLength(key)) {
       fail(
         `config.tags keys must be ${TAG_KEY_MIN_LENGTH}–${TAG_KEY_MAX_LENGTH} characters ` +
           `(received ${key.length}).`,
@@ -434,7 +444,7 @@ function assertTags(value: unknown): void {
     if (typeof tagValue !== 'string') {
       fail(`config.tags["${key}"] must be a string (received ${describeValue(tagValue)}).`);
     }
-    if (tagValue.length > TAG_VALUE_MAX_LENGTH) {
+    if (!isTagValueLength(tagValue)) {
       fail(
         `config.tags["${key}"] must be at most ${TAG_VALUE_MAX_LENGTH} characters ` +
           `(received ${tagValue.length}).`,

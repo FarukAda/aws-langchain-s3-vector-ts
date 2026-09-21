@@ -105,6 +105,45 @@ describe('AmazonS3Vectors.fromTexts/fromDocuments array validation', () => {
   });
 });
 
+describe('AmazonS3Vectors static factories — a config that is not an object', () => {
+  // A store assembled at runtime from an empty environment hands the factory
+  // `undefined`. The constructor refuses that by name; the factory used to
+  // destructure it first, and "Cannot destructure property 'ids' of 'config'"
+  // escaped as a raw TypeError — uncoded, from the one input the
+  // constructor's own check exists for.
+  it.each([undefined, null])(
+    'fromDocuments refuses a %s config as the constructor does',
+    async (config) => {
+      const error = await AmazonS3Vectors.fromDocuments(
+        [new Document({ pageContent: 'a' })],
+        createMockEmbeddings(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+        config as any,
+      ).catch((e: unknown) => e);
+
+      expect(isS3VectorsError(error)).toBe(true);
+      expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+      expect((error as S3VectorsError).context.operation).toBe('fromDocuments');
+      // Nothing was constructed, so there is no store to hand back.
+      expect((error as S3VectorsError).context.instance).toBeUndefined();
+    },
+  );
+
+  it.each([undefined, null])('fromTexts refuses a %s config the same way', async (config) => {
+    const error = await AmazonS3Vectors.fromTexts(
+      ['a'],
+      {},
+      createMockEmbeddings(),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally malformed input
+      config as any,
+    ).catch((e: unknown) => e);
+
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as S3VectorsError).context.operation).toBe('fromTexts');
+  });
+});
+
 describe('AmazonS3Vectors.fromTexts metadata handling', () => {
   it('applies a single metadata object to every text', async () => {
     const { client, mock } = createMockClient();

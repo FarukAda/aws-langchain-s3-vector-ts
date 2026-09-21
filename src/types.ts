@@ -91,10 +91,18 @@ export interface AmazonS3VectorsConfig {
    * on the first `addVectors` / `addDocuments` call: that write issues one
    * `GetIndex` and, when the index is missing, one `CreateIndex`.
    *
-   * When `false`, neither call is made. Nothing is checked there that AWS
-   * does not already enforce on the write itself, so a store that never
-   * creates an index needs no control-plane permission at all — a missing
-   * index simply fails at `PutVectors`.
+   * When `false`, neither call is made, so a store that never creates an
+   * index needs no control-plane permission at all — a missing index simply
+   * fails at `PutVectors`.
+   *
+   * What goes with that `GetIndex` is the check it carries: an existing
+   * index's distance metric and non-filterable metadata keys are compared with
+   * this store's configuration only there, on a first write. With `false`
+   * neither is checked on a write — AWS enforces the dimension on every write,
+   * and nothing else. The metric is still verified on every read, against the
+   * `QueryVectors` response; the non-filterable keys are not checked at all,
+   * and a write-only workload catches neither mismatch. Configure both to
+   * match the index you provisioned.
    * @defaultValue `true`
    */
   readonly createIndexIfNotExist?: boolean;
@@ -157,14 +165,17 @@ export interface AmazonS3VectorsConfig {
    * measured your own headroom — a single writer reached 6,026 vectors/s
    * untouched — and lower them to share an index with another workload.
    *
-   * Two things this does not do. It paces **this store instance**, in this
+   * One thing this does not do: it paces **this store instance**, in this
    * process, so several processes writing to one index can still exceed the
    * limit between them; the SDK's own retries remain the backstop for that.
-   * And a single request carrying more vectors than one second's budget —
-   * `batchSize` above `vectorsPerSecond` — cannot ever fit under the rate, so
-   * it is charged one second's worth and sent after waiting that second,
-   * rather than waiting forever. Keep `batchSize` at or below
-   * `vectorsPerSecond` if the rate you set is one you need held exactly.
+   *
+   * A single request carrying more than one second's budget — `batchSize`
+   * above `vectorsPerSecond`, or any request at all when `requestsPerSecond`
+   * is below 1 — cannot ever fit under the rate, so it is sent as soon as a
+   * full second's budget is there rather than waiting forever. It is charged
+   * everything it carries, and the requests after it wait that debt out: the
+   * rate you set holds on average, in bursts of one request. A wait is
+   * interrupted by `signal` within a second, however long the debt.
    *
    * @defaultValue `{ vectorsPerSecond: 2500, requestsPerSecond: 1000 }`
    */

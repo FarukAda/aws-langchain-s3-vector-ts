@@ -2,7 +2,12 @@ import { describe, it, expect } from '@jest/globals';
 
 import { S3VectorsErrorCode } from '../../../src/shared/errors/error-code.js';
 import { isS3VectorsError, S3VectorsError } from '../../../src/shared/errors/s3-vectors-error.js';
-import { toError, wrapAwsError, wrapCallerError } from '../../../src/shared/errors/wrap-error.js';
+import {
+  toError,
+  wrapAwsError,
+  wrapCallerError,
+  wrapEmbeddingsError,
+} from '../../../src/shared/errors/wrap-error.js';
 
 describe('toError', () => {
   it('returns Error values unchanged', () => {
@@ -410,6 +415,87 @@ describe('wrapCallerError', () => {
     const cause = Object.assign(new Error('socket hang up'), { name: 'TimeoutError' });
     const err = wrapCallerError(cause, { operation: 'op' });
     expect(err.context.awsErrorName).toBe('TimeoutError');
+    expect(err.context.retryable).toBe(true);
+  });
+
+  it("does not take the web platform's TimeoutError for the SDK's", () => {
+    // `AbortSignal.timeout()` and `fetch` reject with a DOMException named
+    // `TimeoutError`, which is what an embeddings client built on them — one
+    // that has nothing to do with AWS — throws when its own endpoint is slow.
+    // The SDK's is a plain Error it renames; a DOMException is never that, and
+    // labelling it `awsErrorName` sent a caller to the wrong service.
+    const cause = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    const err = wrapCallerError(cause, { operation: 'similaritySearch' });
+    expect(err.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(err.context.awsErrorName).toBeUndefined();
+    expect(err.context.retryable).toBeUndefined();
+    expect(err.cause).toBe(cause);
+  });
+
+  it('reads a value whose type tag cannot be read as not a DOMException, rather than throwing', () => {
+    // Deciding whether it is one runs a getter the value may have replaced, and
+    // this runs inside error handling.
+    const cause = Object.defineProperty(
+      Object.assign(new Error('slow'), { name: 'TimeoutError' }),
+      Symbol.toStringTag,
+      {
+        get: (): string => {
+          throw new Error('no tag');
+        },
+      },
+    );
+    const err = wrapCallerError(cause, { operation: 'op' });
+    expect(err.context.awsErrorName).toBe('TimeoutError');
+  });
+
+  it('still reads that same timeout as the request timing out, at an AWS request site', () => {
+    // There the question is not whose error it is — a request of this package's
+    // timed out, whoever raised it — and `classifyAwsError` has already called it
+    // SERVICE_UNAVAILABLE. The diagnostics have to agree with the code.
+    const cause = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    const err = wrapAwsError(cause, S3VectorsErrorCode.SERVICE_UNAVAILABLE, 'QueryVectors', {
+      operation: 'similaritySearch',
+    });
+    expect(err.context.awsErrorName).toBe('TimeoutError');
+    expect(err.context.retryable).toBe(true);
+  });
+});
+
+describe('wrapEmbeddingsError', () => {
+  it("codes the model's failure as its own class, with the provider's error as the cause", () => {
+    const cause = new Error('429 from the embeddings provider');
+    const err = wrapEmbeddingsError(cause, { operation: 'addDocuments', indexName: 'i' });
+    expect(err.code).toBe(S3VectorsErrorCode.EMBEDDINGS_FAILED);
+    expect(err.cause).toBe(cause);
+    expect(err.message).toBe('addDocuments failed: 429 from the embeddings provider');
+    // No request of this package's failed.
+    expect(err.context).not.toHaveProperty('awsCommand');
+  });
+
+  it('leaves an error that is already ours alone, so a missing model stays EMBEDDINGS_MISSING', () => {
+    // The model lookup runs inside the same `try` as the call to it.
+    const missing = new S3VectorsError('no model', S3VectorsErrorCode.EMBEDDINGS_MISSING, {
+      operation: 'similaritySearch',
+    });
+    expect(wrapEmbeddingsError(missing, { operation: 'similaritySearch' })).toBe(missing);
+  });
+
+  it("reads a provider's own network failure as the provider's, not as an AWS diagnostic", () => {
+    const cause = Object.assign(new Error('getaddrinfo ENOTFOUND api.example'), {
+      code: 'ENOTFOUND',
+    });
+    const err = wrapEmbeddingsError(cause, { operation: 'similaritySearch' });
+    expect(err.context.awsErrorName).toBeUndefined();
+    expect(err.context.retryable).toBeUndefined();
+  });
+
+  it('still reports what an AWS-SDK-based model says about its own service', () => {
+    const cause = Object.assign(new Error('slow down'), {
+      name: 'ThrottlingException',
+      $metadata: { httpStatusCode: 429 },
+    });
+    const err = wrapEmbeddingsError(cause, { operation: 'addDocuments' });
+    expect(err.context.awsErrorName).toBe('ThrottlingException');
     expect(err.context.retryable).toBe(true);
   });
 });

@@ -21,6 +21,9 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
  */
 const SCOPE = { vectorBucketName: 'b', indexName: 'i' } as const;
 
+/** What a text search takes before its callbacks slot. */
+const TEXT_SEARCH = ['query', 'k', 'filter'] as const;
+
 const thrown = (fn: () => void): { code?: string; message: string; context?: unknown } => {
   try {
     fn();
@@ -81,23 +84,46 @@ describe('rejectSignalInCallbacksSlot', () => {
     ['an AbortController', new AbortController()],
   ])('accepts %s, which is what actually appears in that slot', (_label, value) => {
     expect(() => {
-      rejectSignalInCallbacksSlot('similaritySearch', SCOPE, value);
+      rejectSignalInCallbacksSlot('similaritySearch', SCOPE, value, TEXT_SEARCH);
     }).not.toThrow();
   });
 
   it('rejects an AbortSignal and names the slot it belongs in', () => {
     const error = thrown(() => {
-      rejectSignalInCallbacksSlot('similaritySearch', SCOPE, new AbortController().signal);
+      rejectSignalInCallbacksSlot(
+        'similaritySearch',
+        SCOPE,
+        new AbortController().signal,
+        TEXT_SEARCH,
+      );
     });
     expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
     expect(error.message).toContain('5th');
     expect(error.message).toContain('similaritySearch(query, k, filter, undefined, signal)');
   });
 
+  it('names the slots of the method it is guarding, not those of a sibling', () => {
+    // Two parameters before the callbacks slot put it third and the signal
+    // fourth, which is `maxMarginalRelevanceSearch`.
+    const error = thrown(() => {
+      rejectSignalInCallbacksSlot(
+        'maxMarginalRelevanceSearch',
+        SCOPE,
+        new AbortController().signal,
+        ['query', 'options'],
+      );
+    });
+    expect(error.message).toContain('as the 3rd argument');
+    expect(error.message).toContain('as the 4th argument');
+    expect(error.message).toContain(
+      'maxMarginalRelevanceSearch(query, options, undefined, signal)',
+    );
+  });
+
   it('rejects a signal-shaped object from another realm, since this is not instanceof', () => {
     const foreign = { aborted: false, addEventListener: () => undefined };
     expect(() => {
-      rejectSignalInCallbacksSlot('similaritySearch', SCOPE, foreign);
+      rejectSignalInCallbacksSlot('similaritySearch', SCOPE, foreign, TEXT_SEARCH);
     }).toThrow();
   });
 });

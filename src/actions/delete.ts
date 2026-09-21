@@ -84,7 +84,8 @@ export async function deleteVectors(opts: DeleteOptions): Promise<void> {
         'non-filterable-metadata configuration — call deleteIndex() instead.',
     );
   }
-  if (ids === undefined) {
+  // `null` is as missing as `undefined`, which is how every other option reads it.
+  if (ids === undefined || ids === null) {
     throw validationError(
       'delete',
       scope,

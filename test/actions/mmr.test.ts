@@ -31,18 +31,28 @@ function setup(present: string[] = Object.keys(VECTORS)) {
       .filter((k) => present.includes(k))
       .map((k) => ({ key: k, data: { float32: VECTORS[k] }, metadata: { name: k } })),
   }));
-  const run = (overrides: Record<string, unknown> = {}) =>
-    mmrSearch({
+  // `k`, `fetchK` and `lambda` go through `resolveMmrParameters`, as the store
+  // sends them: it is the only thing that can produce the checked values
+  // `mmrSearch` asks for, so it is where a bad one is refused. `async`, so that
+  // refusal is a rejection here as it is from the store.
+  const run = async ({
+    k = 2,
+    fetchK = 3,
+    lambda = 0.5,
+    ...overrides
+  }: Record<string, unknown> = {}) =>
+    await mmrSearch({
       client,
       vectorBucketName: 'b',
       indexName: 'i',
       operation: 'maxMarginalRelevanceSearch',
       distanceMetric: 'cosine',
       queryVector: [1, 0, 0],
-      ...resolveMmrParameters({ k: 2, fetchK: 3, lambda: 0.5 }, 'maxMarginalRelevanceSearch', {
-        vectorBucketName: 'b',
-        indexName: 'i',
-      }),
+      ...resolveMmrParameters(
+        { k, fetchK, lambda } as { k: number; fetchK: number; lambda: number },
+        'maxMarginalRelevanceSearch',
+        { vectorBucketName: 'b', indexName: 'i' },
+      ),
       pageContentMetadataKey: null,
       maxConcurrent: 10,
       ...overrides,
@@ -220,6 +230,39 @@ describe('mmrSearch', () => {
     expect((error as Error).message).toContain(
       'incompatible SDK version or a mocked/stubbed client',
     );
+  });
+
+  it('rejects a candidate that came back with an empty embedding, as a listing does', async () => {
+    // `[]` satisfies a check for `undefined`, so a candidate with no embedding
+    // at all went into the selection as though it had one, and came back out
+    // ranked — the same value `listVectors` has always refused.
+    const { client, mock } = createMockClient();
+    mock.on(QueryVectorsCommand).resolves({
+      distanceMetric: 'cosine',
+      vectors: [{ key: 'same' }, { key: 'hollow' }],
+    });
+    mock.on(GetVectorsCommand).resolves({
+      vectors: [
+        { key: 'same', data: { float32: [1, 0, 0] }, metadata: {} },
+        { key: 'hollow', data: { float32: [] }, metadata: {} },
+      ],
+    });
+    const error = await mmrSearch({
+      client,
+      vectorBucketName: 'b',
+      indexName: 'i',
+      operation: 'maxMarginalRelevanceSearch',
+      distanceMetric: 'cosine',
+      queryVector: [1, 0, 0],
+      ...resolveMmrParameters({ k: 2, fetchK: 2, lambda: 0.5 }, 'maxMarginalRelevanceSearch', {
+        vectorBucketName: 'b',
+        indexName: 'i',
+      }),
+      pageContentMetadataKey: null,
+      maxConcurrent: 10,
+    }).catch((e: unknown) => e);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+    expect((error as Error).message).toContain("vector 'hollow' with an empty embedding");
   });
 
   it('rejects ABORTED without issuing a request when the signal has already fired', async () => {

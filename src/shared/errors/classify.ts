@@ -80,6 +80,28 @@ const BY_NAME: Readonly<Record<string, S3VectorsErrorCode>> = {
 };
 
 /**
+ * The class a declared service exception name maps to, or `undefined`.
+ *
+ * Accepts: whatever an error carried as `name`.
+ *
+ * Returns: the {@link BY_NAME} entry for a string that is one of the service's
+ * own exception names; `undefined` for any other string, and for anything that
+ * is not a string.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: the `typeof` check is the point. `Object.hasOwn` coerces its key,
+ * and coercing an object with no primitive conversion — a null prototype, a
+ * `toString` that throws — raises "Cannot convert object to primitive value".
+ * That ran inside every AWS `catch`, so a TypeError about *describing* a
+ * failure replaced the failure itself, uncoded. A comment here used to say the
+ * coercion "finds nothing"; for those values it never got that far.
+ */
+function declaredCodeOf(name: unknown): S3VectorsErrorCode | undefined {
+  return typeof name === 'string' && Object.hasOwn(BY_NAME, name) ? BY_NAME[name] : undefined;
+}
+
+/**
  * Whether `error`'s own `code` is one of the Node.js system error codes the
  * SDK's retry strategy treats as transient, regardless of `name`.
  *
@@ -108,7 +130,7 @@ export function isTransientNetworkFailure(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const { name, code } = error as { name?: unknown; code?: unknown };
   if (name === SDK_TIMEOUT_ERROR_NAME) return false;
-  if (Object.hasOwn(BY_NAME, name as string)) return false;
+  if (declaredCodeOf(name) !== undefined) return false;
   return typeof code === 'string' && SDK_TRANSIENT_NETWORK_ERROR_CODES.has(code);
 }
 
@@ -136,12 +158,13 @@ export function isTransientNetworkFailure(error: unknown): boolean {
 export function classifyAwsError(error: unknown): S3VectorsErrorCode {
   if (isAbortError(error)) return S3VectorsErrorCode.ABORTED;
   if (typeof error !== 'object' || error === null) return S3VectorsErrorCode.AWS_REQUEST_FAILED;
-  // A non-string `name` needs no guard of its own: `Object.hasOwn` coerces the
-  // key and finds nothing, so it falls through to the code check like any
-  // other unrecognised value.
+  // A `name` that is not a string falls through to the code check like any
+  // other unrecognised value; `declaredCodeOf` is what keeps it from being
+  // coerced on the way.
   const { name } = error as { name?: unknown };
   if (name === SDK_TIMEOUT_ERROR_NAME) return S3VectorsErrorCode.SERVICE_UNAVAILABLE;
-  if (Object.hasOwn(BY_NAME, name as string)) return BY_NAME[name as string] as S3VectorsErrorCode;
+  const declared = declaredCodeOf(name);
+  if (declared !== undefined) return declared;
   return isTransientNetworkFailure(error)
     ? S3VectorsErrorCode.SERVICE_UNAVAILABLE
     : S3VectorsErrorCode.AWS_REQUEST_FAILED;

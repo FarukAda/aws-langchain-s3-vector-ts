@@ -77,11 +77,20 @@ const SYSTEM_CLOCK: RateLimiterClock = {
   sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
 };
 
-/** One rate, as a token bucket holding at most one second's worth. */
+/**
+ * The longest a waiting write sleeps before it looks at its signal again, and
+ * so the longest an abort goes unnoticed while it waits.
+ */
+const LONGEST_SLEEP_MS = 1000;
+
+/**
+ * One rate, as a token bucket holding at most one second's worth — and able to
+ * owe more than that.
+ */
 interface Bucket {
   /** How long to wait before `tokens` could be taken, 0 when they can be now. Takes nothing. */
   readonly waitFor: (tokens: number) => number;
-  /** Take `tokens`. Only valid straight after a `waitFor` that answered 0. */
+  /** Take `tokens`, all of them. Only valid straight after a `waitFor` that answered 0. */
   readonly take: (tokens: number) => void;
 }
 
@@ -89,10 +98,19 @@ function bucket(perSecond: number, clock: RateLimiterClock): Bucket {
   let available = perSecond;
   let last = clock.now();
 
-  // A request larger than a whole second's budget would otherwise wait forever:
-  // it can never be under the cap, so it waits one full second and goes. AWS
-  // tolerates a burst; it is a sustained rate that is refused.
-  const wantedOf = (tokens: number): number => Math.min(tokens, perSecond);
+  // What has to be there before a request may go. A request larger than a whole
+  // second's budget would otherwise wait forever — it can never be under the
+  // cap — so it goes once a full second's worth is available. AWS tolerates a
+  // burst; it is a sustained rate that is refused.
+  //
+  // It is *admitted* on a second's worth and *charged* what it carries (see
+  // `take`), which leaves the balance negative and makes the requests after it
+  // wait the debt out. Charged only the second's worth it was admitted on, a
+  // rate below the size of one request was never held at all: 100 vectors/s
+  // with 500-vector batches wrote 500 a second, and 0.1 requests/s sent one a
+  // second — five and ten times what a caller had asked for, and asked for in
+  // order to share an index's budget with another writer.
+  const admittedOn = (tokens: number): number => Math.min(tokens, perSecond);
 
   const refill = (): void => {
     const now = clock.now();
@@ -114,11 +132,11 @@ function bucket(perSecond: number, clock: RateLimiterClock): Bucket {
     // over-consumed; some also paced slower than the rate the caller set.
     waitFor: (tokens: number): number => {
       refill();
-      const wanted = wantedOf(tokens);
+      const wanted = admittedOn(tokens);
       return available >= wanted ? 0 : Math.ceil(((wanted - available) / perSecond) * 1000);
     },
     take: (tokens: number): void => {
-      available -= wantedOf(tokens);
+      available -= tokens;
     },
   };
 }
@@ -184,7 +202,10 @@ export function createWriteRateLimiter(
           vectors.take(count);
           return;
         }
-        await clock.sleep(wait);
+        // In slices, because a sleep cannot be interrupted and the signal is
+        // only read between them. A wait used to be a second at most; a debt
+        // can be many, and a caller who has given up should not be held for it.
+        await clock.sleep(Math.min(wait, LONGEST_SLEEP_MS));
       }
     },
   };

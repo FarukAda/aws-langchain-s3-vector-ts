@@ -26,6 +26,7 @@ export type AwsCommand =
   | 'GetIndex'
   | 'CreateIndex'
   | 'DeleteIndex'
+  | 'GetVectorBucket'
   | 'PutVectors'
   | 'DeleteVectors'
   | 'QueryVectors'
@@ -160,6 +161,27 @@ function isRetryable(
 }
 
 /**
+ * Whether a value is the web platform's `DOMException`.
+ *
+ * Accepts: any object.
+ *
+ * Returns: `true` for a `DOMException` from any realm, recognised by its
+ * built-in tag rather than `instanceof`, which is unreliable across realms and
+ * banned here.
+ *
+ * Throws: nothing. Reading the tag runs a getter the value may have replaced,
+ * and this is called from inside error handling, where a second failure would
+ * replace the one being reported — so a getter that throws is read as "no".
+ */
+function isDomException(value: object): boolean {
+  try {
+    return Object.prototype.toString.call(value) === '[object DOMException]';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Lift the fields an operator needs first — exception name, HTTP status,
  * request id, retryability — off an AWS SDK error so they sit on the
  * {@link S3VectorsErrorContext} instead of only being reachable by walking
@@ -175,7 +197,9 @@ function isRetryable(
  * for that would send a caller retrying the wrong thing. `$metadata`, a
  * declared `…Exception` name and the SDK's own `TimeoutError` are always
  * AWS-shaped regardless — an AWS-SDK-based model (Bedrock embeddings, say)
- * can legitimately throw one of those.
+ * can legitimately throw one of those. The SDK's `TimeoutError` is a plain
+ * Error; in caller code a `DOMException` of that name is the web platform's
+ * (`AbortSignal.timeout()`, `fetch`) and is not AWS-shaped.
  *
  * Only an AWS-shaped cause contributes anything: one carrying the SDK's
  * `$metadata`, one whose name follows the service-exception convention
@@ -209,9 +233,18 @@ function awsDiagnostics(cause: unknown, includeNetworkCodes: boolean): AwsDiagno
   // is the one place that decides which errors qualify, so it — not a second
   // copy of its conditions — is what `includeNetworkCodes` gates.
   const isTransientNetwork = includeNetworkCodes && isTransientNetworkFailure(cause);
+  // The name alone is the SDK's only at an AWS request site, where a request of
+  // this package's is what timed out, whoever raised it. In caller code the same
+  // name is also the web platform's: `AbortSignal.timeout()` and `fetch` reject
+  // with a DOMException called `TimeoutError`, which is what an embeddings
+  // client that has nothing to do with AWS throws when its own endpoint is
+  // slow. The SDK's is a plain Error it renames, never a DOMException, so that
+  // is the line. Another library's plain Error under this name cannot be told
+  // from the SDK's by shape, and is still read as it.
+  const isSdkTimeout =
+    name === SDK_TIMEOUT_ERROR_NAME && (includeNetworkCodes || !isDomException(cause));
   const isSdkFailure =
-    (name !== undefined && (name.endsWith('Exception') || name === SDK_TIMEOUT_ERROR_NAME)) ||
-    isTransientNetwork;
+    (name !== undefined && name.endsWith('Exception')) || isSdkTimeout || isTransientNetwork;
   if (metadata === undefined && !isSdkFailure) return {};
 
   const out: {
@@ -355,8 +388,9 @@ export function awsFailure(
 }
 
 /**
- * Wrap a failure from caller-supplied code — an embeddings model, a
- * `relevanceScoreFn` — into a coded {@link S3VectorsError}. Always
+ * Wrap a failure from caller-supplied code other than the embeddings model — a
+ * `relevanceScoreFn`, a callback handler — into a coded {@link S3VectorsError}.
+ * (The model has {@link wrapEmbeddingsError}, and a code of its own.) Always
  * `UNEXPECTED_ERROR`: every AWS request site in this package already wraps
  * its own failures with {@link wrapAwsError} before they can reach a
  * caller-code call site's own `catch`, so a value reaching this function came
@@ -389,4 +423,32 @@ export function wrapCallerError(
   context: Omit<S3VectorsErrorContext, 'awsCommand'>,
 ): S3VectorsError {
   return buildWrappedError(cause, S3VectorsErrorCode.UNEXPECTED_ERROR, context, undefined);
+}
+
+/**
+ * Wrap a failure of the caller's embeddings model — `embedDocuments` or
+ * `embedQuery` throwing — into a coded {@link S3VectorsError}.
+ *
+ * Accepts: any thrown value, and the context to record.
+ *
+ * Returns: the value unchanged when it is already an {@link S3VectorsError} —
+ * the `EMBEDDINGS_MISSING` a model lookup raises passes through this way;
+ * otherwise a new `EMBEDDINGS_FAILED` carrying the original as `cause`, with no
+ * `awsCommand`: no request of this package's failed.
+ *
+ * Throws: nothing.
+ *
+ * Guarantees: total, and built exactly as {@link wrapCallerError} builds its
+ * own — the model is caller-supplied code, so a bare Node.js system error
+ * `code` is never read as an AWS diagnostic here either, while `$metadata`, a
+ * declared `…Exception` name and the SDK's own `TimeoutError` still are. The
+ * two differ in the code alone, which is the point: a provider outage is the
+ * failure a caller retries, and sharing `UNEXPECTED_ERROR` with a bug in a
+ * `relevanceScoreFn` meant a retry policy could not tell them apart.
+ */
+export function wrapEmbeddingsError(
+  cause: unknown,
+  context: Omit<S3VectorsErrorContext, 'awsCommand'>,
+): S3VectorsError {
+  return buildWrappedError(cause, S3VectorsErrorCode.EMBEDDINGS_FAILED, context, undefined);
 }

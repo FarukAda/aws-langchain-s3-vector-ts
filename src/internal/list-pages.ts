@@ -158,7 +158,8 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
     indexName: opts.indexName,
   };
 
-  const pageSize = opts.pageSize;
+  // `null` is "not given", as it is for every other option: the service default.
+  const pageSize = opts.pageSize ?? undefined;
   assertPageSize(pageSize, operation, scope);
 
   let nextToken: string | undefined;

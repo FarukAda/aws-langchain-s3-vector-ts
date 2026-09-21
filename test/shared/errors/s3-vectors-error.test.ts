@@ -73,6 +73,7 @@ describe('S3VectorsErrorCode — the value is the contract, not the key', () => 
       'AWS_REJECTED',
       'AWS_REQUEST_FAILED',
       'CONFLICT',
+      'EMBEDDINGS_FAILED',
       'EMBEDDINGS_MISSING',
       'INDEX_CONFIG_MISMATCH',
       'KMS_ERROR',

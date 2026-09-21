@@ -88,6 +88,22 @@ describe('maxMarginalRelevanceSearch', () => {
     expect((error as Error).message).toContain('AbortSignal');
   });
 
+  it('tells a caller who put the signal in the Callbacks slot where this method takes it', async () => {
+    // This method's callbacks slot is its third argument and the signal its
+    // fourth. The refusal used to borrow the text searches' wording — "the 4th
+    // argument … pass it as the 5th: maxMarginalRelevanceSearch(query, k,
+    // filter, undefined, signal)" — and a caller who did as told passed a
+    // number where the options belong, and was refused a second time.
+    const { store } = mmrStore();
+    const error = await store
+      .maxMarginalRelevanceSearch('q', { k: 1 }, new AbortController().signal as never)
+      .catch((e: unknown) => e);
+    const { message } = error as Error;
+    expect(message).toContain('3rd argument');
+    expect(message).toContain('maxMarginalRelevanceSearch(query, options, undefined, signal)');
+    expect(message).not.toContain('query, k, filter');
+  });
+
   it('accepts a signal in the fourth slot and rejects when it has already fired', async () => {
     const { store, mock, embeddings } = mmrStore();
     const ac = new AbortController();

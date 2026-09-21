@@ -13,8 +13,9 @@ import { BASE_CONFIG, createMockClient, createMockEmbeddings, indexFixture } fro
  *
  * That is the guarantee README and the guide both state, and the reason a
  * caller is told to branch on `isS3VectorsError`. The write path honoured it —
- * an `embedDocuments` that throws comes back as `UNEXPECTED_ERROR` — while
- * every read path let the same failure through untouched. So the single most
+ * an `embedDocuments` that throws comes back coded — while every read path let
+ * the same failure through untouched. (Both are `EMBEDDINGS_FAILED` now: the
+ * model's failure has a code of its own, apart from a bug in other caller code.) So the single most
  * likely production failure on a read, the embeddings provider rate-limiting or
  * falling over, was the one case a `catch` written against the documented
  * contract would miss.
@@ -92,7 +93,7 @@ describe('an embeddings failure is coded on every read path, as it already is on
 
   it.each(reads)('%s wraps a throwing embedQuery', async (_label, call) => {
     const error = await codedFailure(async () => call(seededStore(failingEmbeddings())));
-    expect(error.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(error.code).toBe(S3VectorsErrorCode.EMBEDDINGS_FAILED);
     expect(error.cause).toBeInstanceOf(Error);
     expect((error.cause as Error).message).toBe('embed down');
   });
@@ -101,7 +102,7 @@ describe('an embeddings failure is coded on every read path, as it already is on
     const error = await codedFailure(async () =>
       seededStore(failingEmbeddings()).addDocuments([new Document({ pageContent: 'a' })]),
     );
-    expect(error.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(error.code).toBe(S3VectorsErrorCode.EMBEDDINGS_FAILED);
   });
 
   it('wraps a relevanceScoreFn that throws', async () => {
@@ -121,7 +122,7 @@ describe('a caller-code failure never picks up AWS diagnostics it did not earn',
     const error = await codedFailure(async () =>
       seededStore(embeddingsThrowing(networkError)).similaritySearch('q', 2),
     );
-    expect(error.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(error.code).toBe(S3VectorsErrorCode.EMBEDDINGS_FAILED);
     expect(error.context.awsErrorName).toBeUndefined();
     expect(error.context.retryable).toBeUndefined();
   });
@@ -133,7 +134,7 @@ describe('a caller-code failure never picks up AWS diagnostics it did not earn',
         new Document({ pageContent: 'a' }),
       ]),
     );
-    expect(error.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(error.code).toBe(S3VectorsErrorCode.EMBEDDINGS_FAILED);
     expect(error.context.awsErrorName).toBeUndefined();
     expect(error.context.retryable).toBeUndefined();
   });
@@ -149,7 +150,7 @@ describe('a caller-code failure never picks up AWS diagnostics it did not earn',
     const error = await codedFailure(async () =>
       seededStore(embeddingsThrowing(sdkShaped)).similaritySearch('q', 2),
     );
-    expect(error.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(error.code).toBe(S3VectorsErrorCode.EMBEDDINGS_FAILED);
     expect(error.context.awsErrorName).toBe('ThrottlingException');
     expect(error.context.retryable).toBe(true);
   });

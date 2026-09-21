@@ -16,7 +16,7 @@ Stable error codes surfaced by [S3VectorsError](../classes/S3VectorsError.md).
 
 > **ABORTED**: `"ABORTED"`
 
-Defined in: [shared/errors/error-code.ts:99](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L99)
+Defined in: [shared/errors/error-code.ts:116](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L116)
 
 The caller-supplied `AbortSignal` fired before or during the operation.
 
@@ -26,7 +26,7 @@ The caller-supplied `AbortSignal` fired before or during the operation.
 
 > **ACCESS\_DENIED**: `"ACCESS_DENIED"`
 
-Defined in: [shared/errors/error-code.ts:66](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L66)
+Defined in: [shared/errors/error-code.ts:83](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L83)
 
 `AccessDeniedException` (403). An IAM problem, not a retryable one.
 
@@ -36,7 +36,7 @@ Defined in: [shared/errors/error-code.ts:66](https://github.com/FarukAda/aws-lan
 
 > **AWS\_INVALID\_RESPONSE**: `"AWS_INVALID_RESPONSE"`
 
-Defined in: [shared/errors/error-code.ts:101](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L101)
+Defined in: [shared/errors/error-code.ts:118](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L118)
 
 An AWS response was missing fields this library requires to proceed.
 
@@ -46,7 +46,7 @@ An AWS response was missing fields this library requires to proceed.
 
 > **AWS\_REJECTED**: `"AWS_REJECTED"`
 
-Defined in: [shared/errors/error-code.ts:81](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L81)
+Defined in: [shared/errors/error-code.ts:98](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L98)
 
 `ValidationException` (400). AWS rejected the request; `context.fieldList` names the field.
 
@@ -56,7 +56,7 @@ Defined in: [shared/errors/error-code.ts:81](https://github.com/FarukAda/aws-lan
 
 > **AWS\_REQUEST\_FAILED**: `"AWS_REQUEST_FAILED"`
 
-Defined in: [shared/errors/error-code.ts:50](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L50)
+Defined in: [shared/errors/error-code.ts:67](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L67)
 
 An underlying AWS S3 Vectors request failed, and no narrower class applies.
 
@@ -66,7 +66,7 @@ An underlying AWS S3 Vectors request failed, and no narrower class applies.
 
 > **CONFLICT**: `"CONFLICT"`
 
-Defined in: [shared/errors/error-code.ts:77](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L77)
+Defined in: [shared/errors/error-code.ts:94](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L94)
 
 `ConflictException` (409): "a vector bucket name or a vector index name
 already exists" (`@aws-sdk/client-s3vectors` `models/errors.d.ts`).
@@ -74,6 +74,29 @@ already exists" (`@aws-sdk/client-s3vectors` `models/errors.d.ts`).
 In practice always the index here, since this package never creates a
 bucket — but the exception is the service's, not this package's, so the
 wording is the service's too.
+
+***
+
+### EMBEDDINGS\_FAILED
+
+> **EMBEDDINGS\_FAILED**: `"EMBEDDINGS_FAILED"`
+
+Defined in: [shared/errors/error-code.ts:65](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L65)
+
+The embeddings model threw: `embedDocuments` on a write, `embedQuery` on a
+text search. The provider's own error is the `cause`.
+
+A class of its own because it is the likeliest production failure this
+package sees that is not AWS's — a provider rate-limiting or falling over —
+and a caller's response to it is a retry policy of its own. It used to
+share `UNEXPECTED_ERROR` with a bug in caller-supplied code and with input
+that bypassed validation, so retrying the one meant retrying the others.
+
+No request of this package's failed, so no `awsCommand` is set. An
+AWS-SDK-based model (Bedrock embeddings, say) that throws its own service
+exception still carries `awsErrorName` and `retryable`, about *that*
+service. A model that returns something unusable, rather than throwing, is
+`VALIDATION`.
 
 ***
 
@@ -91,7 +114,7 @@ An operation needed an embedding model but none was configured.
 
 > **INDEX\_CONFIG\_MISMATCH**: `"INDEX_CONFIG_MISMATCH"`
 
-Defined in: [shared/errors/error-code.ts:97](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L97)
+Defined in: [shared/errors/error-code.ts:114](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L114)
 
 An existing index disagrees with this store's configuration.
 
@@ -113,7 +136,7 @@ embedded batch for `addDocuments`, before that batch is written.
 
 > **KMS\_ERROR**: `"KMS_ERROR"`
 
-Defined in: [shared/errors/error-code.ts:79](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L79)
+Defined in: [shared/errors/error-code.ts:96](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L96)
 
 One of the four KMS exceptions (400). Key state — an operator's problem.
 
@@ -137,7 +160,7 @@ id that is not stored — absence is an ordinary answer, not a failure.
 
 > **PAGE\_LIMIT\_EXCEEDED**: `"PAGE_LIMIT_EXCEEDED"`
 
-Defined in: [shared/errors/error-code.ts:119](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L119)
+Defined in: [shared/errors/error-code.ts:136](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L136)
 
 A paginated read stopped with pages still outstanding, because this
 library's runaway page ceiling was reached. Both paginators raise it, and
@@ -161,7 +184,7 @@ non-conforming client replaying one response.
 
 > **QUOTA\_EXCEEDED**: `"QUOTA_EXCEEDED"`
 
-Defined in: [shared/errors/error-code.ts:68](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L68)
+Defined in: [shared/errors/error-code.ts:85](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L85)
 
 `ServiceQuotaExceededException` (402). Needs a quota increase, not a retry.
 
@@ -171,7 +194,7 @@ Defined in: [shared/errors/error-code.ts:68](https://github.com/FarukAda/aws-lan
 
 > **SERVICE\_UNAVAILABLE**: `"SERVICE_UNAVAILABLE"`
 
-Defined in: [shared/errors/error-code.ts:64](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L64)
+Defined in: [shared/errors/error-code.ts:81](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L81)
 
 `InternalServerException` (500), `ServiceUnavailableException` (503) or
 `RequestTimeoutException` (408), or the SDK's own `TimeoutError` — a
@@ -189,7 +212,7 @@ resource capacity, which backoff cannot fix.
 
 > **THROTTLED**: `"THROTTLED"`
 
-Defined in: [shared/errors/error-code.ts:52](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L52)
+Defined in: [shared/errors/error-code.ts:69](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L69)
 
 `TooManyRequestsException` (429). Retry after backoff.
 
@@ -199,11 +222,15 @@ Defined in: [shared/errors/error-code.ts:52](https://github.com/FarukAda/aws-lan
 
 > **UNEXPECTED\_ERROR**: `"UNEXPECTED_ERROR"`
 
-Defined in: [shared/errors/error-code.ts:127](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L127)
+Defined in: [shared/errors/error-code.ts:148](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L148)
 
 A failure that didn't come from an AWS request — a raw throw from
-caller-supplied code (e.g. an embeddings model) or caller input that
-bypassed validation (e.g. a malformed argument to a static factory).
+caller-supplied code other than the embeddings model (a `relevanceScoreFn`,
+a callback handler; the model has `EMBEDDINGS_FAILED`) or caller input that
+bypassed validation — above all a getter that throws when a document, a
+filter, an options bag or the configuration is read, which is the
+caller's code running inside the check. Every public method and both
+constructors report it this way.
 Distinct from `AWS_REQUEST_FAILED`, which is reserved for an actual
 AWS S3 Vectors request failing.
 

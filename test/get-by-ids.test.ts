@@ -3,7 +3,7 @@ import { describe, it, expect } from '@jest/globals';
 
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError, S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
-import { createTestStore } from './helpers.js';
+import { createTestStore, gate } from './helpers.js';
 
 describe('AmazonS3Vectors.getByIds — ids are checked before any request (R6)', () => {
   it.each([
@@ -119,7 +119,14 @@ describe('getByIds — partial-failure reporting', () => {
 
   it('when two batches in the same group both fail, reports the first failure and still counts every found sibling', async () => {
     const { store, mock } = createTestStore();
-    mock.on(GetVectorsCommand).callsFake((input) => {
+    // Held until all five are in flight, which is what "the same group" means.
+    // Nothing is dispatched once a failure has landed, so a fake that settled
+    // each call the moment it was made would never let id-4 and id-5 start.
+    const allInFlight = gate();
+    let dispatched = 0;
+    mock.on(GetVectorsCommand).callsFake(async (input) => {
+      if (++dispatched === 5) allInFlight.open();
+      await allInFlight.promise;
       const key = input.keys?.[0];
       if (key === 'id-2') throw new Error('first failure');
       if (key === 'id-3') throw new Error('second failure');

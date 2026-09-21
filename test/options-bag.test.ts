@@ -7,6 +7,7 @@ import {
   QueryVectorsCommand,
 } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
+import { Document } from '@langchain/core/documents';
 
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
@@ -173,5 +174,60 @@ describe('a non-object options bag is refused, not read as absent', () => {
       await store.deleteIndex(bag as Parameters<typeof store.deleteIndex>[0]);
       expect(mock.commandCalls(DeleteIndexCommand)).toHaveLength(1);
     });
+  });
+});
+
+describe('a null option means "not given", as a null bag, signal, filter and client do', () => {
+  // A DTO layer or a config assembled at runtime defaults an absent field to
+  // `null`. Every other nullable input here reads that as absence; `ids` and
+  // `pageSize` alone refused it, so one field out of a write's options failed
+  // the write.
+  it('addDocuments reads ids: null as no ids, and takes them from the documents', async () => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+    const ids = await store.addDocuments([new Document({ pageContent: 'a', id: 'doc-1' })], {
+      ids: null as never,
+    });
+    expect(ids).toEqual(['doc-1']);
+  });
+
+  it('addVectors reads ids: null the same way', async () => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+    const ids = await store.addVectors(
+      [[1, 2, 3]],
+      [new Document({ pageContent: 'a', id: 'v-1' })],
+      {
+        ids: null as never,
+      },
+    );
+    expect(ids).toEqual(['v-1']);
+  });
+
+  it('a refusal about a document-derived id still says where the ids came from', async () => {
+    const { store } = createTestStore();
+    const error = await store
+      .addDocuments([new Document({ pageContent: 'a', id: '' })], { ids: null as never })
+      .catch((e: unknown) => e);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as S3VectorsError).message).toContain("the documents' own `id` fields");
+  });
+
+  it('delete still requires ids: null is as missing as undefined', async () => {
+    const { store, mock } = createTestStore();
+    const error = await store.delete({ ids: null as never }).catch((e: unknown) => e);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as S3VectorsError).message).toContain('delete() requires `ids`');
+    expect(mock.commandCalls(DeleteVectorsCommand)).toHaveLength(0);
+  });
+
+  it('listDocuments reads pageSize: null as the service default', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(ListVectorsCommand).resolves({ vectors: [] });
+    const first = await store.listDocuments({ pageSize: null as never }).next();
+    expect(first.done).toBe(true);
+    expect(mock.commandCalls(ListVectorsCommand)[0]!.args[0].input).not.toHaveProperty(
+      'maxResults',
+    );
   });
 });
