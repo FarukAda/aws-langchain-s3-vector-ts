@@ -4,7 +4,7 @@ import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
-import type { S3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
+import { isS3VectorsError, type S3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
 import { flattenMetadata } from '../../src/shared/flatten-metadata.js';
 import { BASE_CONFIG, createMockClient, indexFixture } from '../helpers.js';
 
@@ -147,6 +147,71 @@ describe('flattenMetadata', () => {
     const refusal = refusalOf(() => flattenMetadata(JSON.parse(json)));
     expect(refusal.code).toBe(S3VectorsErrorCode.VALIDATION);
     expect(refusal.message).toMatch(/nest/i);
+  });
+
+  it('codes a failure from an accessor on the caller’s metadata, rather than letting it out raw', () => {
+    // `Object.entries` runs the caller's getters, and a getter is the caller's
+    // code: a lazily loaded ORM field whose session has closed is the case this
+    // is named after. Every other entry point in this package reports such a
+    // failure as `UNEXPECTED_ERROR` (see `test/hostile-getters.test.ts`); this
+    // one let it out as a raw Error, so `isS3VectorsError` said `false` about a
+    // failure raised inside this package.
+    const metadata: Record<string, unknown> = { source: 'report.pdf' };
+    Object.defineProperty(metadata, 'body', {
+      enumerable: true,
+      get: (): never => {
+        throw new Error('ORM session closed');
+      },
+    });
+
+    const refusal = refusalOf(() => flattenMetadata(metadata));
+
+    expect(isS3VectorsError(refusal)).toBe(true);
+    expect(refusal.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect(refusal.context.operation).toBe('flattenMetadata');
+    expect((refusal.cause as Error).message).toBe('ORM session closed');
+  });
+
+  it('codes a failure from an accessor nested inside the metadata', () => {
+    const nested: Record<string, unknown> = {};
+    Object.defineProperty(nested, 'lines', {
+      enumerable: true,
+      get: (): never => {
+        throw new Error('nested boom');
+      },
+    });
+
+    const refusal = refusalOf(() => flattenMetadata({ loc: nested }));
+
+    expect(refusal.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect((refusal.cause as Error).message).toBe('nested boom');
+  });
+
+  it('codes a failure from reading the prototype of what it was handed', () => {
+    // The shape check itself reads the value: a Proxy whose getPrototypeOf trap
+    // throws fails before the walk starts, and must still come back coded.
+    const hostile = new Proxy(
+      {},
+      {
+        getPrototypeOf: (): never => {
+          throw new Error('trap boom');
+        },
+      },
+    );
+
+    const refusal = refusalOf(() => flattenMetadata(hostile));
+
+    expect(refusal.code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    expect((refusal.cause as Error).message).toBe('trap boom');
+  });
+
+  it('leaves its own refusals as VALIDATION, rather than re-coding them on the way out', () => {
+    // The wrapper above must not swallow the three refusals this function
+    // documents: they are already this package's errors and already name it.
+    const collision = refusalOf(() => flattenMetadata({ 'a.b': 1, a: { b: 2 } }));
+    expect(collision.code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(collision.context.operation).toBe('flattenMetadata');
+    expect(collision.cause).toBeUndefined();
   });
 
   it('refuses metadata that expands combinatorially through shared references', () => {

@@ -8,7 +8,7 @@
 
 > **flattenMetadata**(`metadata`): `Record`\<`string`, `unknown`\>
 
-Defined in: [shared/flatten-metadata.ts:100](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/flatten-metadata.ts#L100)
+Defined in: [shared/flatten-metadata.ts:106](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/flatten-metadata.ts#L106)
 
 Flatten nested document metadata into the shape S3 Vectors stores.
 
@@ -22,7 +22,12 @@ are left alone.
 
 Throws: [S3VectorsError](../classes/S3VectorsError.md) with code `VALIDATION` when two fields would
 flatten onto the same key, when the metadata contains a circular reference,
-or when it is not an object at all.
+when it is nested or aliased past what this can walk, or when it is not an
+object at all; and with code `UNEXPECTED_ERROR`, carrying what was thrown as
+the `cause`, when reading the caller's own object throws — an accessor on it
+is the caller's code, and it runs here. Nothing else leaves this function:
+every failure is one of this package's errors, as it is from every method on
+the store.
 
 Guarantees, and the reasons for them:
 - **Nothing is converted.** A value this cannot flatten — a `Date`, a mixed

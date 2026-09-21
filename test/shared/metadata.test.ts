@@ -283,7 +283,7 @@ describe('buildPutMetadata — arrays (docs/evidence/metadata-value-types.md, T3
   it('refuses an empty array, which S3 Vectors rejects', () => {
     const error = refusalOf(() => buildWith({ tags: [] }));
     expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
-    expect(error.message).toContain("Metadata key 'tags' is an empty array");
+    expect(error.message).toContain("The metadata value under key 'tags' is an empty array");
     expect(error.message).toContain('Empty arrays are not allowed in metadata');
   });
 
@@ -329,12 +329,12 @@ describe('buildPutMetadata — strings AWS cannot decode (docs/evidence/string-e
     [
       'a value',
       { title: 'x\ud800' },
-      "Metadata key 'title' contains an unpaired UTF-16 surrogate at position 1.",
+      "The metadata value under key 'title' contains an unpaired UTF-16 surrogate at position 1.",
     ],
     [
       'an array element',
       { tags: ['ok', '\udc00'] },
-      "Metadata key 'tags' has a string at index 1 that contains an unpaired UTF-16 surrogate at position 0.",
+      "The metadata value under key 'tags' has a string at index 1 that contains an unpaired UTF-16 surrogate at position 0.",
     ],
     [
       'a key',
@@ -352,8 +352,26 @@ describe('buildPutMetadata — strings AWS cannot decode (docs/evidence/string-e
       buildPutMetadata(new Document({ pageContent: 'cut \ud83d' }), RECORD_OPTIONS),
     );
     expect(error.message).toContain(
-      "Metadata key '_page_content' contains an unpaired UTF-16 surrogate at position 4.",
+      'Its pageContent contains an unpaired UTF-16 surrogate at position 4.',
     );
+    // Never the page-content key. That key is the one this package adds, so
+    // naming it sends the caller looking through metadata for a field that is
+    // not theirs — and this message says itself that text cut by UTF-16 code
+    // unit is the usual cause, which is page content, cut by a chunker.
+    expect(error.message).not.toContain('_page_content');
+  });
+
+  it('tells a malformed key apart from a malformed value under a well-formed key', () => {
+    // The two produced the same sentence, differing only in the quotes around
+    // the key — and `position` counts into whichever string is at fault, so a
+    // caller could tell neither which of the two to fix nor what the position
+    // was an offset into.
+    const badKey = refusalOf(() => buildWith({ ['k\ud800']: 'v' })).message;
+    const badValue = refusalOf(() => buildWith({ k: 'v\ud800' })).message;
+
+    expect(badKey).toContain('Metadata key "k\\ud800" contains an unpaired');
+    expect(badValue).toContain("The metadata value under key 'k' contains an unpaired");
+    expect(badKey).not.toBe(badValue);
   });
 
   it('does not examine page content that is not stored', () => {
@@ -376,7 +394,7 @@ describe('buildPutMetadata — names the record (R3)', () => {
   it('leads every refusal with the record, and carries it in context', () => {
     const error = refusalOf(() => buildWith({ category: null }));
     expect(error.message).toMatch(
-      /^Document at index 400 \(id "ticket-400"\): Metadata key 'category' has a value/,
+      /^Document at index 400 \(id "ticket-400"\): The metadata value under key 'category' is not a type/,
     );
     expect(error.context).toEqual({
       operation: 'addDocuments',

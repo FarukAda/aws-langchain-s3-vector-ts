@@ -171,7 +171,7 @@ describe('AmazonS3Vectors.addDocuments — nothing is spent on an input that can
 
     expect(error.code).toBe(S3VectorsErrorCode.VALIDATION);
     expect(error.message).toMatch(
-      /^Document at index 4 \(id "ticket-4"\): Metadata key 'category'/,
+      /^Document at index 4 \(id "ticket-4"\): The metadata value under key 'category'/,
     );
     expect(error.context).toMatchObject({ recordIndex: 4, recordId: 'ticket-4' });
     expect(error.context.writtenIds).toBeUndefined();

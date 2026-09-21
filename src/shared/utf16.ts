@@ -12,7 +12,10 @@ const UNPAIRED_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBF
  * Accepts: any string.
  *
  * Returns: `undefined` when the string is well-formed UTF-16. Otherwise a clause
- * written to follow a subject ("Metadata key 'title' …"), naming the position of
+ * written to follow a subject that names the string at fault — "Metadata key
+ * 'title' …", "The metadata value under key 'title' …", "Its pageContent …" —
+ * rather than the key it was reached through, because the position below is an
+ * offset into that string and into no other. The clause names the position of
  * the first unpaired surrogate and what it costs: S3 Vectors fails the whole
  * request that carries it with `SerializationException` ("UnknownError"),
  * wherever the string travels — a metadata key or value, a vector key, a filter,

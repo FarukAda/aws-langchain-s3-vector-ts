@@ -9,6 +9,7 @@
 import { describeValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
+import { wrapCallerError } from './errors/wrap-error.js';
 import { defineOwn, isPlainObject } from './objects.js';
 
 /** Between a nested object's key and its own, as `loc.lines.from`. */
@@ -65,7 +66,12 @@ function fail(message: string): never {
  *
  * Throws: {@link S3VectorsError} with code `VALIDATION` when two fields would
  * flatten onto the same key, when the metadata contains a circular reference,
- * or when it is not an object at all.
+ * when it is nested or aliased past what this can walk, or when it is not an
+ * object at all; and with code `UNEXPECTED_ERROR`, carrying what was thrown as
+ * the `cause`, when reading the caller's own object throws — an accessor on it
+ * is the caller's code, and it runs here. Nothing else leaves this function:
+ * every failure is one of this package's errors, as it is from every method on
+ * the store.
  *
  * Guarantees, and the reasons for them:
  * - **Nothing is converted.** A value this cannot flatten — a `Date`, a mixed
@@ -98,6 +104,36 @@ function fail(message: string): never {
  * ```
  */
 export function flattenMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  try {
+    return flatten(metadata);
+  } catch (error: unknown) {
+    // Reading the caller's object — the shape check's `getPrototypeOf`, and
+    // `Object.entries` on every level below it — runs whatever accessors are
+    // behind it, and an accessor is the caller's code: a lazily loaded ORM field
+    // whose session has closed, a revoked `Proxy`. Every other entry point in
+    // this package reports that as `UNEXPECTED_ERROR`; this one, the only
+    // published function that is not a method on the store, let it out exactly
+    // as it was thrown — uncoded, so `isS3VectorsError` said `false` about a
+    // failure raised inside this package, on the one path whose whole job is to
+    // refuse bad metadata by name.
+    //
+    // `wrapCallerError` returns an error that is already ours unchanged, so the
+    // three `VALIDATION` refusals below pass through naming this function.
+    throw wrapCallerError(error, { operation: 'flattenMetadata' });
+  }
+}
+
+/**
+ * {@link flattenMetadata} itself, with nothing said about how a failure is
+ * reported.
+ *
+ * Accepts, returns and throws exactly what {@link flattenMetadata} documents,
+ * except that a read of the caller's object leaves it as whatever it threw. It
+ * is separate so the coding sits in one `try` around the whole walk rather than
+ * around each read — the reads are one per level, and a rule restated at each
+ * of them is a rule one of them will not have.
+ */
+function flatten(metadata: Record<string, unknown>): Record<string, unknown> {
   if (!isPlainObject(metadata)) {
     fail(
       `flattenMetadata takes a document's metadata object (received ${describeValue(metadata)}).`,

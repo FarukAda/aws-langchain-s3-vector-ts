@@ -76,7 +76,7 @@ function rejectionReason(value: unknown): string | undefined {
   }
   if (Array.isArray(value)) return arrayRejectionReason(value);
   return (
-    'has a value S3 Vectors does not accept. Values must be a string, number, boolean, ' +
+    'is not a type S3 Vectors accepts. Values must be a string, number, boolean, ' +
     'or a non-empty array of only strings or only numbers'
   );
 }
@@ -192,7 +192,11 @@ function describeBudgetedMetadataKeys(nonFilterableMetadataKeys: readonly string
  * the reserved key; when a key or a string value is not well-formed UTF-16; when
  * a value is not a string, finite number, boolean, or non-empty array of only
  * strings or only finite numbers; when the key count exceeds 50 including the key
- * this package adds; or when either byte ceiling is exceeded.
+ * this package adds; or when either byte ceiling is exceeded. Each refusal names
+ * the string it is about rather than the key it was reached through — a key, the
+ * value under a key, or the document's own `pageContent`, which is what the
+ * page-content key holds — because a caller cannot fix what the message does not
+ * name, and `position` in an encoding complaint is an offset into that string.
  *
  * Guarantees: every rule is one S3 Vectors enforces, measured against the live
  * service rather than inferred from documentation (docs/evidence/), or the
@@ -233,7 +237,22 @@ export function buildPutMetadata(
       fail(`Metadata key ${JSON.stringify(describeKey(key))} ${keyReason}.`);
     }
     const reason = rejectionReason(value);
-    if (reason !== undefined) fail(`Metadata key '${describeKey(key)}' ${reason}.`);
+    // Named for what is actually wrong. Both refusals used to read "Metadata
+    // key 'x' …", differing only in the quotes around the key, so a caller
+    // could tell neither which of the two to fix nor what the `position` in an
+    // encoding complaint was an offset into. And under the page-content key the
+    // value *is* `doc.pageContent` — the check above refuses a document that
+    // brought its own value for that key — so naming the key sent the caller
+    // hunting through metadata for a field this package added, for text a
+    // chunker had cut through a surrogate pair, which is the likeliest way to
+    // reach this rule at all.
+    if (reason !== undefined) {
+      fail(
+        key === pageContentMetadataKey
+          ? `Its pageContent ${reason}.`
+          : `The metadata value under key '${describeKey(key)}' ${reason}.`,
+      );
+    }
     // Copied once known to be storable: the record owns everything that was
     // validated, and the caller keeps their own array to do with as they like.
     if (Array.isArray(value)) defineOwn(metadata, key, [...(value as unknown[])]);

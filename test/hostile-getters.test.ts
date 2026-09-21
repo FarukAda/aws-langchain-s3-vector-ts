@@ -5,6 +5,7 @@ import { AmazonS3VectorsRetriever } from '../src/retriever.js';
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
 import { isS3VectorsError, type S3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
+import { flattenMetadata } from '../src/shared/flatten-metadata.js';
 import type { AmazonS3VectorsConfig } from '../src/types.js';
 import { BASE_CONFIG, createMockClient, createMockEmbeddings, createTestStore } from './helpers.js';
 
@@ -225,6 +226,26 @@ describe('what the boundary does not touch', () => {
     expect((first as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
     expect((first as S3VectorsError).context.operation).toBe('getByIds');
     expect((first as S3VectorsError).message).toBe('ids must be an array.');
+  });
+});
+
+describe('the one published function that is not a method on the store', () => {
+  it('flattenMetadata comes back coded when an accessor on the metadata throws', () => {
+    // This table is what makes the invariant a rule rather than a habit, and
+    // `flattenMetadata` was missing from it — so the only published function
+    // that reads a caller's object without a store around it was also the only
+    // one that let the read's failure out raw.
+    let error: unknown;
+    try {
+      flattenMetadata(throwingOn({ source: 'report.pdf' }, 'body'));
+    } catch (thrown: unknown) {
+      error = thrown;
+    }
+    expect(isS3VectorsError(error)).toBe(true);
+    expect((error as S3VectorsError).code).toBe(S3VectorsErrorCode.UNEXPECTED_ERROR);
+    // No bucket or index: this function is not bound to an index.
+    expect((error as S3VectorsError).context.operation).toBe('flattenMetadata');
+    expect(((error as S3VectorsError).cause as Error).message).toBe(BOOM);
   });
 });
 

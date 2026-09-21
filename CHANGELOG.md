@@ -550,6 +550,48 @@ All of these raise `VALIDATION` before anything billable is spent.
 
 ### Fixed
 
+- **`flattenMetadata` reports a failure the way every other entry point does.**
+  It reads the caller's object — the shape check's prototype read, then
+  `Object.entries` at every level below it — and those reads run whatever
+  accessors are on it. An accessor is the caller's code: a lazily loaded ORM
+  field whose session has closed, a revoked `Proxy`. Every method on the store
+  and both constructors code such a failure as `UNEXPECTED_ERROR` with what was
+  thrown as `error.cause`; this function, the only published one that is not a
+  method on the store, let it out exactly as it was thrown — so
+  `isS3VectorsError` answered `false` about a failure raised inside this package,
+  on the one path whose whole job is to refuse unstorable metadata by name. The
+  same metadata handed to `addDocuments` came back coded, which is what made the
+  gap hard to see. Its three `VALIDATION` refusals are unchanged and still name
+  `flattenMetadata`. `test/hostile-getters.test.ts` is the table that fixes the
+  rule for the whole surface, and this function was missing from it; it is in it
+  now.
+
+- **A refused metadata value says which string is at fault.** A malformed key and
+  a malformed value under a well-formed key produced the same sentence — `Metadata
+  key 'title' contains an unpaired UTF-16 surrogate at position 1.` — differing
+  only in the quotes around the key, so a caller could tell neither which of the
+  two to fix nor what `position` was an offset into. The value case reads `The
+  metadata value under key 'title' …` now. Worse was page content: the value
+  under the page-content key *is* `document.pageContent`, because a document
+  bringing its own value for that key is refused before this check, so the
+  message named `_page_content` — a key the caller never wrote, added by this
+  package — and sent them hunting through metadata for it. It reads `Its
+  pageContent …` now. That is the likeliest way to reach this rule at all: the
+  message itself says text cut by UTF-16 code unit is the usual cause, and that
+  text is page content, cut by a chunker through a surrogate pair. A value of a
+  type S3 Vectors does not store reads `… is not a type S3 Vectors accepts`
+  rather than `… has a value S3 Vectors does not accept`, so one subject fits
+  every reason. Branch on `code`, `context` and `cause`, never on text.
+
+- **The prose about CI's Node matrix says 22, 24 and 26, which is what it runs.**
+  The matrix gained Node 26 and two sentences were left behind claiming 22 and 24
+  — one in README's Runtime Requirements, one in CONTRIBUTING's description of
+  CI. Three other places in README were right, which is what made the two stale
+  ones invisible. `test/contract/documented-node-matrix.test.ts` reads the matrix
+  out of `ci.yml` and holds every line that enumerates it to enumerating all of
+  it, so adding a Node line and forgetting a sentence fails there rather than in
+  a reader's terminal.
+
 - **Writes waiting on the rate limit go in the order they asked.** Each waiter
   polled the budget on its own, and a request is admitted once *its* size is
   there — so a 100-vector request, needing a tenth of what a 1,000-vector one
