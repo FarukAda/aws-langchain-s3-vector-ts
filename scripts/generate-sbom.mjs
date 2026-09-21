@@ -111,16 +111,21 @@ const runtime = {
           'dependencies; the components listed are its peerDependencies, which the consumer ' +
           'installs and resolves themselves. Each carries npm:peerDependency:range — the ' +
           'declared range — alongside the version this build happened to resolve, which is not ' +
-          'a claim about any consumer lockfile. For the toolchain that produced the tarball, ' +
-          'see sbom.build.cyclonedx.json.',
+          'a claim about any consumer lockfile. The peers are deliberately absent from the ' +
+          'dependency graph: what each of them depends on is decided by the version a consumer ' +
+          'resolves, so it is left unknown here rather than stated. For the toolchain that ' +
+          'produced the tarball, see sbom.build.cyclonedx.json.',
       },
     ],
   },
   components: peers,
-  dependencies: [
-    { ref: root['bom-ref'], dependsOn: peers.map((peer) => peer['bom-ref']) },
-    ...peers.map((peer) => ({ ref: peer['bom-ref'], dependsOn: [] })),
-  ],
+  // The root, and nothing else. CycloneDX reads an entry with an empty
+  // `dependsOn` as a statement — "this component has no dependencies" — and a
+  // component missing from the graph as unknown. Each peer used to be written
+  // `{ ref, dependsOn: [] }`, which said the AWS SDK client depends on nothing.
+  // It depends on a great deal, and on what depends on the version a consumer
+  // installs, which this document cannot know; so it says nothing.
+  dependencies: [{ ref: root['bom-ref'], dependsOn: peers.map((peer) => peer['bom-ref']) }],
 };
 
 const write = (name, document) => {

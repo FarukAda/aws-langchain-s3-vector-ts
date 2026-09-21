@@ -25,6 +25,8 @@
  */
 import { readFileSync } from 'node:fs';
 
+import { isMain } from './is-main.mjs';
+
 /** `1.2.3`, with no range syntax around it. */
 const EXACT = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
@@ -60,7 +62,7 @@ export function peerFloors(manifest) {
   );
 }
 
-if (import.meta.filename === process.argv[1]) {
+if (isMain(import.meta.url)) {
   const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
   const specs = peerFloors(manifest);
   if (specs.length === 0) {

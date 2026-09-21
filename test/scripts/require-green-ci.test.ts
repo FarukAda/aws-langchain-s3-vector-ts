@@ -20,6 +20,8 @@ import { describe, expect, it } from '@jest/globals';
 import { evaluate, parseCheckRuns, REQUIRED_CHECKS } from '../../scripts/require-green-ci.mjs';
 
 interface CheckRun {
+  /** Absent on the fixtures that hold one run per name, where nothing has to be ordered. */
+  readonly id?: number;
   readonly name: string;
   readonly status: string;
   readonly conclusion: string | null;
@@ -141,11 +143,56 @@ describe('evaluate', () => {
     // GitHub keeps both check runs after a re-run, so the failed attempt is
     // still in the response. Requiring "no failed run of this name" would make
     // a re-run unable to unblock a release, which is the point of re-running.
+    // The later run is the one with the higher id.
+    const name = 'test (node 22 on windows-latest)';
     const verdict = classify([
-      ...allGreen(),
-      { name: 'test (node 22 on windows-latest)', status: 'completed', conclusion: 'failure' },
+      ...allGreenExcept(name, { id: 101, name, status: 'completed', conclusion: 'failure' }),
+      { id: 102, name, status: 'completed', conclusion: 'success' },
     ]);
     expect(verdict).toMatchObject({ failed: [], pending: [] });
+  });
+
+  it('refuses when a newer run of a required check failed after an older one succeeded', () => {
+    // The live suite dispatched by hand on the commit before tagging, green;
+    // then the tag's own run of it, red. "Some run of this name succeeded"
+    // published that, which is the suite gating nothing.
+    const name = 'live-aws integration';
+    const verdict = classify([
+      ...allGreenExcept(name, { id: 101, name, status: 'completed', conclusion: 'success' }),
+      { id: 102, name, status: 'completed', conclusion: 'failure' },
+    ]);
+    expect(verdict.failed.map((run) => run.name)).toEqual([name]);
+    expect(verdict.pending).toEqual([name]);
+  });
+
+  it('waits on a newer run still in progress, whatever an older run concluded', () => {
+    const name = 'live-aws integration';
+    const verdict = classify([
+      ...allGreenExcept(name, { id: 101, name, status: 'completed', conclusion: 'success' }),
+      { id: 102, name, status: 'in_progress', conclusion: null },
+    ]);
+    expect(verdict.pending).toEqual([name]);
+    expect(verdict.failed).toEqual([]);
+  });
+
+  it('orders runs by id, not by their position in the response', () => {
+    const name = 'npm audit (high+)';
+    const verdict = classify([
+      { id: 102, name, status: 'completed', conclusion: 'failure' },
+      ...allGreenExcept(name, { id: 101, name, status: 'completed', conclusion: 'success' }),
+    ]);
+    expect(verdict.failed.map((run) => run.name)).toEqual([name]);
+  });
+
+  it('fails closed when two runs of one name cannot be ordered', () => {
+    // No ids means the workflow stopped asking for them. Which run is the
+    // newer one is then unknowable, and guessing "the green one" is the hole.
+    const name = 'peer dependency floors';
+    const verdict = classify([
+      ...allGreenExcept(name, { name, status: 'completed', conclusion: 'success' }),
+      { name, status: 'completed', conclusion: 'failure' },
+    ]);
+    expect(verdict.failed.map((run) => run.name)).toEqual([name]);
   });
 
   it('ignores a failing check that is not on the list', () => {

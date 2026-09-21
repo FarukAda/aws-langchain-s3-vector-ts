@@ -1323,7 +1323,7 @@ The store uses the following S3 Vectors actions. The IAM policy below enumerates
 | Tier | Runs | Proves |
 | --- | --- | --- |
 | Unit (`npm test`) | every push, 3 OS × Node 22/24/26 | One test per domain cell of every contract, against a mocked `S3VectorsClient`, at 100 % coverage — plus the `VectorStore` contract suite run through `@langchain/core`'s own machinery, `fast-check` properties over whole input domains (filter validation, id resolution, batching, metadata, error normalisation), and compile-time assertions on the public types. The mocks encode AWS's *documented* responses. |
-| Peer floors | every push | The lower bound of each declared peer range compiles and passes the unit tier, so the ranges in `package.json` are a promise rather than a guess. |
+| Peer floors | every push | The lower bound of each declared peer range compiles and passes the unit tier, so the ranges in `package.json` are a promise rather than a guess. One file is left out there: the check that every dependency citation matches the *installed* version is about the lockfile's version, and runs in the matrix instead — which is what lets a floor stay put while the lockfile moves. |
 | Package (`npm run pack:check`, `npm run test:package-smoke`) | every push and every release | The tarball's shape (the file listing, publint, arethetypeswrong), and that the installed package works from ESM, CommonJS and a TypeScript 5 consumer with `skipLibCheck` off. |
 | Live AWS (`npm run test:integration`) | **every `v*` tag**, and on demand, against an ephemeral bucket | The real service behaves as the mocks assume: index lifecycle, writes, reads, filters, pagination, enumeration, MMR and the error shapes this library branches on. It also re-checks every undocumented behaviour recorded in [`docs/evidence/`](docs/evidence/) — the metadata byte-counting rule, the cosine-distance formula, what `GetVectors` does with absent keys — so a change on AWS's side fails a test rather than going unnoticed. |
 | Verification scripts (`npm run verify`) | on demand | The whole public API end to end, with real Bedrock embeddings. |
@@ -1464,7 +1464,8 @@ scripts/
 ├── pack-check.mjs                # Tarball listing guard; `npm run pack:check` adds publint + arethetypeswrong
 ├── check-doc-samples.mjs         # Compiles every ts sample in README.md, src/guide.md and CHANGELOG.md
 ├── peer-floors.mjs               # The lowest version each peer range admits; refuses one it cannot reduce
-├── require-green-ci.mjs          # The release gate: every required check run present and successful
+├── require-green-ci.mjs          # The release gate: every required check present and successful, by its newest run
+├── is-main.mjs                   # Whether a script is the program being run, whatever path reached it
 ├── changelog-section.mjs         # One release's CHANGELOG section, for the GitHub Release body
 └── generate-sbom.mjs             # Runtime and build SBOMs; `npm sbom` alone cannot describe a peer-only package
 

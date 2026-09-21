@@ -98,10 +98,23 @@ jobs:
       # `replace(/^[\^~]/)` did for a `>=`, an x-range or a `||` union, leaving
       # the job green having proved nothing. One spec per line, read with
       # mapfile, so no spec can be split on a space.
+      #
+      # The script's output is captured into a variable first and only then
+      # split. Read through a process substitution — `mapfile < <(…)` — its
+      # exit status never reaches bash, `set -e` or not: a refusal left
+      # `floors` empty, `npm install --no-save` and `npm ls` with no arguments
+      # both succeeded, and the job went green against the lockfile's versions,
+      # which is the outcome the script's refusal exists to prevent. An empty
+      # answer is refused too, for a script that exits 0 having printed nothing.
       - name: Install every declared peer at its floor
         run: |
           set -euo pipefail
-          mapfile -t floors < <(npm run --silent peer-floors)
+          specs="$(npm run --silent peer-floors)"
+          mapfile -t floors <<<"${specs}"
+          if [ -z "${floors[0]}" ]; then
+            echo "::error::scripts/peer-floors.mjs named no floor to install; this job would prove nothing."
+            exit 1
+          fi
           printf 'installing %s\n' "${floors[@]}"
           npm install --no-save "${floors[@]}"
           # No `|| true`: this is the check that the floors actually resolved,
@@ -110,7 +123,19 @@ jobs:
       - run: npm run typecheck
       - run: npm run typecheck:test
       - run: npm run typecheck:types
-      - run: npm test -- --ci
+      # The unit tier, minus one file. `dependency-citations.test.ts` checks that
+      # every version, file and line this package cites is true of the
+      # dependency *as installed* — and what is installed here is, on purpose,
+      # not the version those citations were read at. Run in this job, it
+      # forced the lockfile's version, the cited version and the floor to be
+      # one version: every SDK bump then had to raise the floor, and raising a
+      # floor is a major. The citations are checked where they can be true — in
+      # the matrix below, at the lockfile's version — and the floor is free to
+      # stay where the code needs it.
+      #
+      # `--testPathIgnorePatterns` on the command line replaces the configured
+      # list rather than adding to it, so the live tier is named again.
+      - run: npm test -- --ci --testPathIgnorePatterns test/integration/ dependency-citations
 
   test:
     name: test (node ${{ matrix.node }} on ${{ matrix.os }})

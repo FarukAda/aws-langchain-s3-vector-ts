@@ -1076,6 +1076,73 @@ All of these raise `VALIDATION` before anything billable is spent.
 
 ### Internal
 
+- **The release gate judges each check by its newest run.**
+  `scripts/require-green-ci.mjs` counted a required check as satisfied if *any*
+  run of that name had ever succeeded on the commit. A commit can carry several:
+  a re-run adds one, and so does the live suite dispatched by hand before
+  tagging and then run again by the tag push. An old green run therefore
+  published a tag whose own run had failed, or had not finished — for
+  `live-aws integration`, the suite gating nothing. Each required name is now
+  decided by its newest run alone, ordered by the check run's `id`, which the
+  workflow now asks the API for: a re-run that went green still unblocks a
+  release, and a later run that went red, or is still going, blocks one. Two
+  runs that cannot be ordered resolve towards the one that did not succeed.
+
+- **A release script does its work whatever path it was reached by.** Each
+  script under `scripts/` is both a module the tests import and a program CI
+  runs, and told the two apart with `import.meta.filename === process.argv[1]`.
+  Node resolves symbolic links in the first and not in the second, so a script
+  reached through a linked path compared unequal, did nothing, and exited 0 —
+  and for `require-green-ci.mjs` exit 0 *means* "every required check is present
+  and successful. Publish." Reproduced through a linked checkout path: the gate
+  said yes without having looked. `scripts/is-main.mjs` now answers the question
+  for all three, comparing resolved paths, and deliberately throws rather than
+  answering "no" when it cannot tell.
+
+- **Nothing that can fail on repository content runs after `npm publish`.** The
+  release body is built from this file by `changelog-section`, which exits 1 for
+  a version with no section, and GitHub refuses a body over 125,000 characters.
+  That step ran in `publish`, after the one step that cannot be taken back: a
+  tag cut with its heading still `[Unreleased]` left the version live on npm
+  with no GitHub release and no SBOMs attached, and a re-run unable to get past
+  a publish that had already happened. It is built and checked in `verify` now,
+  and travels to `publish` with the tarball.
+
+- **The peer floors no longer have to move every time a dependency does.**
+  `dependency-citations.test.ts` checks that every version, file and line this
+  package cites is true of the dependency *as installed*, and the peer-floors
+  job ran it with the floors installed — so the lockfile's version, the cited
+  version and the floor had to be one version. Every SDK bump then had to raise
+  the floor, and the README says raising a floor is a major; the decision
+  record for the peers says the opposite of what CI enforced, that the
+  repository tests against "the newest versions in range rather than the
+  floors". The floors job now runs the unit tier without that one file, and the
+  citations are checked where they can be true: in the matrix, at the lockfile's
+  version. In the same job, the floors are read into a variable before they are
+  split — read through a process substitution, the script's exit status never
+  reached bash, so a refusal left nothing to install and the job went green
+  against the lockfile's versions, which is the outcome that refusal exists to
+  prevent.
+
+- **The live suite runs one at a time.** `integration-live.yml` uses one fixed
+  bucket name and begins by deleting whatever bucket of that name it finds, so
+  two overlapping runs — a tag pushed while a dispatched run was going — each
+  destroyed the other's bucket mid-suite. It has a `concurrency` group now.
+
+- **The rate-limit tests no longer measure the runner.** Three of them asserted
+  wall-clock upper bounds — "under 100 ms" — around a dozen mocked requests,
+  which a loaded Windows or macOS runner can exceed with nothing pacing at all,
+  and every leg of that matrix is a required release check. They run on a faked
+  `setTimeout` and `performance` now, and assert exact virtual times: no waiting
+  is `0`, and four requests past a burst of twenty at twenty a second is `200`.
+
+- **The runtime SBOM no longer says the peers depend on nothing.** Each peer was
+  written into the dependency graph as `{ ref, dependsOn: [] }`, which CycloneDX
+  reads as a statement that the component has no dependencies. What a peer
+  depends on is decided by the version a consumer resolves, so the peers are
+  left out of the graph — which CycloneDX reads as unknown — and the document's
+  scope note says so.
+
 - **Only a `success` satisfies the release gate.** `scripts/require-green-ci.mjs`
   counted `skipped` and `neutral` as succeeded, for conditional jobs — but none
   of the fourteen required checks is conditional, so neither can arrive

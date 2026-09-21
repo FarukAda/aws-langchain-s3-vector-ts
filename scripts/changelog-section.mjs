@@ -15,6 +15,8 @@
  */
 import { readFileSync } from 'node:fs';
 
+import { isMain } from './is-main.mjs';
+
 /** `## [1.0.0-rc.3] - 2026-09-20`, and the same without a date. */
 const headingFor = (version) =>
   new RegExp(`^## \\[${version.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\]`, 'm');
@@ -34,7 +36,7 @@ export function sectionFor(changelog, version) {
   return body === '' ? undefined : body;
 }
 
-if (import.meta.filename === process.argv[1]) {
+if (isMain(import.meta.url)) {
   const version = process.argv[2];
   if (version === undefined || version === '') {
     console.error('usage: node scripts/changelog-section.mjs <version>');

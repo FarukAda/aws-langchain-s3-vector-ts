@@ -95,6 +95,11 @@ jobs:
       # later-added `paths-ignore:` would cause: CodeQL and Scorecard alone
       # would then be a complete, green set. Every name below must be present
       # *and* successful.
+      #
+      # `id` is asked for because a commit can carry several runs of one check
+      # — a re-run, or the live suite dispatched by hand before the tag ran it
+      # again — and only the newest of them counts. Without the id the script
+      # cannot tell which that is, and treats the name as failed.
       # The list of names, and what each exit code means, are in
       # scripts/require-green-ci.mjs. It is a script rather than shell here so
       # that its classification is unit-testable off a runner — a release gate
@@ -108,7 +113,7 @@ jobs:
             status=0
             CHECK_RUNS="$(gh api --paginate \
               "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100" \
-              --jq '.check_runs[] | {name, status, conclusion}')" \
+              --jq '.check_runs[] | {id, name, status, conclusion}')" \
               npm run --silent ci:require-green || status=$?
             case "${status}" in
               0) exit 0 ;;
@@ -163,6 +168,32 @@ jobs:
       # only consumer-facing dependencies are peers — see the script's header.
       - run: npm run sbom
 
+      # The release body is this version's CHANGELOG section, not a generated
+      # list of commit subjects. A reader following a release link wants the
+      # breaking changes and the migration notes, and those are written there.
+      #
+      # Built here, in `verify`, because it can fail on what is in the
+      # repository: the script exits 1 for a version with no section — a tag cut
+      # with the heading still `[Unreleased]` — and GitHub refuses a body over
+      # 125,000 characters. It used to run in `publish`, *after* `npm publish`,
+      # where either failure left the version live on npm with no GitHub
+      # release and no SBOMs attached, and a re-run unable to get past a
+      # publish that had already happened. Everything that can fail on
+      # repository content has to fail before the one step that cannot be
+      # taken back.
+      - name: Build the release body from the CHANGELOG
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm run --silent changelog-section -- "${VERSION}" > release-body.md
+          CHARS="$(wc -m < release-body.md)"
+          echo "release body: ${CHARS} characters"
+          if [ "${CHARS}" -lt 1 ] || [ "${CHARS}" -gt 125000 ]; then
+            echo "::error::The CHANGELOG section for ${VERSION} is ${CHARS} characters; a GitHub release body must be 1 to 125000."
+            exit 1
+          fi
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-artifacts
@@ -170,6 +201,7 @@ jobs:
             ${{ steps.pack.outputs.tarball }}
             sbom.build.cyclonedx.json
             sbom.runtime.cyclonedx.json
+            release-body.md
           if-no-files-found: error
           retention-days: 7
 
@@ -231,14 +263,9 @@ jobs:
           DIST_TAG: ${{ needs.verify.outputs.dist-tag }}
         run: npm publish "./${TARBALL}" --access public --provenance --tag "${DIST_TAG}"
 
-      # The release body is this version's CHANGELOG section, not a generated
-      # list of commit subjects. A reader following a release link wants the
-      # breaking changes and the migration notes, and those are written there.
-      - name: Build the release body from the CHANGELOG
-        env:
-          VERSION: ${{ needs.verify.outputs.version }}
-        run: npm run --silent changelog-section -- "${VERSION}" > release-body.md
-
+      # `release-body.md` came down with the artifacts: `verify` built it from
+      # the CHANGELOG and checked it, so nothing after the publish above can
+      # fail on what the repository contains.
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           body_path: release-body.md

@@ -14,15 +14,16 @@
  * way round — but it does mean the two files are edited together.
  *
  * Reads `CHECK_RUNS`: the newline-delimited JSON objects `gh api --paginate
- * --jq '.check_runs[] | {name, status, conclusion}'` emits. Reading it from the
- * environment rather than argv keeps a check-run name containing a quote from
- * having to survive a shell.
+ * --jq '.check_runs[] | {id, name, status, conclusion}'` emits. Reading it from
+ * the environment rather than argv keeps a check-run name containing a quote
+ * from having to survive a shell. The `id` is what orders two runs of one name.
  *
  * Exit codes are the interface, because the caller loops on them:
  *   0 — every required check is present and successful. Publish.
  *   1 — a required check completed and did not succeed. Stop; waiting cannot help.
  *   2 — not there yet. Sleep and call again.
  */
+import { isMain } from './is-main.mjs';
 
 /**
  * The check-run names a tagged commit must carry, all of them successful.
@@ -66,8 +67,50 @@ export function parseCheckRuns(text) {
     .map((line) => JSON.parse(line));
 }
 
+/** Whether a run is the one outcome that counts. */
+const hasSucceeded = (run) => run.status === 'completed' && run.conclusion === 'success';
+
+/**
+ * Whether `candidate` should replace `current` as the run that speaks for a name.
+ *
+ * A check run's `id` only ever grows, so the higher one is the later run. Two
+ * runs that cannot be ordered — an id missing because the workflow stopped
+ * asking for it — resolve towards the one that did not succeed: which of them
+ * is newer is then unknowable, and guessing "the green one" is the hole this
+ * function exists to close.
+ */
+function supersedes(candidate, current) {
+  if (Number.isFinite(candidate.id) && Number.isFinite(current.id) && candidate.id !== current.id) {
+    return candidate.id > current.id;
+  }
+  return !hasSucceeded(candidate);
+}
+
+/**
+ * The one run that speaks for each name: the newest.
+ *
+ * A commit can carry several runs of one check. A re-run adds a second; so does
+ * a second workflow run on the same commit — the live suite dispatched by hand
+ * before tagging, then run again by the tag push itself. Only the newest is
+ * evidence about the commit as it is being released. "Some run of this name
+ * succeeded" let an old green run publish a tag whose own run was red, or had
+ * not finished.
+ */
+function latestByName(checkRuns) {
+  const latest = new Map();
+  for (const run of checkRuns) {
+    const current = latest.get(run.name);
+    if (current === undefined || supersedes(run, current)) latest.set(run.name, run);
+  }
+  return latest;
+}
+
 /**
  * Classify a commit's check runs against the required list.
+ *
+ * Each required name is judged by its newest run alone (see
+ * {@link latestByName}), so a re-run that went green unblocks a release, and a
+ * later run that went red — or is still going — blocks one.
  *
  * Only `success` counts. Anything else that has completed is a failure —
  * `cancelled` and `timed_out` included, and `skipped` and `neutral` too.
@@ -82,22 +125,20 @@ export function parseCheckRuns(text) {
  * fix, so it belongs with the failures rather than with the pending.
  */
 export function evaluate(checkRuns, required = REQUIRED_CHECKS) {
-  const succeeded = new Set(
-    checkRuns
-      .filter((run) => run.status === 'completed' && run.conclusion === 'success')
-      .map((run) => run.name),
-  );
-  const requiredNames = new Set(required);
-  const failed = checkRuns.filter(
-    (run) => requiredNames.has(run.name) && run.status === 'completed' && !succeeded.has(run.name),
-  );
-  const pending = required.filter((name) => !succeeded.has(name));
+  const latest = latestByName(checkRuns);
+  const verdicts = required.map((name) => ({ name, run: latest.get(name) }));
+  const failed = verdicts
+    .filter(({ run }) => run !== undefined && run.status === 'completed' && !hasSucceeded(run))
+    .map(({ run }) => run);
+  const pending = verdicts
+    .filter(({ run }) => run === undefined || !hasSucceeded(run))
+    .map(({ name }) => name);
   return { failed, pending, satisfied: required.length - pending.length, total: required.length };
 }
 
 // The entry point. `scripts/` is outside the coverage scope, so this is not
 // instrumented; the exported functions above are what the tests exercise.
-if (import.meta.filename === process.argv[1]) {
+if (isMain(import.meta.url)) {
   const { failed, pending, satisfied, total } = evaluate(
     parseCheckRuns(process.env.CHECK_RUNS ?? ''),
   );

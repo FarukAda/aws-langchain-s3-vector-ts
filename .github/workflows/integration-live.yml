@@ -32,6 +32,21 @@ on:
 # — or never ran — does not publish.
 permissions: {}
 
+# One run at a time, across every ref. The bucket below has one fixed name, and
+# a run begins by deleting whatever bucket of that name it finds — so two runs
+# overlapping, a tag pushed while a dispatched run is going, each destroyed the
+# other's bucket mid-suite and both failed with NotFound errors that had nothing
+# to do with the code under test. With `live-aws integration` a required release
+# check, that is a publish blocked by a collision.
+#
+# Not cancelled, because the run in progress may be a tag's. GitHub holds at
+# most one run pending per group: a third arriving replaces the one waiting,
+# which then reports `cancelled` — a failed check, so the gate still fails
+# closed, and re-running it is the remedy.
+concurrency:
+  group: integration-live
+  cancel-in-progress: false
+
 env:
   # The vector bucket is ephemeral: created at the start of each run and
   # deleted in teardown (`if: always()`), so nothing stands between runs.
