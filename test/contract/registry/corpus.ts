@@ -169,7 +169,7 @@ export const AMBIENTS: readonly Ambient[] = [
   {
     label: 'quota exceeded',
     // Only from the two commands whose service model declares it
-    // (`@aws-sdk/client-s3vectors@3.1133.0` `dist-types/commands/PutVectorsCommand.d.ts`,
+    // (`@aws-sdk/client-s3vectors@3.1136.0` `dist-types/commands/PutVectorsCommand.d.ts`,
     // and CreateIndexCommand.d.ts): thrown from every command, it would make a
     // contract declare a code its entry point cannot raise.
     respond: (command) => {
@@ -183,7 +183,7 @@ export const AMBIENTS: readonly Ambient[] = [
     label: 'kms disabled',
     // Declared by PutVectors, GetVectors, QueryVectors and DeleteVectors, and by
     // nothing else (each command's `@throws`, e.g.
-    // `@aws-sdk/client-s3vectors@3.1133.0` `dist-types/commands/DeleteVectorsCommand.d.ts`).
+    // `@aws-sdk/client-s3vectors@3.1136.0` `dist-types/commands/DeleteVectorsCommand.d.ts`).
     respond: (command) => {
       if (
         command === 'PutVectors' ||

@@ -7,10 +7,22 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 10
+    # A dependency joins the first group that matches it, so the order matters.
     groups:
       langchain:
         patterns:
           - "@langchain/*"
+      # Ahead of `dev-dependencies`, which would otherwise take it: the SDK is a
+      # peer, installed here as a devDependency. A bump of it fails
+      # `test/contract/dependency-citations.test.ts` on purpose — every fact this
+      # package cites from the SDK names the version it was read at, and has to
+      # be re-read before that version moves. Grouped with the rest, it turned a
+      # prettier or a knip bump red along with it; on its own, a red pull request
+      # means exactly one thing.
+      aws-sdk:
+        patterns:
+          - "@aws-sdk/*"
+          - "@smithy/*"
       dev-dependencies:
         dependency-type: development
     commit-message:
@@ -21,5 +33,13 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    groups:
+      # `init`, `analyze` and `upload-sarif` are one action at one version. Raised
+      # one pull request each, no bump of `init` or `analyze` can pass: the
+      # CodeQL job fails with "Loaded a configuration file for version '4.38.1',
+      # but running version '4.38.0'".
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
     commit-message:
       prefix: "ci"

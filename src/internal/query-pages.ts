@@ -66,7 +66,7 @@ export interface QueryPagesOptions extends AwsOperation {
  * an index re-created out of band with a different metric is caught on the
  * next read instead of silently scoring against the wrong one. `distanceMetric`
  * is a required response member (`QueryVectorsOutput` in
- * `@aws-sdk/client-s3vectors@3.1133.0` `dist-types/models/models_0.d.ts`), so a
+ * `@aws-sdk/client-s3vectors@3.1136.0` `dist-types/models/models_0.d.ts`), so a
  * response without it is malformed.
  */
 function assertMetricMatches(

@@ -59,7 +59,7 @@ const SDK_TRANSIENT_NETWORK_ERROR_CODES: ReadonlySet<string> = new Set([
 
 /**
  * Exception name to error class. Names are literal types on every exception the
- * service declares (`@aws-sdk/client-s3vectors@3.1133.0`
+ * service declares (`@aws-sdk/client-s3vectors@3.1136.0`
  * `dist-types/models/errors.d.ts`), so this lookup is exact rather than a
  * heuristic over message text.
  */

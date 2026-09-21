@@ -1325,6 +1325,29 @@ All of these raise `VALIDATION` before anything billable is spent.
 
 ### Internal
 
+- **The CodeQL action and three development dependencies are at their current
+  releases, and Dependabot raises them in a form that can pass.**
+  `github/codeql-action` (`init`, `analyze`, `upload-sarif`) moves 4.38.0 →
+  4.38.1, its SHA resolved from the upstream annotated tag and the method
+  checked by resolving the tag already pinned. In the lockfile only,
+  `@aws-sdk/client-s3vectors` moves 3.1133.0 → 3.1136.0, `knip` 6.35.1 → 6.37.0
+  and `prettier` 3.9.6 → 3.9.8; the declared ranges, and with them the peer
+  floor, stay where they are. The SDK's whole `dist-types` tree is byte for
+  byte what it was, so every fact this package cites from it still holds —
+  `ValidationExceptionField` at `models_0.d.ts:94`, `vectors` on
+  `ListVectorsOutput` at `:642`, the required `distanceMetric`, the thirteen
+  exception names — and the ten citations name the version they were re-read
+  at.
+
+  Both kinds of pull request had been failing for a reason that was not theirs.
+  `init` and `analyze` are one action at one version, and raised one pull
+  request each, neither can pass: CodeQL stops with "Loaded a configuration
+  file for version '4.38.1', but running version '4.38.0'". And the SDK, a peer
+  installed as a devDependency, rode in the development group, where the
+  citation check it fails on purpose turned a prettier bump red with it.
+  `.github/dependabot.yml` now groups `github/codeql-action/*`, and gives
+  `@aws-sdk/*` and `@smithy/*` a group of their own ahead of the general one.
+
 - **The release body is found by comparing text.** `scripts/changelog-section.mjs`
   built a `RegExp` from the version, behind an escape that was itself escaped
   twice and matched nothing. `1.0.0` therefore went in as a pattern whose dots
