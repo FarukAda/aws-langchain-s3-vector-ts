@@ -1325,7 +1325,7 @@ All of these raise `VALIDATION` before anything billable is spent.
 
 ### Internal
 
-- **The CodeQL action and three development dependencies are at their current
+- **The CodeQL action and seven development dependencies are at their current
   releases, and Dependabot raises them in a form that can pass.**
   `github/codeql-action` (`init`, `analyze`, `upload-sarif`) moves 4.38.0 →
   4.38.1, its SHA resolved from the upstream annotated tag and the method
@@ -1347,6 +1347,12 @@ All of these raise `VALIDATION` before anything billable is spent.
   citation check it fails on purpose turned a prettier bump red with it.
   `.github/dependabot.yml` now groups `github/codeql-action/*`, and gives
   `@aws-sdk/*` and `@smithy/*` a group of their own ahead of the general one.
+
+  The regrouped development group raised its first pull request within
+  minutes, green as raised, and it is taken here the same way, in the lockfile
+  only: `jest` and `@jest/globals` 30.5.1 → 30.5.2, `jscpd` 5.2.1 → 5.3.0 and
+  `typedoc-plugin-markdown` 4.13.0 → 4.13.1. The generated reference is
+  unchanged under the new plugin, and the duplication check still finds none.
 
 - **The release body is found by comparing text.** `scripts/changelog-section.mjs`
   built a `RegExp` from the version, behind an escape that was itself escaped
