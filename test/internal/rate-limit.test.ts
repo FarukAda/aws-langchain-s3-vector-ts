@@ -350,3 +350,30 @@ describe('who goes first when several writes wait', () => {
     ]);
   });
 });
+
+describe('the write rate limiter — aborting a wait', () => {
+  it('ends a wait for budget as soon as the signal fires, not when the sleep would', async () => {
+    let asleep: () => void = () => undefined;
+    const fellAsleep = new Promise<void>((resolve) => {
+      asleep = resolve;
+    });
+    const clock = {
+      now: () => 0,
+      // A sleep that never ends: only the abort can end this wait.
+      sleep: () => {
+        asleep();
+        return new Promise<void>(() => undefined);
+      },
+    };
+    const limiter = createWriteRateLimiter({ vectorsPerSecond: 1, requestsPerSecond: 1000 }, clock);
+    await limiter.acquire(1, 'addVectors', SCOPE);
+
+    const controller = new AbortController();
+    const waiting = limiter.acquire(1, 'addVectors', SCOPE, controller.signal);
+    await fellAsleep;
+    controller.abort();
+
+    const error = (await waiting.catch((e: unknown) => e)) as S3VectorsError;
+    expect(error.code).toBe(S3VectorsErrorCode.ABORTED);
+  });
+});

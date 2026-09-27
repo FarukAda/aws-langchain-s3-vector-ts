@@ -89,6 +89,12 @@ export function openWindow<T>(maxConcurrent: number): ConcurrencyWindow<T> {
   let firstError: unknown;
   let failed = false;
 
+  // Launches waiting for a free slot, woken one per settled request, in order.
+  // `Promise.race(inFlight)` attached a reaction to every request still in
+  // flight on every full-window launch, so one request hung until its timeout
+  // collected a reaction per launch made meanwhile.
+  const waiting: (() => void)[] = [];
+
   const record = (error: unknown): void => {
     if (failed) return;
     failed = true;
@@ -105,12 +111,15 @@ export function openWindow<T>(maxConcurrent: number): ConcurrencyWindow<T> {
         }, record)
         .finally(() => {
           inFlight.delete(tracked);
+          waiting.shift()?.();
         });
       inFlight.add(tracked);
       if (inFlight.size >= maxConcurrent) {
         // Tracked promises never reject — `record` absorbs the rejection — so
-        // racing them only ever waits for one to settle.
-        await Promise.race(inFlight);
+        // this only ever waits for one of them to settle.
+        await new Promise<void>((resolve) => {
+          waiting.push(resolve);
+        });
       }
     },
     hasFailed(): boolean {

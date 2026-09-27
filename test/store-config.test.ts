@@ -439,16 +439,97 @@ describe('configuration strings sent to AWS must be well-formed UTF-16 (T3-15)',
 
   it('accepts a surrogate pair in every one of them', () => {
     const pair = 'k😀';
+    // A tag is held to CreateIndex's character pattern too, which admits
+    // letters but not symbols, so its pair is a supplementary-plane letter.
+    const letterPair = 'k𝒜';
     expect(
       build({
         pageContentMetadataKey: pair,
         nonFilterableMetadataKeys: [pair],
-        tags: { [pair]: pair },
+        tags: { [letterPair]: letterPair },
         encryptionConfiguration: {
           sseType: 'aws:kms',
           kmsKeyArn: `arn:aws:kms:us-east-1:1:key/${pair}`,
         },
       }),
     ).toBeInstanceOf(AmazonS3Vectors);
+  });
+});
+
+describe('AmazonS3Vectors constructor — options the SDK would take and then fail on', () => {
+  it.each([
+    ['a host with no scheme, read as the scheme', 'localhost:4566'],
+    ['a host and port with no scheme', 's3vectors.us-east-1.amazonaws.com:443'],
+    ['a non-HTTP scheme', 'ftp://example.test'],
+  ])('refuses an endpoint that is %s', (_label, endpoint) => {
+    const error = buildWithoutClient({ region: 'us-east-1', endpoint });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toContain('config.endpoint');
+  });
+
+  it.each(['http://localhost:4566', 'https://s3vectors.us-east-1.amazonaws.com'])(
+    'accepts the endpoint %s',
+    (endpoint) => {
+      expect(buildWithoutClient({ region: 'us-east-1', endpoint })).toBeInstanceOf(AmazonS3Vectors);
+    },
+  );
+
+  it.each(['connectionTimeout', 'socketTimeout', 'requestTimeout'])(
+    'refuses a %s past the largest delay Node can time, which it runs after 1 ms',
+    (option) => {
+      const error = buildWithoutClient({ region: 'us-east-1', [option]: 2 ** 31 });
+      expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+      expect(messageOf(error)).toContain(`config.${option}`);
+    },
+  );
+
+  it('accepts the largest timeout Node can time', () => {
+    expect(buildWithoutClient({ region: 'us-east-1', socketTimeout: 2 ** 31 - 1 })).toBeInstanceOf(
+      AmazonS3Vectors,
+    );
+  });
+
+  it('refuses a region with surrounding whitespace, which no region name has', () => {
+    const error = buildWithoutClient({ region: ' us-east-1' });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toContain('config.region');
+  });
+});
+
+describe('AmazonS3Vectors constructor — index settings CreateIndex would refuse', () => {
+  it.each([
+    ['with the page-content key disabled', null],
+    ['with the default page-content key', undefined],
+  ])('refuses a repeated non-filterable key %s', (_label, pageContentMetadataKey) => {
+    const error = build({
+      nonFilterableMetadataKeys: ['body', 'body'],
+      ...(pageContentMetadataKey === undefined ? {} : { pageContentMetadataKey }),
+    });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toContain("'body'");
+  });
+
+  it.each([
+    ['a key character outside the pattern', { 'cost#center': 'a' }],
+    ['a value character outside the pattern', { team: 'a&b' }],
+    ['a key with the reserved aws: prefix', { 'aws:owner': 'x' }],
+  ])('refuses tags with %s', (_label, tags) => {
+    const error = build({ tags });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toContain('config.tags');
+  });
+
+  it('refuses more than 50 tags', () => {
+    const tags = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`k${i}`, 'v']));
+    const error = build({ tags });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toContain('51');
+  });
+
+  it('accepts 50 tags using every documented character class', () => {
+    const tags = Object.fromEntries(Array.from({ length: 49 }, (_, i) => [`k${i}`, 'v']));
+    expect(build({ tags: { ...tags, 'Ünï cödé_.:/=+-@9': 'välue 1_.:/=+-@' } })).toBeInstanceOf(
+      AmazonS3Vectors,
+    );
   });
 });

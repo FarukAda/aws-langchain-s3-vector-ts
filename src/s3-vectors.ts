@@ -93,6 +93,15 @@ const TEXT_SEARCH_PARAMETERS = ['query', 'k', 'filter'] as const;
 /** The same for `maxMarginalRelevanceSearch`, whose callbacks slot is its third argument. */
 const MMR_PARAMETERS = ['query', 'options'] as const;
 
+/** The requests addressed to the index's vectors, whose 404 means the index is gone. */
+const VECTOR_COMMANDS: ReadonlySet<string> = new Set([
+  'PutVectors',
+  'DeleteVectors',
+  'QueryVectors',
+  'GetVectors',
+  'ListVectors',
+]);
+
 /**
  * Split a static factory's one argument into the store's configuration and the
  * options of the one write the factory performs.
@@ -268,7 +277,7 @@ export class AmazonS3Vectors extends VectorStore {
   readonly indexName: string;
   readonly dataType: VectorDataType;
   readonly distanceMetric: DistanceMetric;
-  readonly nonFilterableMetadataKeys: string[] | undefined;
+  readonly nonFilterableMetadataKeys: readonly string[] | undefined;
   readonly pageContentMetadataKey: string | null;
   readonly createIndexIfNotExist: boolean;
   readonly encryptionConfiguration: EncryptionConfiguration | undefined;
@@ -485,10 +494,12 @@ export class AmazonS3Vectors extends VectorStore {
    * `INDEX_CONFIG_MISMATCH` when its non-filterable keys disagree with this
    * store's configuration.
    * Otherwise, on a failure partway through a multi-batch write, the error's
-   * `context.writtenIds` lists every id durably written before it and
+   * `context.writtenIds` lists every id confirmed written before it and
    * `context.attemptedIds` every id the call resolved — check them before
    * retrying, especially for auto-generated ids, which would otherwise be
-   * impossible to find or reconcile again.
+   * impossible to find or reconcile again. `writtenIds` is a lower bound: an
+   * id in `attemptedIds` but not in it may or may not be stored, and retrying
+   * with `attemptedIds` overwrites either way.
    */
   async addVectors(
     vectors: number[][],
@@ -569,13 +580,16 @@ export class AmazonS3Vectors extends VectorStore {
    * disagree with this store's configuration. For a batch the model has
    * embedded, before it is written: `VALIDATION` when the model returns
    * something other than one storable vector per document, or
-   * `INDEX_CONFIG_MISMATCH` when that batch's vectors disagree on dimension.
-   * A model that throws surfaces as
+   * `INDEX_CONFIG_MISMATCH` when that batch's vectors disagree on dimension,
+   * with each other or with the first batch's. A model that throws surfaces as
    * `EMBEDDINGS_FAILED`. On any failure after the first batch started, the
-   * error's `context.writtenIds` lists every id durably written before it and
+   * error's `context.writtenIds` lists every id confirmed written before it and
    * `context.attemptedIds` every id the call resolved. A failure stops further
    * batches from being embedded or written, and is thrown only after every
-   * `PutVectors` call already in flight has settled, so `writtenIds` is complete.
+   * `PutVectors` call already in flight has settled, so every write AWS
+   * confirmed is in `writtenIds`. It is still a lower bound: a request that was
+   * aborted or timed out after reaching AWS may be stored unconfirmed, and
+   * retrying with `attemptedIds` overwrites either way.
    */
   async addDocuments(
     documents: DocumentInterface[],
@@ -645,7 +659,7 @@ export class AmazonS3Vectors extends VectorStore {
         distanceMetric: this.distanceMetric,
         queryVector: query,
         k: parseK(operation, this.#scope, k),
-        filter: parseFilter(filter, operation, this.#scope),
+        filter: parseFilter(filter, operation, this.#scope, this.#nonFilterableMetadataKeys),
         pageContentMetadataKey: this.pageContentMetadataKey,
         signal,
         ...this.#scope,
@@ -736,7 +750,12 @@ export class AmazonS3Vectors extends VectorStore {
     // before failing.
     assertQueryText(operation, this.#scope, query);
     const parsedK = parseK(operation, this.#scope, k);
-    const parsedFilter = parseFilter(filter, operation, this.#scope);
+    const parsedFilter = parseFilter(
+      filter,
+      operation,
+      this.#scope,
+      this.#nonFilterableMetadataKeys,
+    );
     // embedQuery has no signal support (LangChain's EmbeddingsInterface
     // doesn't accept one), so it can't self-cancel the way an AWS call does —
     // check explicitly. Only the QueryVectors call after it can be cancelled
@@ -921,7 +940,12 @@ export class AmazonS3Vectors extends VectorStore {
         'maxMarginalRelevanceSearch',
         this.#scope,
       );
-      const parsedFilter = parseFilter(options.filter, 'maxMarginalRelevanceSearch', this.#scope);
+      const parsedFilter = parseFilter(
+        options.filter,
+        'maxMarginalRelevanceSearch',
+        this.#scope,
+        this.#nonFilterableMetadataKeys,
+      );
 
       // embedQuery has no signal support, so it cannot self-cancel — check
       // before spending a billable, uncancellable call.
@@ -1087,7 +1111,7 @@ export class AmazonS3Vectors extends VectorStore {
    * scratch.
    */
   async getByIds(
-    ids: string[],
+    ids: readonly string[],
     options?: S3VectorsGetByIdsOptions,
   ): Promise<(Document | undefined)[]> {
     return await this.#asOperation('getByIds', async () => {
@@ -1154,7 +1178,7 @@ export class AmazonS3Vectors extends VectorStore {
         ...this.#scope,
       });
     } catch (error: unknown) {
-      throw attachOperation(error, 'listDocuments', this.#scope);
+      throw this.#failed(error, 'listDocuments');
     }
   }
 
@@ -1195,7 +1219,7 @@ export class AmazonS3Vectors extends VectorStore {
         ...this.#scope,
       });
     } catch (error: unknown) {
-      throw attachOperation(error, 'listVectors', this.#scope);
+      throw this.#failed(error, 'listVectors');
     }
   }
 
@@ -1437,9 +1461,6 @@ export class AmazonS3Vectors extends VectorStore {
       ensureIndex: this.createIndexIfNotExist
         ? (dimension, abort) => this.#lifecycle.ensureExists(dimension, abort, operation)
         : undefined,
-      onIndexAbsent: () => {
-        this.#lifecycle.markAbsent();
-      },
       rateLimit: this.#writeRateLimit,
       signal,
       ...this.#scope,
@@ -1478,8 +1499,29 @@ export class AmazonS3Vectors extends VectorStore {
     try {
       return await work();
     } catch (error: unknown) {
-      throw attachOperation(error, operation, this.#scope);
+      throw this.#failed(error, operation);
     }
+  }
+
+  /**
+   * Report a failure under `operation`, forgetting the index if it is gone.
+   *
+   * Existence is remembered so writes skip `GetIndex`. A vector request that
+   * answers `NOT_FOUND` — a search, a read, a listing or a delete, not only a
+   * write — shows the index (or its bucket) is gone, so the next write looks
+   * it up again, and creates it if the store may, instead of failing once on
+   * what this store already saw was missing.
+   */
+  #failed(error: unknown, operation: string): S3VectorsError {
+    const failure = attachOperation(error, operation, this.#scope);
+    if (
+      failure.code === S3VectorsErrorCode.NOT_FOUND &&
+      failure.context.awsCommand !== undefined &&
+      VECTOR_COMMANDS.has(failure.context.awsCommand)
+    ) {
+      this.#lifecycle.markAbsent();
+    }
+    return failure;
   }
 
   /**
@@ -1508,16 +1550,30 @@ export class AmazonS3Vectors extends VectorStore {
    *
    * `relevanceScoreFn` is caller-supplied code called once per result, so it
    * fails the same way any other caller code does and is wrapped the same way.
+   * What it returns is checked too: a retriever compares it with
+   * `score >= scoreThreshold`, which is false for `NaN`, `undefined` and most
+   * strings, so a function returning one of those would drop every document
+   * and report an empty, successful search.
    */
   #score(scoreFn: (distance: number) => number, distance: number): number {
+    let score: unknown;
     try {
-      return scoreFn(distance);
+      score = scoreFn(distance);
     } catch (error: unknown) {
       throw wrapCallerError(error, {
         operation: 'similaritySearchWithRelevanceScores',
         ...this.#scope,
       });
     }
+    if (typeof score !== 'number' || !Number.isFinite(score)) {
+      throw validationError(
+        'similaritySearchWithRelevanceScores',
+        this.#scope,
+        `relevanceScoreFn returned ${renderValue(score)} for distance ${distance}; it must ` +
+          'return a finite number.',
+      );
+    }
+    return score;
   }
 
   /**

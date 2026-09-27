@@ -46,9 +46,36 @@ function stripControl(text: string): string {
   return kept;
 }
 
-/** Cut to `max` characters, marking that something was cut. */
+/**
+ * Cut to `max` characters, marking that something was cut.
+ *
+ * Never between the two halves of a surrogate pair: a lone surrogate left at
+ * the cut makes the message ill-formed UTF-16, which is exactly what this
+ * package refuses to send anywhere else.
+ */
 function cut(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
+  if (text.length <= max) return text;
+  const code = text.charCodeAt(max - 1);
+  const end = code >= 0xd800 && code <= 0xdbff ? max - 1 : max;
+  return `${text.slice(0, end)}…`;
+}
+
+/** How much of a thrown value's text a message shows. */
+const MESSAGE_TEXT_MAX_LENGTH = 1000;
+
+/**
+ * Free text from outside this package — a thrown string, the message of a
+ * thrown object — made safe to put in a message.
+ *
+ * Accepts: the text.
+ *
+ * Returns: it stripped of control characters and cut to
+ * {@link MESSAGE_TEXT_MAX_LENGTH}.
+ *
+ * Throws: nothing.
+ */
+export function describeText(text: string): string {
+  return cut(stripControl(text), MESSAGE_TEXT_MAX_LENGTH);
 }
 
 /**
@@ -133,7 +160,13 @@ export function describeValue(value: unknown, objectFallback = 'an object'): str
   // undefined" — on the likeliest first-run mistake there is, an environment
   // variable that was never set where a bucket name belongs.
   if (value === undefined) return 'undefined';
-  if (Array.isArray(value)) return 'an array';
+  // `Array.isArray` throws on a revoked `Proxy`, the one case where even asking
+  // what kind of value this is runs the value's own code.
+  try {
+    if (Array.isArray(value)) return 'an array';
+  } catch {
+    return objectFallback;
+  }
   const type = typeof value;
   if (type !== 'object') return `${articleFor(type)} ${type}`;
   let raw: unknown;

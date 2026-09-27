@@ -7,7 +7,7 @@
  * seen this code — happens here, and the rules differ for a failure this package
  * caused and one a caller's own code did.
  */
-import { renderValue } from '../describe.js';
+import { readProperty } from '../objects.js';
 import { classifyAwsError, isTransientNetworkFailure, SDK_TIMEOUT_ERROR_NAME } from './classify.js';
 import { S3VectorsErrorCode } from './error-code.js';
 import {
@@ -15,6 +15,7 @@ import {
   S3VectorsError,
   type S3VectorsErrorContext,
 } from './s3-vectors-error.js';
+import { toError } from './to-error.js';
 
 /**
  * The S3 Vectors API operations this package issues: every value
@@ -32,57 +33,6 @@ export type AwsCommand =
   | 'QueryVectors'
   | 'GetVectors'
   | 'ListVectors';
-
-/** Detect an Error-like value by structure (cross-realm safe, avoids `instanceof`). */
-function isError(value: unknown): value is Error {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as { message?: unknown; name?: unknown };
-  return typeof candidate.name === 'string' && typeof candidate.message === 'string';
-}
-
-/**
- * Stringify a value for an error message, tolerating BigInt and circular
- * references — and never throwing.
- *
- * `String()` is not the fallback it looks like: on an object with a null
- * prototype, or one whose `toString` throws, it raises "Cannot convert object to
- * primitive value". Reached from `toError`, which is documented as throwing
- * nothing and runs inside error handling, that would replace the failure being
- * reported with a failure to describe it. `renderValue` cannot throw.
- */
-function safeStringify(value: unknown): string {
-  try {
-    const json = JSON.stringify(value, (_key: string, v: unknown) =>
-      typeof v === 'bigint' ? v.toString() : v,
-    );
-    return json === undefined ? renderValue(value) : json;
-  } catch {
-    return renderValue(value);
-  }
-}
-
-/**
- * Normalise an unknown thrown value into an `Error`.
- *
- * Accepts: anything. JavaScript permits throwing any value, and a signal's
- * `reason` is whatever `abort()` was given.
- *
- * Returns: the value itself when it is already Error-shaped — tested by
- * structure (`name` and `message` are strings) rather than `instanceof`, so a
- * cross-realm error passes; otherwise a new `Error` whose message is the value
- * as a string, JSON-serialised when it is not one, tolerating BigInt and
- * circular references.
- *
- * Throws: nothing. This runs inside error handling, where a second failure
- * would replace the real one.
- *
- * Guarantees: total, and non-lossy for Error-like input — the original is
- * returned, not copied, so its stack survives.
- */
-export function toError(value: unknown): Error {
-  if (isError(value)) return value;
-  return new Error(typeof value === 'string' ? value : safeStringify(value));
-}
 
 /**
  * AWS exception names worth retrying after a backoff. The SDK's own retry
@@ -211,13 +161,15 @@ function isDomException(value: object): boolean {
  */
 function awsDiagnostics(cause: unknown, includeNetworkCodes: boolean): AwsDiagnostics {
   if (typeof cause !== 'object' || cause === null) return {};
-  const candidate = cause as {
-    name?: unknown;
-    $metadata?: unknown;
-    $retryable?: unknown;
-    fieldList?: unknown;
+  // Read once each, guarded: these are the cause's own properties, and a getter
+  // that throws here would replace the failure being reported.
+  const candidate = {
+    $metadata: readProperty(cause, '$metadata'),
+    $retryable: readProperty(cause, '$retryable'),
+    fieldList: readProperty(cause, 'fieldList'),
   };
-  const name = typeof candidate.name === 'string' ? candidate.name : undefined;
+  const rawName = readProperty(cause, 'name');
+  const name = typeof rawName === 'string' ? rawName : undefined;
   const metadata = metadataOf(candidate);
   // Nothing here came from AWS: no SDK metadata, and a name that is not one of
   // the service's exceptions. Reporting an awsErrorName and a retryability
@@ -255,8 +207,11 @@ function awsDiagnostics(cause: unknown, includeNetworkCodes: boolean): AwsDiagno
     fieldList?: { path?: string; message?: string }[];
   } = { retryable: false };
   if (name !== undefined) out.awsErrorName = name;
-  if (typeof metadata?.httpStatusCode === 'number') out.httpStatusCode = metadata.httpStatusCode;
-  if (typeof metadata?.requestId === 'string') out.requestId = metadata.requestId;
+  const httpStatusCode =
+    metadata === undefined ? undefined : readProperty(metadata, 'httpStatusCode');
+  const requestId = metadata === undefined ? undefined : readProperty(metadata, 'requestId');
+  if (typeof httpStatusCode === 'number') out.httpStatusCode = httpStatusCode;
+  if (typeof requestId === 'string') out.requestId = requestId;
   // Shape-checked like every other read here: a non-array is a malformed
   // response, not a field list, and passing it through would hand the caller a
   // shape the type says it cannot be.

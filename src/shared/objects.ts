@@ -80,3 +80,23 @@ export function defineOwn(target: Record<string, unknown>, key: string, value: u
     configurable: true,
   });
 }
+
+/**
+ * Read one property of a value this package did not create, as error handling
+ * must.
+ *
+ * Accepts: any object and a property key.
+ *
+ * Returns: the property's value, or `undefined` when reading it throws.
+ *
+ * Throws: nothing. A getter, or a proxy trap — a revoked `Proxy` throws on
+ * every read — is the value's own code, and error handling runs it on whatever
+ * was thrown; a throw there would replace the failure being reported.
+ */
+export function readProperty(value: object, key: PropertyKey): unknown {
+  try {
+    return (value as Record<PropertyKey, unknown>)[key];
+  } catch {
+    return undefined;
+  }
+}

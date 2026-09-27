@@ -66,11 +66,15 @@ export interface AmazonS3VectorsConfig {
    * The page-content key counts toward that 10 whenever it is not `null`, so
    * 10 keys of your own plus the page-content key make 11, which is refused —
    * unless your list already contains that key. A configuration
-   * that could never be written to any index is refused with `VALIDATION` at
-   * construction, before any AWS call, whether or not this store ever creates
-   * one.
+   * that could never be written to any index — a key listed twice included —
+   * is refused with `VALIDATION` at construction, before any AWS call, whether
+   * or not this store ever creates one.
+   *
+   * A search filter naming one of these keys, or the page-content key, is
+   * refused with `VALIDATION` before the query is embedded: S3 Vectors stores
+   * a non-filterable key but refuses it in a filter.
    */
-  readonly nonFilterableMetadataKeys?: string[];
+  readonly nonFilterableMetadataKeys?: readonly string[];
 
   /**
    * Metadata key under which to store the document `page_content`.
@@ -125,8 +129,11 @@ export interface AmazonS3VectorsConfig {
   /**
    * Tags to apply to an index this store creates (`createIndexIfNotExist:
    * true`), for cost allocation or attribute-based access control.
-   * Forwarded verbatim to `CreateIndex` (`Record<string, string>`, up to
-   * AWS's 50-tag limit). Ignored for an index that already exists.
+   * Forwarded verbatim to `CreateIndex`. Ignored for an index that already
+   * exists. Held to `CreateIndex`'s rules at construction — at most 50 tags,
+   * keys of 1–128 and values of 0–256 characters, only letters, numbers,
+   * spaces and `_ . : / = + - @`, and no key under the reserved `aws:` prefix —
+   * and refused with `VALIDATION` otherwise.
    */
   readonly tags?: Record<string, string>;
 
@@ -194,6 +201,10 @@ export interface AmazonS3VectorsConfig {
    * without knowing the embedding's scale, which only you know. Asking for
    * relevance scores on a euclidean index without this option raises
    * `VALIDATION` rather than returning numbers comparable against nothing.
+   *
+   * It must return a finite number. Anything else is `VALIDATION`: a
+   * retriever threshold compares `score >= scoreThreshold`, which is false for
+   * `NaN` or `undefined`, so such a score would drop every document silently.
    */
   readonly relevanceScoreFn?: (distance: number) => number;
 
@@ -228,8 +239,8 @@ export interface AmazonS3VectorsConfig {
   readonly client?: S3VectorsClient;
 
   /**
-   * AWS region to use when creating the SDK client (e.g. `"us-east-1"`).
-   * Not accepted together with `client`.
+   * AWS region to use when creating the SDK client (e.g. `"us-east-1"`),
+   * without surrounding whitespace. Not accepted together with `client`.
    */
   readonly region?: string;
 
@@ -241,8 +252,10 @@ export interface AmazonS3VectorsConfig {
   readonly credentials?: S3VectorsClientConfig['credentials'];
 
   /**
-   * Custom endpoint URL to use instead of the default regional endpoint.
-   * Not accepted together with `client`.
+   * Custom endpoint to use instead of the default regional endpoint: an
+   * absolute `http://` or `https://` URL. `localhost:4566`, with no scheme, is
+   * refused — it parses as a URL whose scheme is `localhost:`. Not accepted
+   * together with `client`.
    */
   readonly endpoint?: string;
 
@@ -267,8 +280,10 @@ export interface AmazonS3VectorsConfig {
 
   /**
    * Milliseconds the connection phase of a request may take before it is
-   * abandoned, defaulting to 5,000. `0` disables it. Not accepted together
-   * with `client`, which carries its own request handler.
+   * abandoned, defaulting to 5,000. `0` disables it. At most 2,147,483,647,
+   * the longest delay Node's timers hold — a larger value would fire after
+   * 1 ms — and the same bound applies to the other two timeouts. Not accepted
+   * together with `client`, which carries its own request handler.
    *
    * A `TimeoutError` from this is `SERVICE_UNAVAILABLE` and retryable.
    */
@@ -360,7 +375,7 @@ export interface S3VectorsAddOptions {
    * place instead of writing a second copy under a fresh id — which is also
    * what `error.context.attemptedIds` is for after a partial failure.
    */
-  readonly ids?: string[];
+  readonly ids?: readonly string[];
   /**
    * Records per `PutVectors` request, 1–500.
    * @defaultValue `200`
@@ -400,7 +415,7 @@ export interface S3VectorsDeleteOptions {
    * else. Destroying the index is {@link AmazonS3Vectors.deleteIndex}, which
    * has to be named to be called.
    */
-  readonly ids: string[];
+  readonly ids: readonly string[];
   /**
    * Batch size for `DeleteVectors` calls.
    * @defaultValue `500`

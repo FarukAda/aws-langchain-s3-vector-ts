@@ -26,14 +26,14 @@ export enum S3VectorsErrorCode {
    * Caller input was invalid — an argument, option, id, document, metadata,
    * vector, filter or configuration value this package can tell will not work —
    * or an embeddings model returned something other than one storable vector per
-   * document, or an unusable query vector, or a non-conforming client returned
-   * metadata `structuredClone` cannot copy.
+   * document, or an unusable query vector, or a `relevanceScoreFn` returned
+   * something other than a finite number.
    *
-   * Raised before any AWS call and before any billable embedding, except:
-   * - a model's output, refused after that embedding call and before the
-   *   request it would feed — on a write carrying `writtenIds`, because earlier
-   *   batches may already be written;
-   * - uncopyable response metadata, refused after that response.
+   * Raised before any AWS call and before any billable embedding, except for a
+   * model's output — refused after that embedding call and before the request
+   * it would feed, on a write carrying `writtenIds` because earlier batches may
+   * already be written — and a `relevanceScoreFn` result, refused after the
+   * search it scores.
    */
   VALIDATION = 'VALIDATION',
   /**
@@ -74,12 +74,19 @@ export enum S3VectorsErrorCode {
    * on the way. Also a refused, unreachable or DNS-failed connection on an AWS
    * request, matched on the error's own `code` against the codes the SDK's
    * retry strategy lists as transient (the SDK also finds such a code in the
-   * error's `cause`; this package does not). All transient, and already retried by the SDK before reaching here. A 503 from
+   * error's `cause`; this package does not). All transient, and already
+   * retried by the SDK before reaching here. A 503 from
    * `PutVectors` is also AWS's documented response to a batch exceeding
    * resource capacity, which backoff cannot fix.
    */
   SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
-  /** `AccessDeniedException` (403). An IAM problem, not a retryable one. */
+  /**
+   * `AccessDeniedException` (403), or any exception the service model does not
+   * declare that arrives with HTTP 403 — which is how rejected credentials
+   * arrive (`InvalidClientTokenId`, `MissingAuthenticationToken`).
+   * `context.awsErrorName` keeps the name. An IAM or credentials problem, not a
+   * retryable one.
+   */
   ACCESS_DENIED = 'ACCESS_DENIED',
   /** `ServiceQuotaExceededException` (402). Needs a quota increase, not a retry. */
   QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
@@ -108,20 +115,29 @@ export enum S3VectorsErrorCode {
    * and this package never had it to compare against — it is decided by the
    * first vector written, not by configuration. Vectors a write is given that
    * disagree with each other on dimension are a different thing, and raise this
-   * code too — anywhere in an `addVectors` call, before any request; within one
-   * embedded batch for `addDocuments`, before that batch is written.
+   * code too — anywhere in an `addVectors` call, before any request; for
+   * `addDocuments`, in any embedded batch whose dimension differs from the
+   * first batch's, before that batch is written.
    */
   INDEX_CONFIG_MISMATCH = 'INDEX_CONFIG_MISMATCH',
   /** The caller-supplied `AbortSignal` fired before or during the operation. */
   ABORTED = 'ABORTED',
-  /** An AWS response was missing fields this library requires to proceed. */
+  /**
+   * An AWS response was missing, or carried an unusable value for, something
+   * this library requires to proceed — a result's key, distance or embedding,
+   * metadata that is not a copyable object, the index's metric — or was not an
+   * object at all. Reachable only from a mocked, stubbed or otherwise
+   * non-conforming client.
+   */
   AWS_INVALID_RESPONSE = 'AWS_INVALID_RESPONSE',
   /**
-   * A paginated read stopped with pages still outstanding, because this
-   * library's runaway page ceiling was reached. Both paginators raise it, and
-   * `context.awsCommand` says which: a `QueryVectors` search that had not yet
-   * collected `k` results, or a `ListVectors` enumeration still being asked for
-   * more.
+   * A paginated read stopped with pages still outstanding. `context.awsCommand`
+   * says which read: a `QueryVectors` search that reached this library's
+   * 1,000-page runaway ceiling before collecting `k` results, or either
+   * paginator handed a token it had already followed — a page already read,
+   * which repeated would return the same results again or never end. An
+   * enumeration has no page ceiling, because a large index legitimately needs
+   * many pages; only the repeated token stops it.
    *
    * Distinct from a read that legitimately ran out — a search returns however
    * many it found and an enumeration simply ends, both without error. Removing
@@ -129,9 +145,8 @@ export enum S3VectorsErrorCode {
    * than `k` is normal and is not this, and neither is a listing reaching the
    * end of a small index.
    *
-   * On a listing it almost always means the token stopped advancing rather than
-   * that the index is enormous — an endpoint override, a proxy, or a
-   * non-conforming client replaying one response.
+   * A repeated token means a replayed or cached response rather than an
+   * enormous index — an endpoint override, a proxy, or a non-conforming client.
    */
   PAGE_LIMIT_EXCEEDED = 'PAGE_LIMIT_EXCEEDED',
   /**

@@ -104,3 +104,46 @@ export function isTagKeyLength(key: string): boolean {
 export function isTagValueLength(value: string): boolean {
   return value.length >= TAG_VALUE_MIN_LENGTH && value.length <= TAG_VALUE_MAX_LENGTH;
 }
+
+/**
+ * At most 50 tags on an index ("You can enter up to 50 tag key-value pairs",
+ * userguide `creating-vector-indexes-with-tags.html`).
+ */
+export const MAX_TAGS = 50;
+
+/**
+ * The characters `CreateIndex` allows in a tag key and value: its documented
+ * key and value pattern, `([\p{L}\p{Z}\p{N}_.:/=+\-@]*)` — letters,
+ * separators, numbers and `_ . : / = + - @`.
+ *
+ * @see https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_CreateIndex.html
+ */
+const TAG_TEXT = /^[\p{L}\p{Z}\p{N}_.:/=+\-@]*$/u;
+
+/**
+ * Whether a tag key or value uses only characters `CreateIndex` accepts.
+ *
+ * Accepts: a tag key or value, already known to be a string.
+ *
+ * Returns: `true` when every character matches the documented pattern.
+ *
+ * Throws: nothing.
+ */
+export function isTagText(text: string): boolean {
+  return TAG_TEXT.test(text);
+}
+
+/**
+ * Whether a tag key carries the prefix AWS reserves for its own tags: "System
+ * created tags that begin with `aws:` are reserved for AWS use"
+ * (https://docs.aws.amazon.com/tag-editor/latest/userguide/best-practices-and-strats.html).
+ *
+ * Accepts: a tag key, already known to be a string.
+ *
+ * Returns: `true` for a reserved key.
+ *
+ * Throws: nothing.
+ */
+export function isReservedTagKey(key: string): boolean {
+  return key.startsWith('aws:');
+}

@@ -53,7 +53,7 @@ export interface EmbedPipelineOptions<T> extends OperationScope {
  *
  * Throws: the first failure from either side — an `embed` that threw, an
  * abort, or a rejected `put` — carrying `context.writtenIds` (every id
- * durably written, in **input order**, regardless of the order the puts
+ * confirmed written, in **input order**, regardless of the order the puts
  * completed) and `context.attemptedIds`.
  *
  * Guarantees:

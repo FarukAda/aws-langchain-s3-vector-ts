@@ -25,7 +25,6 @@ function setup() {
   const { client, mock } = createMockClient();
   mock.on(PutVectorsCommand).resolves({});
   const created: number[] = [];
-  const absent: number[] = [];
   const run = (more: Record<string, unknown> = {}) =>
     putBatch({
       client,
@@ -36,14 +35,11 @@ function setup() {
       ensureIndex: async (dimension: number) => {
         created.push(dimension);
       },
-      onIndexAbsent: () => {
-        absent.push(1);
-      },
       rateLimit: createWriteRateLimiter(false),
       ...SCOPE,
       ...more,
     });
-  return { mock, run, created, absent };
+  return { mock, run, created };
 }
 
 type PutInput = {
@@ -101,16 +97,6 @@ describe('putBatch', () => {
     );
   });
 
-  it('forgets the index exists when the write reports it gone', async () => {
-    const { mock, run, absent } = setup();
-    mock
-      .on(PutVectorsCommand)
-      .rejects(Object.assign(new Error('gone'), { name: 'NotFoundException' }));
-    const error = await run().catch((e: unknown) => e);
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.NOT_FOUND);
-    expect(absent).toHaveLength(1);
-  });
-
   it('reports how many vectors the failed call carried, so a 503 is actionable', async () => {
     // AWS answers an oversized batch with the same 503 it uses for genuine
     // unavailability. The batch size is the only thing that lets a caller
@@ -148,16 +134,6 @@ describe('putBatch', () => {
       operation: 'addVectors',
       awsCommand: 'PutVectors',
     });
-  });
-
-  it('leaves the index believed to exist after an unrelated failure', async () => {
-    const { mock, run, absent } = setup();
-    mock
-      .on(PutVectorsCommand)
-      .rejects(Object.assign(new Error('denied'), { name: 'AccessDeniedException' }));
-    const error = await run().catch((e: unknown) => e);
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.ACCESS_DENIED);
-    expect(absent).toHaveLength(0);
   });
 });
 

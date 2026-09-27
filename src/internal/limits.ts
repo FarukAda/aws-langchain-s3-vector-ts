@@ -26,10 +26,14 @@ import type { DistanceMetric } from '../types.js';
  * - a component that is not a finite number: "Invalid values such as NaN (Not a
  *   Number) or Infinity aren't allowed"
  *   (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_PutInputVector.html).
- *   A hole reads as `undefined`, so it is caught here too;
+ *   A hole reads as `undefined`, so it is caught here too. The check is on the
+ *   value as stored: the service converts to float32 before storing
+ *   (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_PutVectors.html),
+ *   so a finite double beyond float32's range arrives as Infinity;
  * - zero norm, on a `cosine` index only: "cosine distance does not support
  *   vectors with zero norm" (docs/evidence/zero-vector.md). That evidence names
- *   cosine, so a `euclidean` index is not checked.
+ *   cosine, so a `euclidean` index is not checked. The norm is taken over the
+ *   float32 values too, so components too small for float32 count as zero.
  *
  * Throws: nothing.
  */
@@ -53,7 +57,14 @@ export function vectorRejectionReason(
         `${renderValue(component)}). S3 Vectors rejects NaN and Infinity`
       );
     }
-    sumOfSquares += component * component;
+    const stored = Math.fround(component);
+    if (!Number.isFinite(stored)) {
+      return (
+        `has a component at position ${position} (${renderValue(component)}) beyond the ` +
+        'float32 range. S3 Vectors stores float32, where it becomes Infinity, which is rejected'
+      );
+    }
+    sumOfSquares += stored * stored;
   }
   if (distanceMetric === 'cosine' && sumOfSquares === 0) {
     return (
@@ -72,6 +83,13 @@ export interface WriteVectorOptions extends OperationScope {
   readonly offset: number;
   /** The id of each vector, in the same order. */
   readonly ids: readonly string[];
+  /**
+   * The dimension an earlier batch of the same call already set, and the
+   * position of the vector that set it. Without it the first vector here sets
+   * the dimension, which is right for a whole input checked at once but lets a
+   * later embedded batch change dimension part-way through a write.
+   */
+  readonly established?: { readonly dimension: number; readonly recordIndex: number } | undefined;
 }
 
 /**
@@ -86,7 +104,7 @@ export interface WriteVectorOptions extends OperationScope {
  * position here) and `recordId`:
  * - `VALIDATION` for the first vector {@link vectorRejectionReason} refuses;
  * - `INDEX_CONFIG_MISMATCH` for the first vector whose dimension differs from
- *   the first vector's. An index has one dimension (userguide
+ *   `established`, or from the first vector's when there is none. An index has one dimension (userguide
  *   `s3-vectors-indexes.html`), so vectors that disagree can never all be
  *   written, and the caller's real question is which index they meant.
  *
@@ -98,7 +116,7 @@ export function assertWriteVectors(
   vectors: readonly unknown[],
   opts: WriteVectorOptions,
 ): asserts vectors is readonly number[][] {
-  const { distanceMetric, offset, ids, ...scope } = opts;
+  const { distanceMetric, offset, ids, established, ...scope } = opts;
   const fail = (position: number, message: string, code: S3VectorsErrorCode): never => {
     const record: RecordRef = { recordIndex: offset + position, recordId: ids[position]! };
     throw new S3VectorsError(`${describeRecord('Vector', record)} ${message}.`, code, {
@@ -110,11 +128,11 @@ export function assertWriteVectors(
     const reason = vectorRejectionReason(vectors[position], distanceMetric);
     if (reason !== undefined) fail(position, reason, S3VectorsErrorCode.VALIDATION);
     const dimension = (vectors[position] as unknown[]).length;
-    const expected = (vectors[0] as unknown[]).length;
+    const expected = established?.dimension ?? (vectors[0] as unknown[]).length;
     if (dimension !== expected) {
       fail(
         position,
-        `has dimension ${dimension}, but the vector at index ${offset} has dimension ` +
+        `has dimension ${dimension}, but the vector at index ${established?.recordIndex ?? offset} has dimension ` +
           `${expected}. Every vector written to one index must share its dimension`,
         S3VectorsErrorCode.INDEX_CONFIG_MISMATCH,
       );

@@ -9,7 +9,7 @@
 import { describeValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError, type S3VectorsErrorContext } from '../shared/errors/s3-vectors-error.js';
-import { toError } from '../shared/errors/wrap-error.js';
+import { toError } from '../shared/errors/to-error.js';
 import type { StoreScope } from '../shared/scope.js';
 
 /**

@@ -9,6 +9,10 @@ import { isS3VectorsError } from '../src/shared/errors/s3-vectors-error.js';
 import type { AmazonS3VectorsConfig } from '../src/types.js';
 import { BASE_CONFIG, createMockClient, createMockEmbeddings, createTestStore } from './helpers.js';
 
+/** A token no earlier page returned, as a conforming service always sends. */
+let tokenSequence = 0;
+const freshToken = (): string => `t${++tokenSequence}`;
+
 /**
  * Assert that `callMethod` defaults its `k`/topK parameter to 4 when
  * omitted. Shared across every search method, since they all delegate to
@@ -473,7 +477,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     mock.on(QueryVectorsCommand).callsFake(() => ({
       distanceMetric: 'cosine',
       vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
-      nextToken: 'more',
+      nextToken: freshToken(),
     }));
 
     const results = await store.similaritySearchVectorWithScore([1, 2, 3], 500);
@@ -492,7 +496,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     mock.on(QueryVectorsCommand).callsFake(() => ({
       distanceMetric: 'cosine',
       vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
-      nextToken: 'more',
+      nextToken: freshToken(),
     }));
 
     const error = await store
@@ -516,7 +520,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     let call = 0;
     mock.on(QueryVectorsCommand).callsFake(() => {
       call += 1;
-      if (call <= 9) return { distanceMetric: 'cosine', vectors: [], nextToken: 'more' };
+      if (call <= 9) return { distanceMetric: 'cosine', vectors: [], nextToken: freshToken() };
       return {
         distanceMetric: 'cosine',
         vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
@@ -533,7 +537,7 @@ describe('AmazonS3Vectors QueryVectors pagination', () => {
     mock.on(QueryVectorsCommand).callsFake(() => ({
       distanceMetric: 'cosine',
       vectors: [{ key: 'k', metadata: { _page_content: 'x' }, distance: 0.1 }],
-      nextToken: 'more',
+      nextToken: freshToken(),
     }));
 
     await expect(store.similaritySearchVectorWithScore([1, 2, 3], 3)).resolves.toHaveLength(3);
@@ -952,5 +956,25 @@ describe('an unusable query embedding is refused before any request on every sea
     expect((error as Error).message).toContain('Query vector has zero norm');
     expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
     expect(mock.commandCalls(GetVectorsCommand)).toHaveLength(0);
+  });
+});
+
+describe('AmazonS3Vectors — a filter on a non-filterable key', () => {
+  it('is refused before the query is embedded', async () => {
+    const { store, mock, embeddings } = createTestStore({ nonFilterableMetadataKeys: ['body'] });
+    const error = await store
+      .similaritySearch('q', 1, { body: { $eq: 'x' } })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(embeddings.embedQuery).not.toHaveBeenCalled();
+    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+  });
+
+  it('refuses the page-content key, which is always non-filterable', async () => {
+    const { store } = createTestStore();
+    const error = await store
+      .similaritySearchVectorWithScore([1, 2, 3], 1, { _page_content: 'x' })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
   });
 });

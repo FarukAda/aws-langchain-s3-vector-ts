@@ -1,9 +1,9 @@
-import { CreateIndexCommand, GetIndexCommand } from '@aws-sdk/client-s3vectors';
+import { CreateIndexCommand, DeleteIndexCommand, GetIndexCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 
 import { createIndexLifecycle } from '../../src/internal/index-lifecycle.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
-import { createMockClient, indexFixture, sendOptionsOf } from '../helpers.js';
+import { createMockClient, gate, indexFixture, sendOptionsOf } from '../helpers.js';
 
 /**
  * One test per domain cell of `ensureExists`.
@@ -319,5 +319,60 @@ describe('what the first write checks against the existing index', () => {
     const { mock, lifecycle } = lifecycleFor({ distanceMetric: 'cosine' });
     mock.on(GetIndexCommand).resolves({ index: { indexName: 'test-index' } as never });
     await expect(lifecycle.ensureExists(3, undefined, 'addVectors')).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * Existence is remembered so later writes skip `GetIndex`, and forgotten when
+ * a write reports the index gone or the index is deleted. A lookup that was
+ * already in flight when it was forgotten describes the index as it was before,
+ * so it must not put the memory back.
+ */
+describe('createIndexLifecycle — existence forgotten while a lookup is in flight', () => {
+  it('does not remember an index that a write reported absent during the lookup', async () => {
+    const { mock, lifecycle } = lifecycleWith();
+    const release = gate();
+    mock.on(GetIndexCommand).callsFake(async () => {
+      await release.promise;
+      return { index: indexFixture({ metadataConfiguration: undefined }) };
+    });
+
+    const first = lifecycle.ensureExists(3, undefined, 'addDocuments');
+    lifecycle.markAbsent();
+    release.open();
+    await first;
+
+    await lifecycle.ensureExists(3, undefined, 'addDocuments');
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
+  });
+
+  it('does not remember an index deleted while a lookup was in flight', async () => {
+    const { mock, lifecycle } = lifecycleWith();
+    const deleteSent = gate();
+    const deleteDone = gate();
+    const lookupDone = gate();
+    mock.on(DeleteIndexCommand).callsFake(async () => {
+      deleteSent.open();
+      await deleteDone.promise;
+      return {};
+    });
+    // Answered from before the delete: the index was still there when it read.
+    mock.on(GetIndexCommand).callsFakeOnce(async () => {
+      await lookupDone.promise;
+      return { index: indexFixture({ metadataConfiguration: undefined }) };
+    });
+
+    const deletion = lifecycle.deleteIndex(undefined, 'deleteIndex');
+    await deleteSent.promise;
+    const lookup = lifecycle.ensureExists(3, undefined, 'addDocuments');
+    deleteDone.open();
+    await deletion;
+    lookupDone.open();
+    await lookup;
+
+    mock.on(GetIndexCommand).rejects(awsError('NotFoundException'));
+    mock.on(CreateIndexCommand).resolves({});
+    await lifecycle.ensureExists(3, undefined, 'addDocuments');
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
   });
 });

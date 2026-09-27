@@ -234,7 +234,14 @@ export function createWriteRateLimiter(
           // In slices, because a sleep cannot be interrupted and the signal is
           // only read between them. A wait used to be a second at most; a debt
           // can be many, and a caller who has given up should not be held for it.
-          await clock.sleep(Math.min(wait, LONGEST_SLEEP_MS));
+          // Raced, so an abort ends the wait at once rather than when the sleep
+          // does; the sleep's own timer is at most a second and simply lapses.
+          await raceAbort(
+            () => clock.sleep(Math.min(wait, LONGEST_SLEEP_MS)),
+            signal,
+            operation,
+            scope,
+          );
         }
       } finally {
         // Whoever is behind goes once everyone ahead of *them* has. For a

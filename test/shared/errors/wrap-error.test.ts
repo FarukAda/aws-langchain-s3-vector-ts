@@ -2,8 +2,8 @@ import { describe, it, expect } from '@jest/globals';
 
 import { S3VectorsErrorCode } from '../../../src/shared/errors/error-code.js';
 import { isS3VectorsError, S3VectorsError } from '../../../src/shared/errors/s3-vectors-error.js';
+import { toError } from '../../../src/shared/errors/to-error.js';
 import {
-  toError,
   wrapAwsError,
   wrapCallerError,
   wrapEmbeddingsError,
@@ -19,20 +19,33 @@ describe('toError', () => {
     expect(toError('string failure').message).toBe('string failure');
   });
 
-  it('serializes a non-string, non-Error value', () => {
-    expect(toError({ reason: 'nope' }).message).toBe('{"reason":"nope"}');
+  it('describes a non-string, non-Error value by kind, never by content', () => {
+    // A provider or middleware rejecting with a request or config object would
+    // otherwise put its headers or keys into the message, and so into logs.
+    const message = toError({ headers: { authorization: 'Bearer secret' } }).message;
+    expect(message).toBe('an object');
+    expect(message).not.toContain('secret');
+  });
+
+  it('bounds a thrown string and strips the characters that forge a log line', () => {
+    const message = toError(`line one\nline two${'x'.repeat(5000)}`).message;
+    expect(message).not.toContain('\n');
+    expect(message.length).toBeLessThanOrEqual(1001);
+    expect(message.endsWith('…')).toBe(true);
   });
 
   it('treats null as a non-Error, safely stringified', () => {
     expect(toError(null).message).toBe('null');
   });
 
-  it('does not treat a message-only object (no name) as an Error', () => {
-    expect(toError({ message: 'boom' }).message).toBe('{"message":"boom"}');
+  it('uses the message of a message-only object (no name), without treating it as an Error', () => {
+    const value = { message: 'boom', token: 'secret' };
+    expect(toError(value)).not.toBe(value);
+    expect(toError(value).message).toBe('boom');
   });
 
   it('does not treat a name-only object (no message) as an Error', () => {
-    expect(toError({ name: 'Foo' }).message).toBe('{"name":"Foo"}');
+    expect(toError({ name: 'Foo' }).message).toBe('an object');
   });
 
   it('treats a plain {name, message} object as already-an-Error', () => {
@@ -179,9 +192,7 @@ describe('wrapAwsError', () => {
     expect(err.context.awsErrorName).toBeUndefined();
     expect(err.context.httpStatusCode).toBe(500);
     expect(err.context.retryable).toBe(true);
-    expect(err.message).toBe(
-      'op failed on PutVectors (HTTP 500): {"name":5,"message":"odd","$metadata":{"httpStatusCode":500}}',
-    );
+    expect(err.message).toBe('op failed on PutVectors (HTTP 500): odd');
   });
 
   it('ignores malformed $metadata fields instead of copying them through', () => {

@@ -198,3 +198,45 @@ describe('isTransientNetworkFailure', () => {
     expect(isTransientNetworkFailure(error)).toBe(true);
   });
 });
+
+/**
+ * A credential failure arrives under a protocol-level name the service model
+ * does not declare. AWS's common errors give those names HTTP 403 —
+ * `InvalidClientTokenId`, `MissingAuthenticationToken`
+ * (https://docs.aws.amazon.com/cloudsearch/latest/developerguide/CommonErrors.html).
+ */
+describe('classifyAwsError — a refusal by HTTP status', () => {
+  const withStatus = (name: string, httpStatusCode: unknown): object =>
+    Object.assign(new Error('refused'), { name, $metadata: { httpStatusCode } });
+
+  it.each(['InvalidClientTokenId', 'MissingAuthenticationToken', 'SomeFutureAuthFailure'])(
+    'maps an undeclared %s answered with 403 to ACCESS_DENIED',
+    (name) => {
+      expect(classifyAwsError(withStatus(name, 403))).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+    },
+  );
+
+  it('keeps a declared name over its status', () => {
+    expect(classifyAwsError(withStatus('ValidationException', 403))).toBe(
+      S3VectorsErrorCode.AWS_REJECTED,
+    );
+  });
+
+  it.each([400, '403', undefined])(
+    'leaves an undeclared name with status %p unchanged',
+    (status) => {
+      expect(classifyAwsError(withStatus('SomeFutureException', status))).toBe(
+        S3VectorsErrorCode.AWS_REQUEST_FAILED,
+      );
+    },
+  );
+
+  it('reads the status without throwing when $metadata is a throwing getter', () => {
+    const error = Object.defineProperty(new Error('x'), '$metadata', {
+      get: () => {
+        throw new Error('getter');
+      },
+    });
+    expect(classifyAwsError(error)).toBe(S3VectorsErrorCode.AWS_REQUEST_FAILED);
+  });
+});

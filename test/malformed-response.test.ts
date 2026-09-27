@@ -147,3 +147,48 @@ describe('AmazonS3Vectors — a mid-pagination QueryVectors failure explains its
     expect((error as Error).message).not.toContain('re-issue the original query');
   });
 });
+
+describe('AmazonS3Vectors — a result entry must carry a key and object metadata', () => {
+  const searchWith = async (vector: Record<string, unknown>): Promise<unknown> => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({
+      distanceMetric: 'cosine',
+      vectors: [{ distance: 0.1, ...vector } as never],
+    });
+    return await store.similaritySearchVectorWithScore([1, 2, 3], 1).catch((e: unknown) => e);
+  };
+
+  it.each([
+    ['no key', { metadata: {} }],
+    ['an empty key', { key: '', metadata: {} }],
+    ['a numeric key', { key: 7, metadata: {} }],
+    ['array metadata', { key: 'k', metadata: ['a'] }],
+    ['string metadata', { key: 'k', metadata: 'a' }],
+  ])('refuses a search result with %s as AWS_INVALID_RESPONSE', async (_label, vector) => {
+    const error = await searchWith(vector);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+  });
+
+  it('accepts a result with no metadata at all', async () => {
+    const result = await searchWith({ key: 'k' });
+    expect(Array.isArray(result)).toBe(true);
+  });
+
+  it('refuses an MMR candidate with no key before sending it to GetVectors', async () => {
+    const { store, mock } = createTestStore();
+    mock.on(QueryVectorsCommand).resolves({
+      distanceMetric: 'cosine',
+      vectors: [{} as never],
+    });
+    const error = await store
+      .maxMarginalRelevanceSearch('q', { k: 1, fetchK: 1 })
+      .catch((e: unknown) => e);
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+    expect(mock.commandCalls(GetVectorsCommand)).toHaveLength(0);
+  });
+
+  it('codes uncloneable metadata in a response as AWS_INVALID_RESPONSE, not VALIDATION', async () => {
+    const error = await searchWith({ key: 'k', metadata: { f: () => 1 } });
+    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+  });
+});

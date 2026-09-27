@@ -8,7 +8,7 @@ import { chunk, offsetBatches } from '../../src/shared/batching.js';
 import { classifyAwsError } from '../../src/shared/errors/classify.js';
 import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { isS3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
-import { toError } from '../../src/shared/errors/wrap-error.js';
+import { toError } from '../../src/shared/errors/to-error.js';
 import { createDocument } from '../../src/shared/metadata.js';
 
 /**

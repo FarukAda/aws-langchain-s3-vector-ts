@@ -6,7 +6,7 @@
 
 # Interface: S3VectorsDeleteIndexOptions
 
-Defined in: [types.ts:417](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L417)
+Defined in: [types.ts:432](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L432)
 
 Options accepted by [AmazonS3Vectors.deleteIndex](../classes/AmazonS3Vectors.md#deleteindex).
 
@@ -16,7 +16,7 @@ Options accepted by [AmazonS3Vectors.deleteIndex](../classes/AmazonS3Vectors.md#
 
 > `readonly` `optional` **signal?**: `AbortSignal`
 
-Defined in: [types.ts:423](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L423)
+Defined in: [types.ts:438](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L438)
 
 Abort the deletion. An already-fired signal rejects before any request;
 one that fires while an index creation is being awaited ends this

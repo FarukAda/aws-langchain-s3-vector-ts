@@ -10,7 +10,6 @@
 import { PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import type { DocumentType as __DocumentType } from '@smithy/types';
 
-import { isAwsNotFoundException } from '../shared/errors/aws-not-found.js';
 import { attachContext } from '../shared/errors/decorate.js';
 import { awsFailure, type AwsCommand } from '../shared/errors/wrap-error.js';
 import type { OperationScope, StoreScope } from '../shared/scope.js';
@@ -28,8 +27,6 @@ export interface PutBatchOptions extends AwsOperation {
   readonly vectors: readonly number[][];
   /** Called for batch 0 only, and only when the store may create an index. */
   readonly ensureIndex?: ((dimension: number, signal?: AbortSignal) => Promise<void>) | undefined;
-  /** Called when a write reports the index gone, so the next write re-checks. */
-  readonly onIndexAbsent: () => void;
   /** The store's write rate limit, waited on before the request is sent. */
   readonly rateLimit: WriteRateLimiter;
 }
@@ -82,10 +79,8 @@ export async function sendAws<T>(
  *   before writing.
  * - Nothing about an existing index is validated here beyond its existence. AWS
  *   enforces the dimension on every write (userguide `s3-vectors-indexes.html`,
- *   *Dimension requirements*) and the metric is verified on every read against
- *   the `QueryVectors` response, so there is nothing left for a local check to add.
- * - A `PutVectors` that reports the index gone calls `onIndexAbsent`, so the
- *   next write re-checks and re-creates it rather than repeating the failure.
+ *   *Dimension requirements*); the metric and non-filterable keys are compared
+ *   once, by `ensureIndex`, when it finds an index this store did not create.
  */
 export async function putBatch(opts: PutBatchOptions): Promise<void> {
   const { operation, records, vectors, signal } = opts;
@@ -120,9 +115,6 @@ export async function putBatch(opts: PutBatchOptions): Promise<void> {
       ),
     );
   } catch (error: unknown) {
-    if (isAwsNotFoundException((error as { cause?: unknown }).cause)) {
-      opts.onIndexAbsent();
-    }
     // The batch size travels with the failure: a 503 here may mean the batch
     // exceeded capacity rather than that the service is unavailable, and
     // nothing else in the error separates those.

@@ -217,3 +217,43 @@ describe('the runaway ceiling', () => {
     ).toBeGreaterThan(0);
   }, 30_000);
 });
+
+describe('listPages — a token that cycles', () => {
+  it('stops on a token cycle longer than one page, instead of listing forever', async () => {
+    const { mock, run } = setup();
+    let n = 0;
+    mock.on(ListVectorsCommand).callsFake(() => {
+      n++;
+      return page([`v${n}`], n % 2 === 1 ? 'A' : 'B');
+    });
+
+    let yielded = 0;
+    const error = await (async () => {
+      for await (const _ of run()) {
+        yielded++;
+        if (yielded > 50) throw new Error('listing did not stop on a cycling token');
+      }
+    })().catch((e: unknown) => e);
+
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED);
+    expect((error as { context: { awsCommand: string } }).context.awsCommand).toBe('ListVectors');
+  });
+
+  it('carries its progress when a page has a non-array vectors member', async () => {
+    const { mock, run } = setup();
+    mock
+      .on(ListVectorsCommand)
+      .resolvesOnce(page(['a'], 't1'))
+      .resolves({ vectors: 'nope' as never });
+    const error = await (async () => {
+      for await (const _ of run()) {
+        // drain
+      }
+    })().catch((e: unknown) => e);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
+    expect((error as { context: Record<string, unknown> }).context).toMatchObject({
+      pagesScanned: 2,
+      yielded: 1,
+    });
+  });
+});

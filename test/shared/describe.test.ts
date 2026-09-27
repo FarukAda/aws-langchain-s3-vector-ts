@@ -1,6 +1,6 @@
 import { describe, it, expect } from '@jest/globals';
 
-import { describeRecord, describeValue } from '../../src/shared/describe.js';
+import { describeKey, describeRecord, describeValue } from '../../src/shared/describe.js';
 
 describe('describeRecord', () => {
   it('names the position alone when the record has no id', () => {
@@ -99,5 +99,13 @@ describe('describeValue with a hostile object', () => {
     // Stripping can empty a name that was not empty. "a  instance" would name
     // nothing and read as a formatting bug.
     expect(describeValue(withConstructorName('\n\t\u0000'))).toBe('an object');
+  });
+});
+
+describe('describeKey — cutting never splits a character', () => {
+  it('keeps a surrogate pair whole at the cut, so the message stays well-formed', () => {
+    const described = describeKey(`${'a'.repeat(63)}😀tail`);
+    expect(described.isWellFormed()).toBe(true);
+    expect(described.endsWith('…')).toBe(true);
   });
 });

@@ -33,7 +33,7 @@ describe('AmazonS3Vectors partial-write failure reports writtenIds', () => {
 
     expect(isS3VectorsError(error)).toBe(true);
     expect((error as { context: { writtenIds?: string[] } }).context.writtenIds).toEqual([]);
-    expect((error as Error).message).not.toContain('durably written');
+    expect((error as Error).message).not.toContain('confirmed written');
   });
 
   it('addVectors: a batch failing after the first succeeds reports every id written so far, including a group sibling that succeeded alongside the failure', async () => {
@@ -72,7 +72,7 @@ describe('AmazonS3Vectors partial-write failure reports writtenIds', () => {
     // succeeded despite id-2 rejecting) — both confirmed written, neither
     // lost just because id-2 failed in the same concurrency group.
     expect(new Set(writtenIds)).toEqual(new Set(['id-1', 'id-3']));
-    expect((error as Error).message).toContain('2 vector(s) were already durably written');
+    expect((error as Error).message).toContain('2 vector(s) were confirmed written');
   });
 
   it('addVectors: when two batches in the same group both fail, reports the first failure and still counts every succeeding sibling', async () => {
@@ -290,7 +290,7 @@ describe('AmazonS3Vectors partial-delete failure reports deletedIds', () => {
     expect(isS3VectorsError(error)).toBe(true);
     const deletedIds = (error as { context: { deletedIds?: string[] } }).context.deletedIds;
     expect(new Set(deletedIds)).toEqual(new Set(['id-1', 'id-3']));
-    expect((error as Error).message).toContain('2 vector(s) were already durably deleted');
+    expect((error as Error).message).toContain('2 vector(s) were confirmed deleted');
   });
 
   it('when two batches in the same group both fail, reports the first failure and still counts every succeeding sibling', async () => {

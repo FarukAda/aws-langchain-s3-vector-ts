@@ -19,6 +19,7 @@ import type { TopK } from './guards.js';
 import type { QueryVector } from './limits.js';
 import type { AwsOperation } from './operation.js';
 import { assertResponseObject, outputVectorsOf } from './output-vectors.js';
+import { trackPageTokens } from './page-tokens.js';
 import { checkAborted, sendOptions } from './signals.js';
 
 /**
@@ -167,6 +168,7 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
   const results: S3OutputVector[] = [];
   let nextToken: string | undefined;
   let pageCount = 0;
+  const tokens = trackPageTokens();
 
   do {
     let response;
@@ -196,6 +198,23 @@ export async function queryPages(opts: QueryPagesOptions): Promise<S3OutputVecto
     results.push(...outputVectorsOf(response.vectors, 'QueryVectors', operation, scope));
     nextToken = response.nextToken;
     pageCount++;
+    if (nextToken && results.length < k && tokens.repeats(nextToken)) {
+      throw new S3VectorsError(
+        `QueryVectors for index "${opts.indexName}" returned a pagination token it had ` +
+          `already returned, after ${pageCount} page(s). That is a page already read, so ` +
+          'following it would collect the same results again. The index is not at fault: a ' +
+          'replayed or cached response — from a custom endpoint, a proxy, or a stubbed client ' +
+          '— looks like this.',
+        S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED,
+        {
+          operation,
+          ...scope,
+          awsCommand: 'QueryVectors',
+          pagesScanned: pageCount,
+          resultsCollected: results.length,
+        },
+      );
+    }
   } while (nextToken && results.length < k && pageCount < MAX_QUERY_PAGES);
 
   if (nextToken && results.length < k) {

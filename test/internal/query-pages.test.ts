@@ -8,6 +8,10 @@ import { S3VectorsErrorCode } from '../../src/shared/errors/error-code.js';
 import { S3VectorsError } from '../../src/shared/errors/s3-vectors-error.js';
 import { createMockClient } from '../helpers.js';
 
+/** A token no earlier page returned, as a conforming service always sends. */
+let tokenSequence = 0;
+const freshToken = (): string => `t${++tokenSequence}`;
+
 /**
  * One test per domain cell of `queryPages`.
  */
@@ -87,7 +91,7 @@ describe('queryPages', () => {
 
   it('fails closed when the page ceiling is reached with a token still outstanding', async () => {
     const { mock, run } = setup();
-    mock.on(QueryVectorsCommand).callsFake(() => page(0, 'always-more'));
+    mock.on(QueryVectorsCommand).callsFake(() => page(0, freshToken()));
     const error = await run().catch((e: unknown) => e);
     expect(codeOf(error)).toBe(S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED);
     // Says how short it fell and why it stopped, so the caller can tell this
@@ -296,5 +300,30 @@ describe('a 403 on a search', () => {
     }).catch((e: unknown) => e);
 
     expect((error as Error).message).not.toContain('s3vectors:GetVectors');
+  });
+});
+
+describe('queryPages — a replayed token', () => {
+  it('stops on the first repeated token instead of collecting the same page again', async () => {
+    const { mock, run } = setup();
+    mock.on(QueryVectorsCommand).resolves(page(1, 'same'));
+    const error = await run({ k: parseK('similaritySearch', SCOPE_FOR_PARSE, 50) }).catch(
+      (e: unknown) => e,
+    );
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED);
+    expect((error as S3VectorsError).context.awsCommand).toBe('QueryVectors');
+    expect(mock.commandCalls(QueryVectorsCommand).length).toBeLessThanOrEqual(3);
+  });
+
+  it('stops on a token cycle longer than one page', async () => {
+    const { mock, run } = setup();
+    let n = 0;
+    mock.on(QueryVectorsCommand).callsFake(() => {
+      n++;
+      return page(0, n % 2 === 1 ? 'A' : 'B');
+    });
+    const error = await run().catch((e: unknown) => e);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED);
+    expect(mock.commandCalls(QueryVectorsCommand).length).toBeLessThan(10);
   });
 });

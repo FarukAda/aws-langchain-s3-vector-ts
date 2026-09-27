@@ -2,6 +2,10 @@ import {
   DeleteIndexCommand,
   DeleteVectorsCommand,
   GetIndexCommand,
+  GetVectorsCommand,
+  ListVectorsCommand,
+  PutVectorsCommand,
+  QueryVectorsCommand,
 } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
@@ -177,5 +181,79 @@ describe('AmazonS3Vectors.deleteIndex — idempotency', () => {
     // Classified, not generic: an access failure is an IAM problem the caller
     // acts on differently from a transient one.
     expect((error as { code: S3VectorsErrorCode }).code).toBe(S3VectorsErrorCode.ACCESS_DENIED);
+  });
+});
+
+describe('AmazonS3Vectors.delete — an index reported gone is forgotten', () => {
+  it('looks the index up again on the next write after DeleteVectors answers 404', async () => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], { ids: ['a'] });
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
+
+    mock
+      .on(DeleteVectorsCommand)
+      .rejects(Object.assign(new Error('gone'), { name: 'NotFoundException' }));
+    await store.delete({ ids: ['a'] }).catch(() => undefined);
+
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'b' })], { ids: ['b'] });
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
+  });
+});
+
+describe('AmazonS3Vectors — a read reporting the index gone is forgotten too', () => {
+  const gone = (): Error => Object.assign(new Error('gone'), { name: 'NotFoundException' });
+
+  it.each([
+    ['a search', (store: AmazonS3Vectors) => store.similaritySearchVectorWithScore([1, 2, 3], 1)],
+    ['getByIds', (store: AmazonS3Vectors) => store.getByIds(['a'])],
+    [
+      'a listing',
+      async (store: AmazonS3Vectors) => {
+        for await (const _ of store.listDocuments()) break;
+      },
+    ],
+  ])('looks the index up again on the next write after %s answers 404', async (_label, read) => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], { ids: ['a'] });
+
+    mock.on(QueryVectorsCommand).rejects(gone());
+    mock.on(GetVectorsCommand).rejects(gone());
+    mock.on(ListVectorsCommand).rejects(gone());
+    await read(store).catch(() => undefined);
+
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'b' })], { ids: ['b'] });
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
+  });
+});
+
+describe('AmazonS3Vectors — which failures forget the index', () => {
+  it('forgets it when a write answers 404', async () => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], { ids: ['a'] });
+    mock
+      .on(PutVectorsCommand)
+      .rejects(Object.assign(new Error('gone'), { name: 'NotFoundException' }));
+    const failed = await store
+      .addVectors([[1, 2, 3]], [new Document({ pageContent: 'b' })], { ids: ['b'] })
+      .catch((e: unknown) => e);
+    expect((failed as { code?: string }).code).toBe(S3VectorsErrorCode.NOT_FOUND);
+    mock.on(PutVectorsCommand).resolves({});
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'c' })], { ids: ['c'] });
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(2);
+  });
+
+  it('keeps it after an unrelated failure', async () => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], { ids: ['a'] });
+    mock
+      .on(QueryVectorsCommand)
+      .rejects(Object.assign(new Error('denied'), { name: 'AccessDeniedException' }));
+    await store.similaritySearchVectorWithScore([1, 2, 3], 1).catch(() => undefined);
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'b' })], { ids: ['b'] });
+    expect(mock.commandCalls(GetIndexCommand)).toHaveLength(1);
   });
 });

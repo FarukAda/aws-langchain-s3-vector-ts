@@ -153,6 +153,25 @@ describe('createIndexLifecycle — index creation rules', () => {
       expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
     });
 
+    it.each([
+      ['a key character outside the pattern', { 'a#b': 'v' }, 'Tag key'],
+      ['a value character outside the pattern', { t: 'a&b' }, 'Tag value for "t"'],
+      ['the reserved aws: prefix', { 'aws:x': 'v' }, 'aws:'],
+      [
+        'more than 50 tags',
+        Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`k${i}`, 'v'])),
+        '51',
+      ],
+    ])('rejects %s before CreateIndex', async (_label, tags, fragment) => {
+      const { mock, lifecycle } = lifecycleWith({ tags });
+      const error = await lifecycle
+        .ensureExists(3, undefined, 'ensureIndexExists')
+        .catch((e: unknown) => e);
+      expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+      expect((error as Error).message).toContain(fragment);
+      expect(mock.commandCalls(CreateIndexCommand)).toHaveLength(0);
+    });
+
     it('omits tags when not configured', async () => {
       const { mock, lifecycle } = lifecycleWith();
       await lifecycle.ensureExists(3, undefined, 'ensureIndexExists');

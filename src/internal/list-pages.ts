@@ -17,6 +17,7 @@ import type { StoreScope } from '../shared/scope.js';
 import type { S3OutputVector } from '../types.js';
 import type { AwsOperation } from './operation.js';
 import { assertResponseObject, embeddingOf, outputVectorsOf } from './output-vectors.js';
+import { trackPageTokens } from './page-tokens.js';
 import { checkAborted, sendOptions } from './signals.js';
 
 /**
@@ -126,6 +127,7 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
   let nextToken: string | undefined;
   let pagesScanned = 0;
   let yielded = 0;
+  const tokens = trackPageTokens();
 
   do {
     checkAborted(operation, signal, scope);
@@ -150,7 +152,10 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
     assertResponseObject(response, 'ListVectors', { operation, ...scope, pagesScanned, yielded });
 
     pagesScanned++;
-    for (const vector of outputVectorsOf(response.vectors, 'ListVectors', operation, scope)) {
+    for (const vector of outputVectorsOf(response.vectors, 'ListVectors', operation, scope, {
+      pagesScanned,
+      yielded,
+    })) {
       // Refused here rather than by the caller, because this generator owns the
       // counters: raised from `listVectors` instead, the one failure the
       // documentation singles out was the only one that could not say how far
@@ -161,10 +166,10 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
       yielded++;
       yield vector;
     }
-    // A conforming service never answers with the token it was handed: that is
-    // the same page again, and following it is a loop that issues billable
-    // requests forever and yields nothing. A caller who passed no AbortSignal
-    // has no way out of a `for await` that never ends.
+    // A conforming service never answers with a token it has already handed
+    // out: that is a page already read, and following it is a loop that issues
+    // billable requests forever. A caller who passed no AbortSignal has no way
+    // out of a `for await` that never ends.
     //
     // There is no page-*count* ceiling here, unlike `queryPages`, and that is
     // deliberate rather than an omission: a search knows it is collecting at
@@ -173,11 +178,11 @@ export async function* listPages(opts: ListPagesOptions): AsyncGenerator<S3Outpu
     // index holds — up to two billion — so any count picked here would refuse
     // a legitimate listing of a large index rather than catch a fault. What
     // runs away is the token, so the token is what is checked.
-    if (response.nextToken !== undefined && response.nextToken === nextToken) {
+    if (response.nextToken && tokens.repeats(response.nextToken)) {
       throw new S3VectorsError(
-        `ListVectors for index "${opts.indexName}" returned the same pagination token it was ` +
-          `given, after ${pagesScanned} page(s) and ${yielded} vector(s). That is the same page ` +
-          'again, so following it would never end. The index is not at fault: a replayed or ' +
+        `ListVectors for index "${opts.indexName}" returned a pagination token it had already ` +
+          `returned, after ${pagesScanned} page(s) and ${yielded} vector(s). That is a page ` +
+          'already read, so following it would never end. The index is not at fault: a replayed or ' +
           'cached response — from a custom endpoint, a proxy, or a stubbed client — looks like ' +
           'this.',
         S3VectorsErrorCode.PAGE_LIMIT_EXCEEDED,

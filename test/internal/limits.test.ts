@@ -192,3 +192,37 @@ describe('parseQueryVector', () => {
     expect(error?.context).toEqual({ operation: 'similaritySearchVectorWithScore', ...SCOPE });
   });
 });
+
+/**
+ * S3 Vectors stores float32 and converts a wider value before storing it
+ * (PutVectors API reference). A finite double past float32's range becomes
+ * Infinity there, and a cosine vector whose every component is below float32's
+ * smallest subnormal becomes the zero vector — both of which the service
+ * refuses, after earlier batches of the same write may already have landed.
+ */
+describe('vectorRejectionReason — float32 storage', () => {
+  it('refuses a finite double that overflows float32', () => {
+    expect(vectorRejectionReason([1, 1e39, 0], 'euclidean')).toContain('position 1');
+  });
+
+  it('refuses a cosine vector that is zero once stored as float32', () => {
+    expect(vectorRejectionReason([1e-46, 1e-46], 'cosine')).toContain('zero norm');
+  });
+
+  it('accepts the largest float32 and the smallest float32 subnormal', () => {
+    expect(vectorRejectionReason([3.4028234663852886e38, 1.401298464324817e-45], 'cosine')).toBe(
+      undefined,
+    );
+  });
+
+  it('refuses the same overflow in a query vector', () => {
+    const error = thrownBy(() =>
+      parseQueryVector([1e39], {
+        operation: 'similaritySearch',
+        ...SCOPE,
+        distanceMetric: 'cosine',
+      }),
+    );
+    expect(error?.code).toBe(S3VectorsErrorCode.VALIDATION);
+  });
+});

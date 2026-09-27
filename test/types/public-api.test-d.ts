@@ -241,3 +241,21 @@ declare const failure: _ErrorContext;
 failure.writtenIds?.push('x');
 const writtenIdsAreReadable: readonly string[] | undefined = failure.writtenIds;
 void writtenIdsAreReadable;
+
+// Inputs a caller built as readonly — `as const` lists, a frozen config — are
+// accepted wherever the store only reads them.
+const frozenIds: readonly string[] = ['a', 'b'];
+const readonlyKeys: readonly string[] = ['body'];
+const readonlyConfig: AmazonS3VectorsConfig = {
+  vectorBucketName: 'b',
+  indexName: 'idx',
+  nonFilterableMetadataKeys: readonlyKeys,
+};
+const addWithReadonlyIds: Promise<string[]> = store.addDocuments([], { ids: frozenIds });
+const deleteWithReadonlyIds: Promise<void> = store.delete({ ids: frozenIds });
+const getWithReadonlyIds: Promise<(Document | undefined)[]> = store.getByIds(frozenIds);
+
+void readonlyConfig;
+void addWithReadonlyIds;
+void deleteWithReadonlyIds;
+void getWithReadonlyIds;

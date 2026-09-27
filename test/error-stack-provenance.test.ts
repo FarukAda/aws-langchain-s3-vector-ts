@@ -47,7 +47,7 @@ describe('AmazonS3Vectors — a rebuilt error keeps the original throw site', ()
     expect(stack).toContain('checkAborted');
     expect(stack.split('\n')[1]).not.toContain('attachPartialIds');
     // The decorated message is still the one reported.
-    expect(stack).toContain('already durably written');
+    expect(stack).toContain('confirmed written');
   });
 
   it('fromDocuments keeps the original throw site when attaching the instance', async () => {

@@ -16,10 +16,13 @@ import {
 } from '@aws-sdk/client-s3vectors';
 
 import {
+  isReservedTagKey,
   isTagKeyLength,
+  isTagText,
   isTagValueLength,
   MAX_DIMENSION,
   MAX_NON_FILTERABLE_KEYS,
+  MAX_TAGS,
   METADATA_KEY_MAX_LENGTH,
   METADATA_KEY_MIN_LENGTH,
   MIN_DIMENSION,
@@ -487,14 +490,32 @@ export function assertMetadataKeysCreatable(
 /**
  * The tags a new index may be created with.
  *
- * @throws {S3VectorsError} `VALIDATION` for a key outside 1–128 characters or
- * a value outside 0–256 (`CreateIndex` API reference).
+ * @throws {S3VectorsError} `VALIDATION` for more than 50 tags, a key outside
+ * 1–128 characters or a value outside 0–256, a character outside
+ * `CreateIndex`'s pattern, or a key under the reserved `aws:` prefix
+ * (`CreateIndex` API reference).
  */
 function assertTagsCreatable(
   tags: Record<string, string> | undefined,
   fail: (message: string) => never,
 ): void {
-  for (const [key, value] of Object.entries(tags ?? {})) {
+  const entries = Object.entries(tags ?? {});
+  if (entries.length > MAX_TAGS) {
+    fail(`An index takes at most ${MAX_TAGS} tags; ${entries.length} are configured.`);
+  }
+  for (const [key, value] of entries) {
+    if (!isTagText(key) || isReservedTagKey(key)) {
+      fail(
+        `Tag key ${JSON.stringify(key)} must use only letters, numbers, spaces and ` +
+          '_ . : / = + - @, and must not begin with the reserved prefix aws:.',
+      );
+    }
+    if (!isTagText(value)) {
+      fail(
+        `Tag value for ${JSON.stringify(key)} must use only letters, numbers, spaces and ` +
+          '_ . : / = + - @.',
+      );
+    }
     if (!isTagKeyLength(key)) {
       fail(
         `Tag key ${JSON.stringify(key)} must be ${TAG_KEY_MIN_LENGTH}-${TAG_KEY_MAX_LENGTH} characters.`,
@@ -633,6 +654,12 @@ export function createIndexLifecycle(
   config: IndexLifecycleConfig,
 ): IndexLifecycle {
   let knownToExist = false;
+  // Bumped whenever existence is forgotten. A lookup remembers existence only
+  // if nothing forgot it while the lookup was in flight: its `GetIndex` may
+  // have been answered before a write saw the index gone, or before a delete
+  // removed it, and remembering that answer would skip the lookup for every
+  // later write until one of them failed.
+  let generation = 0;
   let memo: Promise<void> | null = null;
   // What an error names. Never `ctx` itself, which also holds the client.
   const scope: StoreScope = { vectorBucketName: ctx.vectorBucketName, indexName: ctx.indexName };
@@ -647,6 +674,7 @@ export function createIndexLifecycle(
       if (knownToExist) return;
 
       memo ??= (async () => {
+        const startedAt = generation;
         try {
           const description = await describeIndex(ctx, undefined, operation);
           if (description.exists) {
@@ -684,7 +712,7 @@ export function createIndexLifecycle(
             // of the store without its keys or metric ever having been seen.
             if (!winner.exists) return;
           }
-          knownToExist = true;
+          if (generation === startedAt) knownToExist = true;
         } finally {
           memo = null;
         }
@@ -705,6 +733,7 @@ export function createIndexLifecycle(
 
     markAbsent(): void {
       knownToExist = false;
+      generation++;
     },
 
     async deleteIndex(signal: AbortSignal | undefined, operation: string): Promise<void> {
@@ -725,6 +754,9 @@ export function createIndexLifecycle(
         await raceAbort(() => settled, signal, operation, scope);
       }
 
+      // From the moment the delete is sent, a lookup answered before it lands
+      // describes an index that may be about to go.
+      generation++;
       try {
         await ctx.client.send(
           new DeleteIndexCommand({
@@ -756,6 +788,7 @@ export function createIndexLifecycle(
         }
       }
       knownToExist = false;
+      generation++;
     },
   };
 }

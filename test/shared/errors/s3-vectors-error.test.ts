@@ -165,3 +165,30 @@ describe('the context is immutable all the way down', () => {
     expect(Object.isFrozen(error.context.writtenIds)).toBe(true);
   });
 });
+
+describe('S3VectorsError — cause is always an Error when present', () => {
+  it.each([
+    ['null', null],
+    ['a string', 'boom'],
+    ['a plain object', { reason: 'x' }],
+  ])('turns a %s cause given to the public constructor into an Error', (_label, cause) => {
+    const error = new S3VectorsError('m', S3VectorsErrorCode.VALIDATION, { operation: 'o' }, cause);
+    expect(error.cause).toBeInstanceOf(Error);
+  });
+
+  it('keeps an Error cause as the same object', () => {
+    const cause = new Error('root');
+    expect(
+      new S3VectorsError('m', S3VectorsErrorCode.VALIDATION, { operation: 'o' }, cause).cause,
+    ).toBe(cause);
+  });
+
+  it('still has no cause when none is given', () => {
+    expect(
+      Object.hasOwn(
+        new S3VectorsError('m', S3VectorsErrorCode.VALIDATION, { operation: 'o' }),
+        'cause',
+      ),
+    ).toBe(false);
+  });
+});

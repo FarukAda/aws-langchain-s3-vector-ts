@@ -7,6 +7,7 @@
  * so that decision is made once against evidence rather than at each call site
  * against whatever that site happened to see.
  */
+import { readProperty } from '../objects.js';
 import { isAbortError } from './aws-abort.js';
 import { S3VectorsErrorCode } from './error-code.js';
 
@@ -102,6 +103,25 @@ function declaredCodeOf(name: unknown): S3VectorsErrorCode | undefined {
 }
 
 /**
+ * The HTTP status an AWS response carried, or `undefined`.
+ *
+ * Accepts: an object-shaped thrown value.
+ *
+ * Returns: `$metadata.httpStatusCode` when it is a number.
+ *
+ * Throws: nothing. It runs inside error handling, where a throwing getter
+ * would replace the failure being classified.
+ */
+function httpStatusOf(error: object): number | undefined {
+  const metadata = readProperty(error, '$metadata');
+  const status =
+    typeof metadata === 'object' && metadata !== null
+      ? readProperty(metadata, 'httpStatusCode')
+      : undefined;
+  return typeof status === 'number' ? status : undefined;
+}
+
+/**
  * Whether `error`'s own `code` is one of the Node.js system error codes the
  * SDK's retry strategy treats as transient, regardless of `name`.
  *
@@ -128,7 +148,8 @@ function declaredCodeOf(name: unknown): S3VectorsErrorCode | undefined {
 export function isTransientNetworkFailure(error: unknown): boolean {
   if (isAbortError(error)) return false;
   if (typeof error !== 'object' || error === null) return false;
-  const { name, code } = error as { name?: unknown; code?: unknown };
+  const name = readProperty(error, 'name');
+  const code = readProperty(error, 'code');
   if (name === SDK_TIMEOUT_ERROR_NAME) return false;
   if (declaredCodeOf(name) !== undefined) return false;
   return typeof code === 'string' && SDK_TRANSIENT_NETWORK_ERROR_CODES.has(code);
@@ -144,7 +165,12 @@ export function isTransientNetworkFailure(error: unknown): boolean {
  * An abort is classified first: the caller cancelled, so nothing failed. The
  * SDK's own {@link SDK_TIMEOUT_ERROR_NAME} is `SERVICE_UNAVAILABLE`, the class
  * of the service's own timeout. A declared service exception name always keeps
- * its own class. Only once neither of those matched is the error's `code`
+ * its own class. An undeclared name answered with HTTP 403 is `ACCESS_DENIED`:
+ * that is how a credential failure arrives — `InvalidClientTokenId`,
+ * `MissingAuthenticationToken`, protocol-level names the service model does not
+ * declare, all 403 in AWS's common errors
+ * (https://docs.aws.amazon.com/cloudsearch/latest/developerguide/CommonErrors.html).
+ * Only once none of those matched is the error's `code`
  * checked against {@link SDK_TRANSIENT_NETWORK_ERROR_CODES}, so a refused,
  * reset or unreachable connection is `SERVICE_UNAVAILABLE` too — the transient
  * class, which the SDK's retry strategy puts that code in. Only the error's own
@@ -161,10 +187,11 @@ export function classifyAwsError(error: unknown): S3VectorsErrorCode {
   // A `name` that is not a string falls through to the code check like any
   // other unrecognised value; `declaredCodeOf` is what keeps it from being
   // coerced on the way.
-  const { name } = error as { name?: unknown };
+  const name = readProperty(error, 'name');
   if (name === SDK_TIMEOUT_ERROR_NAME) return S3VectorsErrorCode.SERVICE_UNAVAILABLE;
   const declared = declaredCodeOf(name);
   if (declared !== undefined) return declared;
+  if (httpStatusOf(error) === 403) return S3VectorsErrorCode.ACCESS_DENIED;
   return isTransientNetworkFailure(error)
     ? S3VectorsErrorCode.SERVICE_UNAVAILABLE
     : S3VectorsErrorCode.AWS_REQUEST_FAILED;

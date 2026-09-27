@@ -78,3 +78,23 @@ describe('relevance score selection', () => {
     expect(distance).toBe(9);
   });
 });
+
+describe('relevance score selection — the function must return a finite number', () => {
+  it.each([
+    ['NaN', () => Number.NaN],
+    ['undefined', () => undefined as unknown as number],
+    ['a string', () => '0.9' as unknown as number],
+    ['Infinity', () => Number.POSITIVE_INFINITY],
+  ])(
+    'refuses a relevanceScoreFn that returns %s instead of letting a threshold drop every result',
+    async (_label, relevanceScoreFn) => {
+      const { store, mock } = createTestStore({ relevanceScoreFn });
+      mock.on(QueryVectorsCommand).resolves(queryResolving(0.5, 'cosine'));
+      const error = await store
+        .similaritySearchWithRelevanceScores('q', 1)
+        .catch((e: unknown) => e);
+      expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+      expect((error as Error).message).toContain('relevanceScoreFn');
+    },
+  );
+});

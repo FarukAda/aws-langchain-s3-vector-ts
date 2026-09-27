@@ -11,15 +11,18 @@ import { DataType, DistanceMetric, S3VectorsClient, SseType } from '@aws-sdk/cli
 
 import type { AmazonS3VectorsConfig } from '../types.js';
 import {
+  isReservedTagKey,
   isTagKeyLength,
+  isTagText,
   isTagValueLength,
+  MAX_TAGS,
   METADATA_KEY_MAX_LENGTH,
   METADATA_KEY_MIN_LENGTH,
   TAG_KEY_MAX_LENGTH,
   TAG_KEY_MIN_LENGTH,
   TAG_VALUE_MAX_LENGTH,
 } from './aws-limits.js';
-import { describeValue } from './describe.js';
+import { describeKey, describeValue } from './describe.js';
 import { S3VectorsErrorCode } from './errors/error-code.js';
 import { S3VectorsError } from './errors/s3-vectors-error.js';
 import { isObjectLike } from './objects.js';
@@ -173,17 +176,27 @@ function assertRegion(value: unknown): void {
   if (typeof value !== 'string' || value.trim().length === 0) {
     fail(`config.region must be a non-empty string (received ${describeOption(value)}).`);
   }
+  // No region name has whitespace, and the SDK builds the hostname from it
+  // verbatim, so a value read from a padded environment variable fails every
+  // request with a DNS error that names neither the option nor the space.
+  if (value.trim() !== value) {
+    fail(`config.region must not have surrounding whitespace (received ${describeOption(value)}).`);
+  }
 }
 
 /**
- * `endpoint`: an absolute URL.
+ * `endpoint`: an absolute `http:` or `https:` URL.
  *
  * @throws {S3VectorsError} `VALIDATION`. A string that is not a URL is taken by
- * the SDK and fails per request, far from the mistake that caused it.
+ * the SDK and fails per request, far from the mistake that caused it. Parsing
+ * alone is not enough: `localhost:4566` — the usual LocalStack typo — parses,
+ * with `localhost:` as its scheme.
  */
 function assertEndpoint(value: unknown): void {
   if (value === undefined) return;
-  if (typeof value !== 'string' || !URL.canParse(value)) {
+  const protocol =
+    typeof value === 'string' && URL.canParse(value) ? new URL(value).protocol : undefined;
+  if (protocol !== 'http:' && protocol !== 'https:') {
     fail(
       'config.endpoint must be an absolute URL string such as ' +
         `"https://s3vectors.us-east-1.amazonaws.com" (received ${describeOption(value)}).`,
@@ -231,15 +244,24 @@ function assertMaxAttempts(value: unknown): void {
 }
 
 /**
- * A millisecond timeout: a non-negative integer, `0` disabling it.
+ * The longest delay Node's timers can hold. A larger one is replaced by 1 ms,
+ * with only a `TimeoutOverflowWarning` to say so, and the SDK's HTTP handler
+ * sets its timeouts with those timers.
+ */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/**
+ * A millisecond timeout: an integer from 0 to {@link MAX_TIMER_MS}, `0`
+ * disabling it.
  *
- * @throws {S3VectorsError} `VALIDATION`.
+ * @throws {S3VectorsError} `VALIDATION`. A value past the ceiling, set to mean
+ * "effectively never", would otherwise time every request out at once.
  */
 function assertTimeoutOption(value: unknown, option: string): void {
   if (value === undefined) return;
-  if (!Number.isInteger(value) || (value as number) < 0) {
+  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > MAX_TIMER_MS) {
     fail(
-      `config.${option} must be a non-negative integer number of milliseconds ` +
+      `config.${option} must be an integer number of milliseconds from 0 to ${MAX_TIMER_MS} ` +
         `(received ${describeOption(value)}). Use 0 to disable it.`,
     );
   }
@@ -345,6 +367,12 @@ function assertNonFilterableKeys(value: unknown): void {
     }
     const reason = unpairedSurrogateReason(key);
     if (reason !== undefined) fail(`config.nonFilterableMetadataKeys[${index}] ${reason}.`);
+    // "Non-filterable metadata keys must be unique within the vector index"
+    // (userguide s3-vectors-indexes.html): CreateIndex refuses a repeat, after
+    // the first batch has been embedded.
+    if (keys.indexOf(key) !== index) {
+      fail(`config.nonFilterableMetadataKeys lists '${describeKey(key)}' more than once.`);
+    }
   }
 }
 
@@ -423,13 +451,20 @@ function assertRelevanceScoreFn(value: unknown): void {
   }
 }
 
+/** Says what CreateIndex's tag pattern allows, after the tag it refused. */
+const TAG_CHARACTERS =
+  'uses a character CreateIndex refuses: a tag may hold only letters, numbers, spaces ' +
+  'and _ . : / = + - @.';
+
 /**
- * `tags`: well-formed string keys of 1–128 characters, well-formed string
- * values of at most 256.
+ * `tags`: at most 50, with well-formed string keys of 1–128 characters and
+ * well-formed string values of at most 256, both in CreateIndex's character
+ * pattern, and no key under the reserved `aws:` prefix.
  *
- * @throws {S3VectorsError} `VALIDATION`. The bounds are `CreateIndex`'s own
- * (API reference `API_S3VectorBuckets_CreateIndex.html`). A string that is not
- * well-formed UTF-16 fails CreateIndex with SerializationException (T3-15).
+ * @throws {S3VectorsError} `VALIDATION`. The bounds and the pattern are
+ * `CreateIndex`'s own (API reference `API_S3VectorBuckets_CreateIndex.html`). A
+ * string that is not well-formed UTF-16 fails CreateIndex with
+ * SerializationException (T3-15).
  */
 function assertTags(value: unknown): void {
   if (value === undefined) return;
@@ -438,7 +473,11 @@ function assertTags(value: unknown): void {
       `config.tags must be an object of string keys and values (received ${describeValue(value)}).`,
     );
   }
-  for (const [key, tagValue] of Object.entries(value)) {
+  const entries = Object.entries(value);
+  if (entries.length > MAX_TAGS) {
+    fail(`config.tags holds ${entries.length} tags, but an index takes at most ${MAX_TAGS}.`);
+  }
+  for (const [key, tagValue] of entries) {
     if (!isTagKeyLength(key)) {
       fail(
         `config.tags keys must be ${TAG_KEY_MIN_LENGTH}–${TAG_KEY_MAX_LENGTH} characters ` +
@@ -447,6 +486,12 @@ function assertTags(value: unknown): void {
     }
     const keyReason = unpairedSurrogateReason(key);
     if (keyReason !== undefined) fail(`config.tags has a key that ${keyReason}.`);
+    if (!isTagText(key)) {
+      fail(`config.tags key "${describeKey(key)}" ${TAG_CHARACTERS}`);
+    }
+    if (isReservedTagKey(key)) {
+      fail(`config.tags key "${describeKey(key)}" uses the prefix aws:, which AWS reserves.`);
+    }
     if (typeof tagValue !== 'string') {
       fail(`config.tags["${key}"] must be a string (received ${describeValue(tagValue)}).`);
     }
@@ -458,6 +503,7 @@ function assertTags(value: unknown): void {
     }
     const valueReason = unpairedSurrogateReason(tagValue);
     if (valueReason !== undefined) fail(`config.tags["${key}"] ${valueReason}.`);
+    if (!isTagText(tagValue)) fail(`config.tags["${key}"] ${TAG_CHARACTERS}`);
   }
 }
 

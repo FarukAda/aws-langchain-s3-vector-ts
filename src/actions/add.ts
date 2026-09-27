@@ -64,7 +64,7 @@ export interface AddVectorsOptions extends StoreScope {
    * Caller-supplied ids. Omitted, each document's own `id` is used and a fresh
    * UUID minted only where there is none.
    */
-  readonly ids?: string[] | undefined;
+  readonly ids?: readonly string[] | undefined;
   /**
    * Vectors per batch: 1–500, defaulting to 200. A batch is one `PutVectors`
    * call unless its body would exceed the 20 MiB AWS accepts, in which case it
@@ -120,7 +120,7 @@ function resolveIds(
   operation: string,
   scope: StoreScope,
   documents: DocumentInterface[],
-  given: string[] | null | undefined,
+  given: readonly string[] | null | undefined,
   countLabel: string,
   count: number,
 ): string[] {
@@ -329,6 +329,11 @@ export async function addDocuments(opts: AddDocumentsOptions): Promise<string[]>
   if (documents.length === 0) return [];
 
   const embeddings = opts.getEmbeddings();
+  // Set by the first batch embedded. Each batch is embedded separately, so a
+  // model that changes dimension part-way (a fallback deployment, a proxy
+  // routing per request) would otherwise pass every per-batch check and have
+  // the later batch refused by AWS after the earlier ones were written.
+  let established: { dimension: number; recordIndex: number } | undefined;
 
   const embed = async (batch: readonly WriteRecord[], offset: number): Promise<number[][]> => {
     let embedded: unknown;
@@ -362,7 +367,9 @@ export async function addDocuments(opts: AddDocumentsOptions): Promise<string[]>
       distanceMetric: writeConfig.distanceMetric,
       offset,
       ids: batch.map((record) => record.key),
+      established,
     });
+    established ??= { dimension: vectors[0]!.length, recordIndex: offset };
     // No cast: the check above narrows the array, which is the whole reason it
     // is declared with an `asserts` signature rather than returning nothing.
     return [...vectors];

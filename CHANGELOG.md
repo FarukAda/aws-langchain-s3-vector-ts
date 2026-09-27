@@ -7,6 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`addDocuments` holds every batch to the first batch's dimension.** Each
+  batch is embedded separately and was checked only against itself, so a model
+  that changed dimension part-way — a fallback deployment, a proxy routing per
+  request — passed every local check and had the later batch refused by AWS
+  after earlier ones were written, as a generic AWS failure. It is now
+  `INDEX_CONFIG_MISMATCH`, naming the vector and the first batch's dimension,
+  before that batch is sent. `addVectors` already did this.
+- **A pagination token that comes round again stops the read.** A search
+  followed any token it was given, so a replayed or cached page — a custom
+  endpoint, a proxy, a stub — returned its results again as duplicate
+  documents, or cost up to 1,000 requests before failing; an enumeration
+  caught only the same token twice in a row, and looped forever on two pages
+  pointing at each other. Both now raise `PAGE_LIMIT_EXCEEDED` on any repeated
+  token, found in constant memory, however long the listing.
+- **A search or enumeration result must carry a string key and object
+  metadata.** Only the entry itself was checked, so a result with no key became
+  a document with `id: undefined`, and MMR sent `undefined` to `GetVectors` as a
+  key. Both, and metadata that is an array or a string, are
+  `AWS_INVALID_RESPONSE`. Metadata `structuredClone` cannot copy is
+  `AWS_INVALID_RESPONSE` too, not `VALIDATION`: it describes the response, not
+  anything the caller passed.
+- **A `relevanceScoreFn` that returns something other than a finite number is
+  `VALIDATION`.** A retriever's threshold compares `score >= scoreThreshold`,
+  which is false for `NaN`, `undefined` and most strings, so such a function
+  dropped every document and reported an empty, successful search.
+- **A vector component beyond the float32 range is refused locally.** S3
+  Vectors stores float32 and converts a wider value first, so `1e39` passed as
+  finite and became `Infinity` at AWS, failing the batch after earlier ones had
+  landed. A cosine vector whose components are all below float32's smallest
+  value is the zero vector once stored, and is refused as one.
+- **A filter naming a non-filterable key is refused before the query is
+  embedded.** AWS refuses it anyway ("Invalid use of non-filterable metadata in
+  filter", `docs/evidence/filter-validation.md`); refusing it locally saves the
+  embedding and the request, and says which key.
+- **Configuration AWS or Node would refuse later is refused at construction.**
+  An `endpoint` with no `http`/`https` scheme — `localhost:4566` parses, with
+  `localhost:` as its scheme, and failed every request; a timeout past
+  2,147,483,647 ms, which Node's timers replace with 1 ms, so every request
+  timed out at once; a `region` with surrounding whitespace; a
+  `nonFilterableMetadataKeys` entry listed twice, which `CreateIndex` refuses
+  and which was silently collapsed only when a page-content key was set; and
+  tags `CreateIndex` refuses — more than 50, a character outside its pattern,
+  or a key under the reserved `aws:` prefix. The tag and key rules previously
+  failed at the first write, after the first batch had been embedded.
+- **Rejected credentials are `ACCESS_DENIED`.** `InvalidClientTokenId`,
+  `MissingAuthenticationToken` and their kin are protocol-level names the S3
+  Vectors model does not declare, so they came back as `AWS_REQUEST_FAILED`,
+  and code that refreshes credentials on `ACCESS_DENIED` missed the commonest
+  production auth failure. Any undeclared exception answered with HTTP 403 is
+  now `ACCESS_DENIED`; `context.awsErrorName` keeps the name.
+- **A search, read, listing or delete that finds the index gone makes the next
+  write look again.** Only a failed write forgot that the index existed, so
+  after a `NOT_FOUND` from anything else the next write failed once more on
+  the index this store had already seen was missing. A lookup still in flight
+  when existence was forgotten — by a write's 404 or by `deleteIndex()` — no
+  longer puts the memory back.
+- **An abort ends a wait for the write rate limit at once**, rather than when
+  the limiter's current sleep of up to a second ended.
+- **Error handling survives a thrown value whose properties throw.** A revoked
+  `Proxy`, or an error with a throwing `name`, `message`, `cause` or
+  `$metadata` getter, made `isS3VectorsError` and the internal wrappers throw
+  from inside a `catch`. Every such read is guarded, and `isS3VectorsError`
+  answers `false`.
+- **A thrown value that is not an `Error` is described, not dumped.** Its
+  message used to be the whole value JSON-serialised, so a provider rejecting
+  with a request or config object put its headers or keys into the message and
+  from there into logs. A thrown string, or an object's own `message`, is kept,
+  stripped of control characters and bounded; anything else is described by
+  kind. `new S3VectorsError(…, cause)` now turns a non-`Error` cause into one,
+  as the class always said it would.
+- **The store handle survives later decoration.** `context.instance`, set by
+  the static factories, was dropped by any decoration applied after it,
+  because a spread copies only enumerable properties.
+- **A message never cuts a character in half.** Truncating a key or id could
+  leave a lone surrogate, making the message ill-formed UTF-16.
+
+### Changed
+
+- **`writtenIds` is described as what it is: a lower bound.** A write aborted
+  or timed out after reaching AWS may be stored unconfirmed, so an id in
+  `attemptedIds` but not in `writtenIds` is in an unknown state. The partial
+  failure message says "were confirmed written", not "were already durably
+  written". Retrying with `attemptedIds` is safe either way.
+- **Id lists and `nonFilterableMetadataKeys` accept `readonly string[]`.** An
+  `as const` list or a frozen configuration no longer needs a cast.
+
 ### Internal
 
 - **Every GitHub release now carries signed build provenance.** The release

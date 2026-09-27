@@ -9,6 +9,7 @@
  */
 import type { AmazonS3Vectors } from '../../s3-vectors.js';
 import { S3VectorsErrorCode } from './error-code.js';
+import { toError } from './to-error.js';
 
 /** Structured context attached to every {@link S3VectorsError}. */
 export interface S3VectorsErrorContext {
@@ -43,10 +44,13 @@ export interface S3VectorsErrorContext {
   /** The index the failed operation named. Absent only on a failure raised before one was known. */
   readonly indexName?: string;
   /**
-   * Ids confirmed durably written to AWS before a partial `addVectors`/
+   * Ids confirmed written to AWS before a partial `addVectors`/
    * `addDocuments` failure — present so a caller (especially one relying
    * on auto-generated ids, which are otherwise lost entirely on failure)
-   * can find and clean up or reconcile vectors that already landed.
+   * can find and clean up or reconcile vectors that already landed. A lower
+   * bound: a request aborted or timed out after reaching AWS may have been
+   * stored without being confirmed, so an id in `attemptedIds` but not here is
+   * in an unknown state.
    */
   readonly writtenIds?: readonly string[];
   /**
@@ -80,7 +84,7 @@ export interface S3VectorsErrorContext {
    * and they are the actionable half of an otherwise opaque rejection.
    */
   readonly fieldList?: readonly Readonly<{ path?: string; message?: string }>[];
-  /** Ids confirmed durably deleted before a partial `delete({ ids })` failure. */
+  /** Ids confirmed deleted before a partial `delete({ ids })` failure. */
   readonly deletedIds?: readonly string[];
   /**
    * Pages scanned before a paginated operation stopped.
@@ -266,7 +270,9 @@ export class S3VectorsError extends Error {
     context: S3VectorsErrorContext,
     cause?: unknown,
   ) {
-    super(message, cause === undefined ? undefined : { cause });
+    // Through `toError`, so the guarantee below holds for a caller constructing
+    // one directly too, not only for this package's own wrappers.
+    super(message, cause === undefined ? undefined : { cause: toError(cause) });
     this.name = 'S3VectorsError';
 
     // Descriptors, not a spread: `context.instance` is non-enumerable on purpose
@@ -275,7 +281,7 @@ export class S3VectorsError extends Error {
     // throw from inside a constructor that is itself reporting a failure.
     const descriptors = Object.getOwnPropertyDescriptors(context ?? {});
     // Object.freeze is shallow, and the fields that matter most here are
-    // arrays: `writtenIds` is the record of what was durably written, and
+    // arrays: `writtenIds` is the record of what was confirmed written, and
     // `error.context.writtenIds.push(…)` used to compile *and* succeed. Each
     // array is copied before being frozen, so the caller's own array — which
     // they may still be using — is left alone, and so a later mutation of
@@ -327,9 +333,13 @@ export class S3VectorsError extends Error {
  * brand string is stable for `1.x`.
  */
 export function isS3VectorsError(value: unknown): value is S3VectorsError {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as Record<symbol, boolean>)[S3_VECTORS_ERROR_BRAND] === true
-  );
+  if (typeof value !== 'object' || value === null) return false;
+  // The brand read runs whatever getter or proxy trap the value has — a revoked
+  // `Proxy` throws on any read — and this is called from inside `catch` blocks,
+  // where a throw would replace the failure being handled.
+  try {
+    return (value as Record<symbol, boolean>)[S3_VECTORS_ERROR_BRAND] === true;
+  } catch {
+    return false;
+  }
 }

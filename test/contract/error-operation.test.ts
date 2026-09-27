@@ -265,8 +265,8 @@ describe('every error names the public method that raised it', () => {
   });
 
   // Metadata that reaches createDocument but cannot be structured-cloned — a
-  // function nested under a key. output-vectors.ts only checks that a `vectors`
-  // entry is an object, so a value like this reaches createDocument unrejected.
+  // function nested under a key. output-vectors.ts checks that metadata is an
+  // object, not what it holds, so a value like this reaches createDocument.
   const UNCLONEABLE_METADATA = { _page_content: 'x', fn: () => 1 } as unknown as DocumentType;
 
   it.each([
@@ -307,7 +307,7 @@ describe('every error names the public method that raised it', () => {
       });
 
       const error = await run(store).catch((e: unknown) => e);
-      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
       expect((error as { context: { operation: string } }).context.operation).toBe(operation);
       expect((error as { context: Record<string, unknown> }).context).toMatchObject({
         vectorBucketName: 'test-bucket',

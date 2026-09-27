@@ -5,7 +5,7 @@
  * arrived. Casting would assert the shape, so it is checked instead, once, here
  * — and every caller downstream may then treat the array as real.
  */
-import { describeValue } from '../shared/describe.js';
+import { describeKey, describeValue } from '../shared/describe.js';
 import { S3VectorsErrorCode } from '../shared/errors/error-code.js';
 import { S3VectorsError, type S3VectorsErrorContext } from '../shared/errors/s3-vectors-error.js';
 import type { StoreScope } from '../shared/scope.js';
@@ -73,7 +73,7 @@ export function embeddingOf(
   const data = vector.data?.float32;
   if (data !== undefined && data.length > 0) return data;
   throw new S3VectorsError(
-    `${command} returned vector '${vector.key}' ${
+    `${command} returned vector '${describeKey(vector.key)}' ${
       data === undefined ? 'without data' : 'with an empty embedding'
     }, even though this call requested returnData: true. ${NOT_THE_CALLERS}`,
     S3VectorsErrorCode.AWS_INVALID_RESPONSE,
@@ -94,7 +94,9 @@ export function embeddingOf(
  * Returns: the entries, typed.
  *
  * Throws: {@link S3VectorsError} with code `AWS_INVALID_RESPONSE` when
- * `vectors` is present but not an array, or when any entry is not an object.
+ * `vectors` is present but not an array, when any entry is not an object, has
+ * no non-empty string key, or has metadata that is present but not an object.
+ * `progress` — a listing's counters — is carried on the error.
  *
  * Guarantees: every read path goes through here rather than casting, which is
  * what the three of them used to do — `(response.vectors ?? []) as
@@ -110,6 +112,7 @@ export function outputVectorsOf(
   command: string,
   operation: string,
   scope: StoreScope,
+  progress: Pick<S3VectorsErrorContext, 'pagesScanned' | 'yielded'> = {},
 ): S3OutputVector[] {
   if (vectors === undefined || vectors === null) return [];
 
@@ -120,7 +123,7 @@ export function outputVectorsOf(
     new S3VectorsError(
       `${command} for index "${scope.indexName}" returned ${detail}. ${NOT_THE_CALLERS}`,
       S3VectorsErrorCode.AWS_INVALID_RESPONSE,
-      { operation, ...scope },
+      { operation, ...scope, ...progress },
     );
 
   if (!Array.isArray(vectors)) {
@@ -132,6 +135,21 @@ export function outputVectorsOf(
     const vector: unknown = entries[index];
     if (typeof vector !== 'object' || vector === null) {
       throw invalid(`${describeValue(vector)} where vector ${index} should be`);
+    }
+    // Every consumer reads these two: the key becomes `Document.id` and the key
+    // MMR sends back to GetVectors; the metadata becomes `Document.metadata`.
+    const { key, metadata } = vector as { key?: unknown; metadata?: unknown };
+    if (typeof key !== 'string' || key.length === 0) {
+      throw invalid(`vector ${index} with ${describeValue(key)} where its key should be`);
+    }
+    if (
+      metadata !== undefined &&
+      metadata !== null &&
+      (typeof metadata !== 'object' || Array.isArray(metadata))
+    ) {
+      throw invalid(
+        `vector ${index} with ${describeValue(metadata)} where its metadata object should be`,
+      );
     }
   }
 

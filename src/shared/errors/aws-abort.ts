@@ -1,4 +1,11 @@
 /**
+ * Hides what a cancelled request looks like by the time it is caught: the
+ * SDK's `AbortError`, the platform's, or either wrapped by a custom request
+ * handler somewhere down a `cause` chain.
+ */
+import { readProperty } from '../objects.js';
+
+/**
  * How far to follow `cause` looking for an abort. Bounded because a cause
  * chain can be cyclic, and an unbounded walk inside error handling would
  * replace the real failure with a hang.
@@ -24,8 +31,8 @@ export function isAbortError(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; depth <= MAX_CAUSE_DEPTH; depth++) {
     if (typeof current !== 'object' || current === null) return false;
-    if ((current as { name?: unknown }).name === 'AbortError') return true;
-    current = (current as { cause?: unknown }).cause;
+    if (readProperty(current, 'name') === 'AbortError') return true;
+    current = readProperty(current, 'cause');
   }
   return false;
 }

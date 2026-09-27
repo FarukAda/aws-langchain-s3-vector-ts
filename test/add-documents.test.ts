@@ -1,4 +1,4 @@
-import { GetIndexCommand } from '@aws-sdk/client-s3vectors';
+import { GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
 import { Document } from '@langchain/core/documents';
 import type { EmbeddingsInterface } from '@langchain/core/embeddings';
@@ -245,5 +245,45 @@ describe('AmazonS3Vectors.addDocuments — an embeddings model returning somethi
     expect(error.message).toContain(
       'Vector at index 0 (id "only") is not an array (received null)',
     );
+  });
+});
+
+describe('AmazonS3Vectors.addDocuments — one dimension across every batch', () => {
+  it('refuses a later batch the model embedded at a different dimension, before sending it', async () => {
+    const { client, mock } = createMockClient();
+    mockExistingIndex(mock);
+    let call = 0;
+    const embeddings: EmbeddingsInterface = {
+      embedDocuments: async (texts: string[]) => {
+        call++;
+        const dimension = call === 1 ? 3 : 2;
+        return texts.map(() => Array.from({ length: dimension }, () => 1));
+      },
+      embedQuery: async () => [1, 1, 1],
+    };
+    const store = new AmazonS3Vectors(embeddings, { ...BASE_CONFIG, client });
+
+    const error = (await store
+      .addDocuments(
+        ['a', 'b', 'c', 'd'].map((pageContent) => new Document({ pageContent })),
+        { ids: ['id-1', 'id-2', 'id-3', 'id-4'], batchSize: 2 },
+      )
+      .catch((e: unknown) => e)) as S3VectorsError;
+
+    expect(error.code).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
+    expect(error.message).toContain('Vector at index 2 (id "id-3") has dimension 2');
+    expect(error.message).toContain('the vector at index 0 has dimension 3');
+    expect(error.context.writtenIds).toEqual(['id-1', 'id-2']);
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(1);
+  });
+
+  it('still accepts every batch at the first batch dimension', async () => {
+    const { store, mock } = createTestStore();
+    mockExistingIndex(mock);
+    await store.addDocuments(
+      ['a', 'b', 'c'].map((pageContent) => new Document({ pageContent })),
+      { ids: ['x', 'y', 'z'], batchSize: 1 },
+    );
+    expect(mock.commandCalls(PutVectorsCommand)).toHaveLength(3);
   });
 });

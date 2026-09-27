@@ -1,6 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
 
 import {
+  attachContext,
   attachInstance,
   attachOperation,
   attachPartialIds,
@@ -47,7 +48,7 @@ describe('attachPartialIds', () => {
 
   it('says in the message how many landed, so a log line alone shows it was partial', () => {
     const decorated = attachPartialIds(coded(), 'addVectors', SCOPE, 'writtenIds', ['a', 'b']);
-    expect(decorated.message).toContain('2 vector(s) were already durably written');
+    expect(decorated.message).toContain('2 vector(s) were confirmed written');
   });
 
   it('leaves the message alone when nothing landed', () => {
@@ -58,7 +59,7 @@ describe('attachPartialIds', () => {
 
   it('uses the deleted wording for a delete', () => {
     const decorated = attachPartialIds(coded(), 'delete', SCOPE, 'deletedIds', ['a']);
-    expect(decorated.message).toContain('were already durably deleted');
+    expect(decorated.message).toContain('were confirmed deleted');
   });
 
   it('copies the attempted ids rather than aliasing the caller array', () => {
@@ -105,7 +106,7 @@ describe('attachPartialIds', () => {
     base.stack = 'S3VectorsError: original failed\n    at theRealThrowSite (file.ts:1:1)';
     const decorated = attachPartialIds(base, 'addVectors', SCOPE, 'writtenIds', ['a']);
     expect(decorated.stack).toContain('theRealThrowSite');
-    expect(decorated.stack?.split('\n')[0]).toContain('were already durably written');
+    expect(decorated.stack?.split('\n')[0]).toContain('were confirmed written');
   });
 
   it('falls back to its own stack when the original has none', () => {
@@ -144,7 +145,7 @@ describe('attachPartialIds', () => {
       ['a'],
     );
     expect(typeof decorated.stack).toBe('string');
-    expect(decorated.message).toContain('were already durably written');
+    expect(decorated.message).toContain('were confirmed written');
   });
 });
 
@@ -189,12 +190,12 @@ describe('attachOperation', () => {
 
   it('swaps the operation leading the message and keeps everything after it', () => {
     const renamed = attachOperation(
-      failed('addVectors failed on PutVectors: slow 1 vector(s) were already durably written.'),
+      failed('addVectors failed on PutVectors: slow 1 vector(s) were confirmed written.'),
       'retriever.invoke',
       SCOPE,
     );
     expect(renamed.message).toBe(
-      'retriever.invoke failed on PutVectors: slow 1 vector(s) were already durably written.',
+      'retriever.invoke failed on PutVectors: slow 1 vector(s) were confirmed written.',
     );
     expect(renamed.stack?.startsWith(`S3VectorsError: ${renamed.message}`)).toBe(true);
   });
@@ -251,5 +252,23 @@ describe('attachInstance', () => {
     const decorated = attachInstance(coded(), 'fromDocuments', SCOPE, instance);
     expect(decorated.context.operation).toBe('fromDocuments');
     expect(decorated.context.requestId).toBe('r-1');
+  });
+});
+
+describe('the instance handle survives every later decoration', () => {
+  const instance = { marker: 'the store' };
+
+  it('is kept by attachPartialIds, still hidden', () => {
+    const withInstance = attachInstance(coded(), 'fromDocuments', SCOPE, instance);
+    const decorated = attachPartialIds(withInstance, 'fromDocuments', SCOPE, 'writtenIds', ['a']);
+    expect(decorated.context.instance).toBe(instance);
+    expect(Object.keys(decorated.context)).not.toContain('instance');
+  });
+
+  it('is kept by attachContext, still hidden', () => {
+    const withInstance = attachInstance(coded(), 'fromDocuments', SCOPE, instance);
+    const decorated = attachContext(withInstance, 'fromDocuments', SCOPE, { batchSize: 2 });
+    expect(decorated.context.instance).toBe(instance);
+    expect(Object.keys(decorated.context)).not.toContain('instance');
   });
 });

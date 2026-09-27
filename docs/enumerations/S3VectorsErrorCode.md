@@ -16,7 +16,7 @@ Stable error codes surfaced by [S3VectorsError](../classes/S3VectorsError.md).
 
 > **ABORTED**: `"ABORTED"`
 
-Defined in: [shared/errors/error-code.ts:116](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L116)
+Defined in: [shared/errors/error-code.ts:124](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L124)
 
 The caller-supplied `AbortSignal` fired before or during the operation.
 
@@ -26,9 +26,13 @@ The caller-supplied `AbortSignal` fired before or during the operation.
 
 > **ACCESS\_DENIED**: `"ACCESS_DENIED"`
 
-Defined in: [shared/errors/error-code.ts:83](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L83)
+Defined in: [shared/errors/error-code.ts:90](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L90)
 
-`AccessDeniedException` (403). An IAM problem, not a retryable one.
+`AccessDeniedException` (403), or any exception the service model does not
+declare that arrives with HTTP 403 — which is how rejected credentials
+arrive (`InvalidClientTokenId`, `MissingAuthenticationToken`).
+`context.awsErrorName` keeps the name. An IAM or credentials problem, not a
+retryable one.
 
 ***
 
@@ -36,9 +40,13 @@ Defined in: [shared/errors/error-code.ts:83](https://github.com/FarukAda/aws-lan
 
 > **AWS\_INVALID\_RESPONSE**: `"AWS_INVALID_RESPONSE"`
 
-Defined in: [shared/errors/error-code.ts:118](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L118)
+Defined in: [shared/errors/error-code.ts:132](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L132)
 
-An AWS response was missing fields this library requires to proceed.
+An AWS response was missing, or carried an unusable value for, something
+this library requires to proceed — a result's key, distance or embedding,
+metadata that is not a copyable object, the index's metric — or was not an
+object at all. Reachable only from a mocked, stubbed or otherwise
+non-conforming client.
 
 ***
 
@@ -46,7 +54,7 @@ An AWS response was missing fields this library requires to proceed.
 
 > **AWS\_REJECTED**: `"AWS_REJECTED"`
 
-Defined in: [shared/errors/error-code.ts:98](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L98)
+Defined in: [shared/errors/error-code.ts:105](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L105)
 
 `ValidationException` (400). AWS rejected the request; `context.fieldList` names the field.
 
@@ -66,7 +74,7 @@ An underlying AWS S3 Vectors request failed, and no narrower class applies.
 
 > **CONFLICT**: `"CONFLICT"`
 
-Defined in: [shared/errors/error-code.ts:94](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L94)
+Defined in: [shared/errors/error-code.ts:101](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L101)
 
 `ConflictException` (409): "a vector bucket name or a vector index name
 already exists" (`@aws-sdk/client-s3vectors` `models/errors.d.ts`).
@@ -114,7 +122,7 @@ An operation needed an embedding model but none was configured.
 
 > **INDEX\_CONFIG\_MISMATCH**: `"INDEX_CONFIG_MISMATCH"`
 
-Defined in: [shared/errors/error-code.ts:114](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L114)
+Defined in: [shared/errors/error-code.ts:122](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L122)
 
 An existing index disagrees with this store's configuration.
 
@@ -127,8 +135,9 @@ The vector *dimension* is not among them. AWS enforces it on every write,
 and this package never had it to compare against — it is decided by the
 first vector written, not by configuration. Vectors a write is given that
 disagree with each other on dimension are a different thing, and raise this
-code too — anywhere in an `addVectors` call, before any request; within one
-embedded batch for `addDocuments`, before that batch is written.
+code too — anywhere in an `addVectors` call, before any request; for
+`addDocuments`, in any embedded batch whose dimension differs from the
+first batch's, before that batch is written.
 
 ***
 
@@ -136,7 +145,7 @@ embedded batch for `addDocuments`, before that batch is written.
 
 > **KMS\_ERROR**: `"KMS_ERROR"`
 
-Defined in: [shared/errors/error-code.ts:96](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L96)
+Defined in: [shared/errors/error-code.ts:103](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L103)
 
 One of the four KMS exceptions (400). Key state — an operator's problem.
 
@@ -160,13 +169,15 @@ id that is not stored — absence is an ordinary answer, not a failure.
 
 > **PAGE\_LIMIT\_EXCEEDED**: `"PAGE_LIMIT_EXCEEDED"`
 
-Defined in: [shared/errors/error-code.ts:136](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L136)
+Defined in: [shared/errors/error-code.ts:151](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L151)
 
-A paginated read stopped with pages still outstanding, because this
-library's runaway page ceiling was reached. Both paginators raise it, and
-`context.awsCommand` says which: a `QueryVectors` search that had not yet
-collected `k` results, or a `ListVectors` enumeration still being asked for
-more.
+A paginated read stopped with pages still outstanding. `context.awsCommand`
+says which read: a `QueryVectors` search that reached this library's
+1,000-page runaway ceiling before collecting `k` results, or either
+paginator handed a token it had already followed — a page already read,
+which repeated would return the same results again or never end. An
+enumeration has no page ceiling, because a large index legitimately needs
+many pages; only the repeated token stops it.
 
 Distinct from a read that legitimately ran out — a search returns however
 many it found and an enumeration simply ends, both without error. Removing
@@ -174,9 +185,8 @@ that ambiguity is what this code is for: a filtered query returning fewer
 than `k` is normal and is not this, and neither is a listing reaching the
 end of a small index.
 
-On a listing it almost always means the token stopped advancing rather than
-that the index is enormous — an endpoint override, a proxy, or a
-non-conforming client replaying one response.
+A repeated token means a replayed or cached response rather than an
+enormous index — an endpoint override, a proxy, or a non-conforming client.
 
 ***
 
@@ -184,7 +194,7 @@ non-conforming client replaying one response.
 
 > **QUOTA\_EXCEEDED**: `"QUOTA_EXCEEDED"`
 
-Defined in: [shared/errors/error-code.ts:85](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L85)
+Defined in: [shared/errors/error-code.ts:92](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L92)
 
 `ServiceQuotaExceededException` (402). Needs a quota increase, not a retry.
 
@@ -194,7 +204,7 @@ Defined in: [shared/errors/error-code.ts:85](https://github.com/FarukAda/aws-lan
 
 > **SERVICE\_UNAVAILABLE**: `"SERVICE_UNAVAILABLE"`
 
-Defined in: [shared/errors/error-code.ts:81](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L81)
+Defined in: [shared/errors/error-code.ts:82](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L82)
 
 `InternalServerException` (500), `ServiceUnavailableException` (503) or
 `RequestTimeoutException` (408), or the SDK's own `TimeoutError` — a
@@ -202,7 +212,8 @@ connection, socket-idle or request timeout, or a connection reset or broken
 on the way. Also a refused, unreachable or DNS-failed connection on an AWS
 request, matched on the error's own `code` against the codes the SDK's
 retry strategy lists as transient (the SDK also finds such a code in the
-error's `cause`; this package does not). All transient, and already retried by the SDK before reaching here. A 503 from
+error's `cause`; this package does not). All transient, and already
+retried by the SDK before reaching here. A 503 from
 `PutVectors` is also AWS's documented response to a batch exceeding
 resource capacity, which backoff cannot fix.
 
@@ -222,7 +233,7 @@ Defined in: [shared/errors/error-code.ts:69](https://github.com/FarukAda/aws-lan
 
 > **UNEXPECTED\_ERROR**: `"UNEXPECTED_ERROR"`
 
-Defined in: [shared/errors/error-code.ts:148](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L148)
+Defined in: [shared/errors/error-code.ts:163](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/error-code.ts#L163)
 
 A failure that didn't come from an AWS request — a raw throw from
 caller-supplied code other than the embeddings model (a `relevanceScoreFn`,
@@ -245,11 +256,11 @@ Defined in: [shared/errors/error-code.ts:38](https://github.com/FarukAda/aws-lan
 Caller input was invalid — an argument, option, id, document, metadata,
 vector, filter or configuration value this package can tell will not work —
 or an embeddings model returned something other than one storable vector per
-document, or an unusable query vector, or a non-conforming client returned
-metadata `structuredClone` cannot copy.
+document, or an unusable query vector, or a `relevanceScoreFn` returned
+something other than a finite number.
 
-Raised before any AWS call and before any billable embedding, except:
-- a model's output, refused after that embedding call and before the
-  request it would feed — on a write carrying `writtenIds`, because earlier
-  batches may already be written;
-- uncopyable response metadata, refused after that response.
+Raised before any AWS call and before any billable embedding, except for a
+model's output — refused after that embedding call and before the request
+it would feed, on a write carrying `writtenIds` because earlier batches may
+already be written — and a `relevanceScoreFn` result, refused after the
+search it scores.

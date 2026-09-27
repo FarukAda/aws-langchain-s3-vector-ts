@@ -284,3 +284,57 @@ describe('the retriever, constructed directly rather than through asRetriever', 
     });
   });
 });
+
+/**
+ * The same, for a value that was *thrown* rather than passed in. Error handling
+ * reads `name`, `message`, `cause` and `$metadata` off whatever it catches, and
+ * a revoked `Proxy` throws on every one of those reads.
+ */
+describe('a thrown value whose every property read throws comes back coded', () => {
+  // Of an Error, so it is typed as the rejection reason it stands in for.
+  const revoked = (): Error => {
+    const { proxy, revoke } = Proxy.revocable(new Error('revoked'), {});
+    revoke();
+    return proxy;
+  };
+
+  it('from an embeddings model', async () => {
+    const { client } = createMockClient();
+    const store = new AmazonS3Vectors(
+      {
+        embedDocuments: () => Promise.reject(revoked()),
+        embedQuery: () => Promise.reject(revoked()),
+      },
+      { ...BASE_CONFIG, client },
+    );
+    const error = await store.similaritySearch('q', 1).catch((e: unknown) => e);
+    expect(isS3VectorsError(error)).toBe(true);
+  });
+
+  it('from the AWS client', async () => {
+    const { store, mock } = createTestStore();
+    mock.onAnyCommand().callsFake(() => Promise.reject(revoked()));
+    const error = await store
+      .similaritySearchVectorWithScore([1, 2, 3], 1)
+      .catch((e: unknown) => e);
+    expect(isS3VectorsError(error)).toBe(true);
+  });
+
+  it.each(['name', 'message', 'cause', '$metadata'])(
+    'from the AWS client, an Error whose %s getter throws',
+    async (property) => {
+      const { store, mock } = createTestStore();
+      mock
+        .onAnyCommand()
+        .callsFake(() => Promise.reject(throwingOn(new Error('refused'), property)));
+      const error = await store
+        .similaritySearchVectorWithScore([1, 2, 3], 1)
+        .catch((e: unknown) => e);
+      expect(isS3VectorsError(error)).toBe(true);
+    },
+  );
+
+  it('and isS3VectorsError answers false about it rather than throwing', () => {
+    expect(isS3VectorsError(revoked())).toBe(false);
+  });
+});

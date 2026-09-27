@@ -303,7 +303,7 @@ export function buildPutMetadata(
  * Returns: a `Document` that owns its metadata outright, nested values
  * included.
  *
- * Throws: {@link S3VectorsError} with code `VALIDATION`, naming `scope.operation`
+ * Throws: {@link S3VectorsError} with code `AWS_INVALID_RESPONSE`, naming `scope.operation`
  * and carrying `scope.vectorBucketName`/`scope.indexName`, if the metadata holds
  * a value `structuredClone` cannot copy — a function or symbol, reachable only
  * from a custom or mocked client, since AWS returns JSON.
@@ -325,10 +325,10 @@ export function createDocument(
     metadata = structuredClone(rawMeta);
   } catch (cause) {
     throw new S3VectorsError(
-      `Failed to copy metadata for vector '${vector.key}': it contains a value that cannot be ` +
-        'structured-cloned (e.g. a function or symbol). Ensure vector metadata contains only ' +
-        'structured-cloneable values.',
-      S3VectorsErrorCode.VALIDATION,
+      `Failed to copy metadata for vector '${describeKey(String(vector.key))}': it contains a ` +
+        'value that cannot be structured-cloned (e.g. a function or symbol). AWS returns ' +
+        'JSON, so the response came from a custom or mocked client.',
+      S3VectorsErrorCode.AWS_INVALID_RESPONSE,
       { ...scope },
       cause,
     );

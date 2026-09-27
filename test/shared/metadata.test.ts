@@ -169,16 +169,15 @@ describe('createDocument — structuredClone safety', () => {
       thrown = error;
     }
     expect(isS3VectorsError(thrown)).toBe(true);
-    expect((thrown as S3VectorsError).code).toBe(S3VectorsErrorCode.VALIDATION);
+    // What failed is the response, not anything the caller passed.
+    expect((thrown as S3VectorsError).code).toBe(S3VectorsErrorCode.AWS_INVALID_RESPONSE);
     expect((thrown as S3VectorsError).message).toContain("vector 'v1'");
     // Says what kind of value broke it and what the caller must do, since a
     // structuredClone failure names nothing on its own.
     expect((thrown as S3VectorsError).message).toContain(
       'structured-cloned (e.g. a function or symbol)',
     );
-    expect((thrown as S3VectorsError).message).toContain(
-      'Ensure vector metadata contains only structured-cloneable values',
-    );
+    expect((thrown as S3VectorsError).message).toContain('custom or mocked client');
   });
 
   it('still deep-copies cloneable metadata correctly (regression, unaffected by the try/catch)', () => {

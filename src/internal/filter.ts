@@ -258,12 +258,20 @@ function assertLogicalBranch(
   operation: string,
   scope: StoreScope,
   depth: number,
+  nonFilterable: ReadonlySet<string>,
 ): void {
   if (!Array.isArray(entry) || entry.length === 0) {
     failFilter(operation, scope, `filter${path}.${key} must be a non-empty array of filters.`);
   }
   for (const [index, nested] of (entry as unknown[]).entries()) {
-    assertConditions(nested, `${path}.${key}[${index}]`, operation, scope, depth + 1);
+    assertConditions(
+      nested,
+      `${path}.${key}[${index}]`,
+      operation,
+      scope,
+      depth + 1,
+      nonFilterable,
+    );
   }
 }
 
@@ -287,6 +295,7 @@ function assertConditions(
   operation: string,
   scope: StoreScope,
   depth: number,
+  nonFilterable: ReadonlySet<string>,
 ): void {
   if (depth > MAX_FILTER_DEPTH) {
     failFilter(
@@ -336,7 +345,7 @@ function assertConditions(
 
   const key = keys[0]!;
   if (LOGICAL_OPERATORS.has(key)) {
-    assertLogicalBranch(value[key], key, path, operation, scope, depth);
+    assertLogicalBranch(value[key], key, path, operation, scope, depth, nonFilterable);
     return;
   }
   if (OPERAND_RULES.has(key)) {
@@ -353,6 +362,15 @@ function assertConditions(
   if (nameReason !== undefined) {
     failFilter(operation, scope, `filter${path} has a field name that ${nameReason}.`);
   }
+  if (nonFilterable.has(key)) {
+    failFilter(
+      operation,
+      scope,
+      `filter${path} names '${key}', which this store configures as non-filterable ` +
+        '(the page-content key always is). S3 Vectors stores a non-filterable key but ' +
+        'refuses it in a filter.',
+    );
+  }
   assertFieldCondition(value[key], `${path}.${key}`, operation, scope);
 }
 
@@ -367,6 +385,8 @@ function assertConditions(
  *   up to {@link MAX_FILTER_DEPTH} levels. Plain is tested by prototype shape, so an object from another
  *   realm (a `vm` context, a worker `postMessage`, `structuredClone`) passes
  *   while a class instance, `Map` or `Date` does not.
+ * - `nonFilterableMetadataKeys` — the keys the store configures as
+ *   non-filterable, page-content key included; none by default.
  *
  * Returns: `undefined` for no filter; otherwise a copy of the accepted filter,
  * branded, which is what a request sends — so a caller changing their object
@@ -387,7 +407,11 @@ function assertConditions(
  *   shorthand take a string, a finite number or a boolean; `$gt`, `$gte`, `$lt`
  *   and `$lte` a finite number; `$in` and `$nin` a non-empty array of those,
  *   types mixed freely; `$exists` a boolean. A string anywhere must be
- *   well-formed UTF-16.
+ *   well-formed UTF-16;
+ * - a field named in `nonFilterableMetadataKeys`, which AWS refuses with
+ *   "Invalid use of non-filterable metadata in filter" (T3-13). An index
+ *   created elsewhere with more non-filterable keys than this store knows of
+ *   is still refused by AWS.
  *
  * Guarantees: nothing is refused here that AWS would have accepted, with one
  * deliberate exception shared with `shared/metadata.ts`: a value the AWS SDK
@@ -408,9 +432,10 @@ export function parseFilter(
   filter: unknown,
   operation: string,
   scope: StoreScope,
+  nonFilterableMetadataKeys: readonly string[] = [],
 ): ParsedFilter | undefined {
   if (filter === undefined || filter === null) return undefined;
-  assertConditions(filter, '', operation, scope, 0);
+  assertConditions(filter, '', operation, scope, 0, new Set(nonFilterableMetadataKeys));
   // The one place the brand is applied, which is what makes it mean anything:
   // every other module can only obtain a ParsedFilter by calling this.
   //

@@ -52,6 +52,24 @@ function normalizeToS3VectorsError(
 }
 
 /**
+ * `context` with `extra` laid over it, keeping every property as it was
+ * defined.
+ *
+ * A spread copies only enumerable properties, and `instance` — the store
+ * handle `attachInstance` adds — is deliberately not enumerable, so a spread
+ * here silently dropped it. Copying descriptors keeps it, hidden as before.
+ */
+function extendContext(
+  context: S3VectorsErrorContext,
+  extra: Partial<S3VectorsErrorContext>,
+): S3VectorsErrorContext {
+  return Object.defineProperties(
+    Object.defineProperties({}, Object.getOwnPropertyDescriptors(context)),
+    Object.getOwnPropertyDescriptors(extra),
+  ) as S3VectorsErrorContext;
+}
+
+/**
  * Rebuild `base` with a new message and context, keeping its stack.
  *
  * Accepts: an existing error, the message and context to replace.
@@ -172,16 +190,19 @@ export function attachPartialIds(
 ): S3VectorsError {
   const base = normalizeToS3VectorsError(error, operation, scope);
   const phrase =
-    contextField === 'writtenIds' ? 'were already durably written' : 'were already durably deleted';
+    contextField === 'writtenIds' ? 'were confirmed written' : 'were confirmed deleted';
   const message =
     ids.length > 0
       ? `${base.message} ${ids.length} vector(s) ${phrase} before this failure — see error.context.${contextField}.`
       : base.message;
-  return rebuildWithContext(base, message, {
-    ...base.context,
-    [contextField]: ids,
-    ...(attemptedIds === undefined ? {} : { attemptedIds: [...attemptedIds] }),
-  });
+  return rebuildWithContext(
+    base,
+    message,
+    extendContext(base.context, {
+      [contextField]: ids,
+      ...(attemptedIds === undefined ? {} : { attemptedIds: [...attemptedIds] }),
+    }),
+  );
 }
 
 /**
@@ -203,7 +224,7 @@ export function attachContext(
   extra: Partial<S3VectorsErrorContext>,
 ): S3VectorsError {
   const base = normalizeToS3VectorsError(error, operation, scope);
-  return rebuildWithContext(base, base.message, { ...base.context, ...extra });
+  return rebuildWithContext(base, base.message, extendContext(base.context, extra));
 }
 
 /**
