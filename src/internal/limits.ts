@@ -29,11 +29,13 @@ import type { DistanceMetric } from '../types.js';
  *   A hole reads as `undefined`, so it is caught here too. The check is on the
  *   value as stored: the service converts to float32 before storing
  *   (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_PutVectors.html),
- *   so a finite double beyond float32's range arrives as Infinity;
+ *   so a finite double beyond float32's range arrives as Infinity — and is
+ *   refused as one (docs/evidence/float32-range.md);
  * - zero norm, on a `cosine` index only: "cosine distance does not support
  *   vectors with zero norm" (docs/evidence/zero-vector.md). That evidence names
  *   cosine, so a `euclidean` index is not checked. The norm is taken over the
- *   float32 values too, so components too small for float32 count as zero.
+ *   float32 values too, so components too small for float32 count as zero,
+ *   as the service counts them (docs/evidence/float32-range.md).
  *
  * Throws: nothing.
  */

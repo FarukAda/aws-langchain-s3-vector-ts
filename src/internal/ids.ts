@@ -18,7 +18,8 @@ import { unpairedSurrogateReason } from '../shared/utf16.js';
 
 /**
  * A vector id is 1–1024 characters
- * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_PutInputVector.html).
+ * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_PutInputVector.html)
+ * and, measured live, at most 1024 UTF-8 bytes (docs/evidence/key-length.md).
  * GetVectors and DeleteVectors ids carry the same bounds
  * (https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_GetVectors.html,
  * https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_DeleteVectors.html).
@@ -30,15 +31,17 @@ import { unpairedSurrogateReason } from '../shared/utf16.js';
  * two words are one concept, and every name between here and the wire says
  * `id` so that `key` always means a metadata key instead.
  *
- * The length is counted in UTF-16 code units, the unit `String.length` gives.
- * AWS states the bound without a unit and it has not been probed live: if the
- * service counts code points, this is stricter than it needs to be for an id
- * with characters outside the Basic Multilingual Plane, which is safe; if it
- * counts UTF-8 bytes, a long id in a non-Latin script can pass here and be
- * refused by AWS, failing its whole batch.
+ * AWS states the bound without a unit, and applies two: measured live on
+ * 2026-09-27, a key over 1,024 characters fails the request's own validation,
+ * and one over 1,024 UTF-8 bytes is refused with "Record key length exceeds the
+ * maximum allowed" — by `PutVectors`, `GetVectors` and `DeleteVectors` alike.
+ * The byte bound is the one that binds for any id outside ASCII: 342 three-byte
+ * characters are refused although they are 342 characters long
+ * (docs/evidence/key-length.md).
  */
 const ID_MIN_LENGTH = 1;
 const ID_MAX_LENGTH = 1024;
+const ID_MAX_BYTES = 1024;
 
 /** Options for {@link assertIdsWellFormed} and {@link assertIdsUnique}. */
 export interface IdCheckOptions extends OperationScope {
@@ -96,7 +99,7 @@ export function resolveWriteIds(
  * Accepts: anything.
  *
  * Returns: a clause for the first rule broken — not a string, empty, over 1024
- * characters, or not well-formed UTF-16 (docs/evidence/string-encoding.md, T3-15).
+ * characters, over 1024 UTF-8 bytes, or not well-formed UTF-16 (docs/evidence/string-encoding.md, T3-15).
  *
  * Throws: nothing.
  */
@@ -107,6 +110,10 @@ function idRejectionReason(id: unknown): string | undefined {
   }
   if (id.length > ID_MAX_LENGTH) {
     return `is ${id.length} characters, over the ${ID_MAX_LENGTH}-character maximum for a vector id`;
+  }
+  const bytes = Buffer.byteLength(id, 'utf8');
+  if (bytes > ID_MAX_BYTES) {
+    return `is ${bytes} UTF-8 bytes, over the ${ID_MAX_BYTES}-byte maximum for a vector id`;
   }
   return unpairedSurrogateReason(id);
 }

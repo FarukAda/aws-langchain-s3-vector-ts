@@ -20,9 +20,9 @@ export interface WriteRecord {
   /** The metadata to store, validated, and owned by this record. */
   readonly metadata: Record<string, unknown>;
   /**
-   * The bytes that metadata was measured at when it was validated. Carried so a
-   * write can bound its `PutVectors` request size without serialising the batch
-   * again (`internal/request-size.ts`).
+   * The UTF-8 bytes of that metadata's JSON, measured when it was validated.
+   * Carried so a write can bound its `PutVectors` request size without
+   * serialising the batch again (`internal/request-size.ts`).
    */
   readonly metadataBytes: number;
 }

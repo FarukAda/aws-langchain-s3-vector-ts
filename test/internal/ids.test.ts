@@ -209,3 +209,32 @@ describe('assertIdsUnique', () => {
     expect(check([7, 8])).toBeUndefined();
   });
 });
+
+/**
+ * Measured against live S3 Vectors on 2026-09-27: a key is refused past 1,024
+ * UTF-8 bytes ("Record key length exceeds the maximum allowed") as well as past
+ * 1,024 characters, and GetVectors and DeleteVectors refuse such a key too.
+ */
+describe('assertIdsWellFormed — the 1,024-byte bound AWS applies', () => {
+  const checkIds = (ids: string[]): unknown =>
+    thrownBy(() =>
+      assertIdsWellFormed(ids, { operation: 'addVectors', ...SCOPE, source: 'options.ids' }),
+    );
+
+  it.each([
+    ['340 three-byte characters and 4 ASCII: 1,024 bytes', '中'.repeat(340) + 'abcd'],
+    ['256 emoji: 1,024 bytes in 512 code units', '😀'.repeat(256)],
+  ])('accepts %s', (_label, id) => {
+    expect(checkIds([id])).toBeUndefined();
+  });
+
+  it.each([
+    ['342 three-byte characters: 1,026 bytes in 342 code units', '中'.repeat(342)],
+    ['340 three-byte characters and 5 ASCII: 1,025 bytes', '中'.repeat(340) + 'abcde'],
+    ['512 emoji: 2,048 bytes in 1,024 code units', '😀'.repeat(512)],
+  ])('refuses %s', (_label, id) => {
+    const error = checkIds([id]);
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect((error as Error).message).toContain('1024-byte');
+  });
+});

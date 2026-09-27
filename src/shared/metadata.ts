@@ -31,16 +31,23 @@ export interface PutMetadataOptions extends MetadataConfig, OperationScope {
 }
 
 /**
- * AWS metadata limits. The byte ceilings carry a measured 5-byte overhead on
- * top of the JSON serialisation — see docs/evidence/metadata-limits.md, where
- * the gap was measured independently at both scales. Those probes were one key
- * holding one string; that other shapes (several keys, numbers, escaped
- * characters) are counted the same way is an assumption the evidence records.
+ * AWS metadata limits (limits page), applied to the size {@link chargedBytes}
+ * computes.
  */
 const MAX_METADATA_KEYS = 50;
 const FILTERABLE_BYTE_LIMIT = 2048;
 const TOTAL_BYTE_LIMIT = 40960;
-const MEASURED_OVERHEAD_BYTES = 5;
+
+/**
+ * The size model S3 Vectors was measured to apply, in bytes
+ * (docs/evidence/metadata-limits.md, "How AWS sizes metadata"): a fixed cost
+ * per object, a fixed cost per entry, and each value by type.
+ */
+const OBJECT_BYTES = 4;
+const ENTRY_BYTES = 8;
+const NUMBER_BYTES = 4;
+const BOOLEAN_BYTES = 0;
+const ARRAY_ELEMENT_BYTES = 4;
 
 /**
  * Why S3 Vectors could not store this value, or `undefined` if it can.
@@ -63,8 +70,8 @@ const MEASURED_OVERHEAD_BYTES = 5;
  * - a hole in an array is omitted rather than sent as `null`, so the array
  *   comes back shorter and every later element has shifted position.
  *
- * Refusing those is what makes {@link serialisedBytes} honest, without this
- * package carrying a second copy of the SDK's serialiser to measure against.
+ * Refusing those also keeps {@link chargedBytes} honest: it sizes the values
+ * as written, which are then the values sent.
  */
 function rejectionReason(value: unknown): string | undefined {
   if (typeof value === 'string') return unpairedSurrogateReason(value);
@@ -145,16 +152,44 @@ function arrayRejectionReason(value: readonly unknown[]): string | undefined {
 }
 
 /**
- * UTF-8 bytes of the JSON serialisation, which is what AWS was measured to
- * count for a one-key string payload (docs/evidence/metadata-limits.md).
+ * The bytes one value is charged: a string its UTF-8 bytes, as written —
+ * nothing for the escaping JSON would add — a number 4 whatever its digits, a
+ * boolean nothing, and an array 4 per element plus the element.
  *
- * Truthful only because {@link rejectionReason} has already refused every value
- * whose JSON form differs from what the SDK sends. Before that rule the count
- * was wrong in both directions — 97 counted against 106 sent for one payload,
- * 117 against 114 for another.
+ * Accepts: a value {@link rejectionReason} has accepted.
  */
-function serialisedBytes(value: Record<string, unknown>): number {
-  return Buffer.byteLength(JSON.stringify(value), 'utf8') + MEASURED_OVERHEAD_BYTES;
+function valueBytes(value: unknown): number {
+  if (typeof value === 'string') return Buffer.byteLength(value, 'utf8');
+  if (typeof value === 'number') return NUMBER_BYTES;
+  if (typeof value === 'boolean') return BOOLEAN_BYTES;
+  let total = 0;
+  for (const element of value as readonly unknown[]) {
+    total += ARRAY_ELEMENT_BYTES + valueBytes(element);
+  }
+  return total;
+}
+
+/**
+ * The size S3 Vectors charges a metadata object against its byte limits.
+ *
+ * Accepts: an object whose values {@link rejectionReason} has accepted.
+ *
+ * Returns: 4, plus for each entry 8, its key's UTF-8 bytes and its value's
+ * {@link valueBytes}.
+ *
+ * Guarantees: this is the service's measured rule, not a serialisation. It
+ * reproduced the exact limit of all twenty-four shapes probed on 2026-09-27 —
+ * nine of them predicted before they were sent — where the JSON text this used
+ * to count agreed on only three: it refused text with newlines or quotes at
+ * half the size AWS takes, and passed numbers, arrays and many keys that AWS
+ * then refused, after the batch had been embedded.
+ */
+function chargedBytes(metadata: Record<string, unknown>): number {
+  let total = OBJECT_BYTES;
+  for (const key of Object.keys(metadata)) {
+    total += ENTRY_BYTES + Buffer.byteLength(key, 'utf8') + valueBytes(metadata[key]);
+  }
+  return total;
 }
 
 /**
@@ -184,10 +219,11 @@ function describeBudgetedMetadataKeys(nonFilterableMetadataKeys: readonly string
  *
  * Returns: the metadata to send — a new object whose array values are copies, so
  * nothing the caller still holds can change it once it has been validated — and
- * `metadataBytes`, the count this function already measured it at to apply the
- * per-vector ceiling. The write path budgets `PutVectors` request sizes with
- * that number rather than serialising the metadata a second time to find it
- * (see `internal/request-size.ts`).
+ * `metadataBytes`, the UTF-8 bytes of its JSON — what it adds to a `PutVectors`
+ * body, which the write path budgets request sizes with (see
+ * `internal/request-size.ts`). That is not the size the metadata limits are
+ * checked against: AWS charges those by its own rule ({@link chargedBytes}),
+ * which counts an escaped character once where the body carries it escaped.
  *
  * Throws: {@link S3VectorsError} with code `VALIDATION` — its message led by the
  * record (`Document at index 400 (id "ticket-400"): …`) and its context carrying
@@ -273,7 +309,7 @@ export function buildPutMetadata(
   const filterable = Object.fromEntries(
     Object.entries(metadata).filter(([key]) => !nonFilterable.has(key)),
   );
-  const filterableBytes = serialisedBytes(filterable);
+  const filterableBytes = chargedBytes(filterable);
   if (filterableBytes > FILTERABLE_BYTE_LIMIT) {
     fail(
       `Filterable metadata is ${filterableBytes} bytes, over the ${FILTERABLE_BYTE_LIMIT}-byte ` +
@@ -285,12 +321,14 @@ export function buildPutMetadata(
     );
   }
 
-  const totalBytes = serialisedBytes(metadata);
+  const totalBytes = chargedBytes(metadata);
   if (totalBytes > TOTAL_BYTE_LIMIT) {
     fail(`Metadata is ${totalBytes} bytes, over the ${TOTAL_BYTE_LIMIT}-byte limit per vector.`);
   }
 
-  return { metadata, metadataBytes: totalBytes };
+  // What the metadata adds to the request body: its JSON, as the SDK sends it.
+  // Not `totalBytes`, which is AWS's storage rule and undercounts escaped text.
+  return { metadata, metadataBytes: Buffer.byteLength(JSON.stringify(metadata), 'utf8') };
 }
 
 /**

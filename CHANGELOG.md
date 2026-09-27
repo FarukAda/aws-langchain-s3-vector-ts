@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Metadata is sized the way S3 Vectors sizes it.** The 2 KB filterable and
+  40 KB total limits were checked against the metadata's JSON text plus 5
+  bytes — a rule measured on one key holding one string, where it happens to
+  agree with the service. A live run over twenty-four shapes
+  (`docs/evidence/metadata-limits.md`, T3-26) showed the service charges 4
+  bytes per object and 8 per entry, plus the key's bytes and the value by type:
+  a string's UTF-8 bytes as written, 4 for any number, nothing for a boolean,
+  4 per array element plus the element. The JSON rule passed many small keys,
+  numbers and numeric arrays that AWS then refused — after the batch was
+  embedded and earlier batches had landed — and refused text with newlines or
+  quotes at half the size AWS takes. The model reproduced every measured limit,
+  nine of them predicted before they were sent, and is what is enforced now.
+  Request-size budgeting still counts each record's JSON, which is what the
+  20 MiB body limit is about.
+- **A vector id is refused past 1,024 UTF-8 bytes, not only 1,024 characters.**
+  AWS applies both (`docs/evidence/key-length.md`, T3-27), on writes, reads and
+  deletes, so 342 three-byte characters passed locally and failed their whole
+  batch at AWS.
+
 - **`addDocuments` holds every batch to the first batch's dimension.** Each
   batch is embedded separately and was checked only against itself, so a model
   that changed dimension part-way — a fallback deployment, a proxy routing per
@@ -97,6 +116,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Live evidence run 5**: T3-26 (metadata sizing), T3-27 (key bytes) and T3-28
+  (components judged as float32) are recorded under `docs/evidence/`, each with
+  a guard in `test/integration/evidence-guards-run5.test.ts`, run live on
+  2026-09-27 — eleven tests, all passing. T3-28 confirmed the float32 check
+  added above matches the service exactly.
 - **The job that can publish to npm runs nothing else.** `softprops/action-gh-release`
   ran in `publish`, which holds `id-token: write`, so a compromised release of
   that action could have minted a Trusted Publishing credential — contradicting

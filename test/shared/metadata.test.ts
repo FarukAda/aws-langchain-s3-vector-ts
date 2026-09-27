@@ -406,7 +406,7 @@ describe('buildPutMetadata — names the record (R3)', () => {
 });
 
 describe('buildPutMetadata — the size the write path budgets with', () => {
-  it('reports the byte count it checked against the per-vector ceiling', () => {
+  it('reports the bytes the metadata adds to the request body', () => {
     const doc = new Document({ pageContent: 'hello', metadata: { genre: 'scifi' } });
     const { metadata, metadataBytes } = buildPutMetadata(doc, {
       pageContentMetadataKey: PAGE_CONTENT_KEY,
@@ -416,8 +416,9 @@ describe('buildPutMetadata — the size the write path budgets with', () => {
       indexName: 'i',
       record: { recordIndex: 0 },
     });
-    // What AWS counts: the JSON serialisation plus the measured 5-byte overhead
-    // (docs/evidence/metadata-limits.md), which is what the ceiling is applied to.
-    expect(metadataBytes).toBe(Buffer.byteLength(JSON.stringify(metadata), 'utf8') + 5);
+    // The JSON the SDK sends, which is what the 20 MiB request budget counts.
+    // The metadata limits are checked against AWS's own size model instead
+    // (docs/evidence/metadata-limits.md).
+    expect(metadataBytes).toBe(Buffer.byteLength(JSON.stringify(metadata), 'utf8'));
   });
 });

@@ -78,14 +78,16 @@ describe('prepareRecords', () => {
 });
 
 describe('prepareRecords — request budgeting', () => {
-  it('carries the metadata size each write is measured with', () => {
+  it('carries the bytes its metadata adds to the request body', () => {
     const records = prepareRecords(
       [new Document({ pageContent: 'one', metadata: { n: 1 } })],
       ['a'],
       CONFIG,
     );
+    // The wire size, JSON as the SDK sends it — not the size AWS charges
+    // against the metadata limits, which is a different rule.
     expect(records[0]!.metadataBytes).toBe(
-      Buffer.byteLength(JSON.stringify(records[0]!.metadata), 'utf8') + 5,
+      Buffer.byteLength(JSON.stringify(records[0]!.metadata), 'utf8'),
     );
   });
 });

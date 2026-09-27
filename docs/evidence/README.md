@@ -36,6 +36,14 @@ from it.
 | 2 | 2026-09-16 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
 | 3 | 2026-09-17 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
 | 4 | 2026-09-20 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
+| 5 | 2026-09-27 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1141.0` | `langchain-vectors-ci` |
+
+**Run 5 differed in one condition.** Its exploratory probes — the binary
+searches behind T3-26, and the key and float32 tables — used `maxAttempts: 6`,
+not 1. Every answer they record is a `ValidationException` (HTTP 400) or a
+success, and the SDK retries neither, so no retry could have changed one. The
+guards that re-check them (`evidence-guards-run5.test.ts`) run at
+`maxAttempts: 1`, and all eleven passed against a fresh bucket the same day.
 
 **Run 4 settled nothing new: it re-ran the whole live tier against a fresh
 ephemeral bucket and every claim below still held.** 114 tests across 8 suites,
@@ -58,7 +66,7 @@ check works against the real service.
 |---|---|---|---|
 | T3-1 | 1 | `{}` is rejected as a filter | `filter-validation.md` |
 | T3-2 | 1 | `DeleteIndex` on an absent index returns 404 | `delete-absent.md` |
-| T3-4 | 1 | Metadata byte counting | `metadata-limits.md` |
+| T3-4 | 1 | Metadata byte counting for one key and one string (superseded in general by T3-26) | `metadata-limits.md` |
 | T3-5 | 1 | Cosine distance is `1 − cosine_similarity` | `cosine-distance.md` |
 | T3-7 | 1 | `GetVectors` omits absent keys | `get-vectors-absent-keys.md` |
 | T3-8 | 1 | `DeleteVectors` accepts absent keys | `delete-absent.md` |
@@ -79,3 +87,6 @@ check works against the real service.
 | T3-23 | 3 | A lost creation race can read the winner's configuration at once | `index-create-race.md` |
 | T3-24 | 3 | What the write rate does under concurrency, and what bounds it | `write-rate.md` |
 | T3-25 | 3 | A flattened, dotted metadata key is filterable like any other | `filter-validation.md` |
+| T3-26 | 5 | Metadata is sized by type, not as JSON text; T3-4's rule was wrong beyond one string | `metadata-limits.md` |
+| T3-27 | 5 | A vector key is at most 1,024 UTF-8 bytes as well as 1,024 characters | `key-length.md` |
+| T3-28 | 5 | Components are judged after conversion to float32 | `float32-range.md` |

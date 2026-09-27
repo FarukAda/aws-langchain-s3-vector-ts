@@ -229,3 +229,64 @@ describe('a metadata key in a refusal message', () => {
     expect(refusalFor({ 'bad\nkey': null }).message).not.toContain('\n');
   });
 });
+
+/**
+ * Boundaries measured against live S3 Vectors on 2026-09-27
+ * (docs/evidence/metadata-limits.md, "How AWS sizes metadata"). Each shape was
+ * binary-searched for the largest `n` the service accepts; that `n` must be
+ * accepted here and `n + 1` refused. The JSON-text count this package used to
+ * apply disagreed with every one of them but the single string: too strict
+ * for escaped characters, too loose for numbers, arrays and many keys.
+ */
+describe('buildPutMetadata — the sizes AWS actually enforces', () => {
+  const rep = (s: string, n: number): string => s.repeat(n);
+  const keyed = (count: number, prefix: string, value: unknown): Record<string, unknown> =>
+    Object.fromEntries(
+      Array.from({ length: count }, (_, i) => [prefix + String(i).padStart(2, '0'), value]),
+    );
+  // Unpadded — `i0`…`i9` — as the probe named them, since a key's bytes count.
+  const numbered = (count: number, prefix: string, value: unknown): Record<string, unknown> =>
+    Object.fromEntries(Array.from({ length: count }, (_, i) => [prefix + String(i), value]));
+  const NO_KEYS = { pageContentMetadataKey: null, nonFilterableMetadataKeys: [] };
+  const BULK = { pageContentMetadataKey: null, nonFilterableMetadataKeys: ['nf'] };
+
+  it.each<[string, (n: number) => Record<string, unknown>, number, object]>([
+    ['newlines, which JSON escapes', (n) => ({ f: rep('\n', n) }), 2035, NO_KEYS],
+    ['double quotes', (n) => ({ f: rep('"', n) }), 2035, NO_KEYS],
+    ['a control character', (n) => ({ f: rep('\u0001', n) }), 2035, NO_KEYS],
+    ['20 keys', (n) => ({ f: rep('x', n), ...keyed(19, 'k', 'y') }), 1807, NO_KEYS],
+    ['49 keys', (n) => ({ f: rep('x', n), ...keyed(48, 'key', 'ab') }), 1315, NO_KEYS],
+    ['10 integers', (n) => ({ f: rep('x', n), ...numbered(10, 'i', 7) }), 1895, NO_KEYS],
+    [
+      '10 long-text numbers',
+      (n) => ({ f: rep('x', n), ...numbered(10, 'n', 0.1234567890123456) }),
+      1895,
+      NO_KEYS,
+    ],
+    ['40 booleans', (n) => ({ f: rep('x', n), ...keyed(40, 'b', true) }), 1595, NO_KEYS],
+    [
+      'an array of 50 numbers',
+      (n) => ({ f: rep('x', n), a: Array.from({ length: 50 }, () => 1.5) }),
+      1626,
+      NO_KEYS,
+    ],
+    [
+      'an array of 50 strings',
+      (n) => ({ f: rep('x', n), s: Array.from({ length: 50 }, () => 'ab') }),
+      1726,
+      NO_KEYS,
+    ],
+    ['3-byte keys', (n) => ({ 中中中: rep('x', n), 日本: 'v' }), 2012, NO_KEYS],
+    [
+      'the 40 KB total, with 30 small filterable keys',
+      (n) => ({ nf: rep('x', n), ...keyed(30, 'k', 'v') }),
+      40586,
+      BULK,
+    ],
+    ['the 40 KB total, in 3-byte characters', (n) => ({ nf: rep('中', n) }), 13648, BULK],
+  ])('accepts %s at the measured maximum and refuses one more', (_label, gen, max, opts) => {
+    const fits = gen(max);
+    expect(build(fits, opts)).toMatchObject(fits);
+    expect(codeOf(build(gen(max + 1), opts))).toBe(S3VectorsErrorCode.VALIDATION);
+  });
+});

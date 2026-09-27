@@ -222,9 +222,11 @@ if (!env) {
 
     // ── T3-4 — docs/evidence/metadata-limits.md ────────────────────────
 
-    it('T3-4: the filterable limit is counted over serialised JSON bytes plus five', async () => {
-      // `{"f":"x"×n}` serialises to n + 8 bytes; the evidence run accepted
-      // 2035 and rejected 2036, which is the documented 2048 less five.
+    it('T3-4: one key holding one string fits 2035 bytes of value under the 2048 limit', async () => {
+      // 4 per object + 8 per entry + the 1-byte key leaves 2035 for the value.
+      // Other shapes are sized by the rule T3-26 settled
+      // (evidence-guards-run5.test.ts), which this single string cannot tell
+      // apart from a JSON count.
       const put = (length: number): Promise<unknown> =>
         client.send(
           new PutVectorsCommand({
@@ -246,6 +248,7 @@ if (!env) {
     }, 180_000);
 
     it('T3-4: the total limit applies to a non-filterable key, on the same rule', async () => {
+      // 4 + 8 + the 4-byte key `bulk` leaves 40944 for the value.
       const put = (length: number): Promise<unknown> =>
         client.send(
           new PutVectorsCommand({
