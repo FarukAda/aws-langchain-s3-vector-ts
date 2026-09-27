@@ -223,6 +223,9 @@ jobs:
       id-token: write
       # Needed to create the GitHub release.
       contents: write
+      # Lets the attestation step below store its provenance with the
+      # repository, where `gh attestation verify` finds it.
+      attestations: write
     steps:
       # Checked out for the release step only. Nothing here runs `npm ci`, so
       # no third-party package executes in the job that can mint a registry
@@ -252,6 +255,40 @@ jobs:
           DIST_TAG: ${{ needs.verify.outputs.dist-tag }}
         run: npm publish "./${TARBALL}" --dry-run --access public --tag "${DIST_TAG}"
 
+      # SLSA build provenance for the three files this release ships: the
+      # tarball npm is about to receive and the two SBOMs attached to the
+      # GitHub release. npm's own provenance covers only the tarball and lives
+      # on the registry; this one also covers the SBOMs, and is attached to the
+      # release as `provenance.intoto.jsonl`, the file the OpenSSF Scorecard
+      # Signed-Releases check looks for next to a release's assets.
+      #
+      # It runs *before* the publish on purpose. Signing talks to Sigstore and
+      # to the attestations API, either of which can be down; failing here
+      # leaves nothing published and the tag can simply be re-run, where
+      # failing after `npm publish` would leave a live version with no GitHub
+      # release. The action is GitHub's own, pinned, and installs nothing from
+      # the registry, so the rule above about third-party code in this job
+      # still holds.
+      #
+      # Verify any of the three with
+      #   gh attestation verify <file> --repo FarukAda/aws-langchain-s3-vector-ts
+      # or offline against the attached bundle with `--bundle provenance.intoto.jsonl`.
+      - name: Attest build provenance
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            ${{ needs.verify.outputs.tarball }}
+            sbom.runtime.cyclonedx.json
+            sbom.build.cyclonedx.json
+
+      # The action writes one Sigstore bundle per line (a DSSE-signed in-toto
+      # statement), which is exactly what the `.intoto.jsonl` name promises.
+      - name: Name the provenance bundle for the release
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: cp "${BUNDLE}" provenance.intoto.jsonl
+
       # Do NOT set NODE_AUTH_TOKEN here — setting it (even as empty)
       # causes npm to try token auth and bypass OIDC.
       # The --provenance flag is explicit: npm docs say it is automatic
@@ -273,6 +310,7 @@ jobs:
           files: |
             sbom.runtime.cyclonedx.json
             sbom.build.cyclonedx.json
+            provenance.intoto.jsonl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **Every GitHub release now carries signed build provenance.** The release
+  workflow attests the published tarball and both SBOMs with
+  `actions/attest-build-provenance` and attaches the Sigstore bundle as
+  `provenance.intoto.jsonl`. The SBOMs attached to 1.0.0 were unsigned, which
+  is what the OpenSSF Scorecard Signed-Releases check scored at 0. Verify any
+  release file with
+  `gh attestation verify <file> --repo FarukAda/aws-langchain-s3-vector-ts`.
+  The attestation runs before `npm publish`, so a Sigstore outage stops the
+  release before anything is published.
+
 ## [1.0.0] - 2026-09-21
 
 ### Upgrading from 0.9.0
