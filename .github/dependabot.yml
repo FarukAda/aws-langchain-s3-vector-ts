@@ -25,8 +25,14 @@ updates:
           - "@smithy/*"
       dev-dependencies:
         dependency-type: development
+    # The prefix the history uses for every dependency commit.
     commit-message:
-      prefix: "deps"
+      prefix: "chore(deps)"
+    # A release gets a week before it is proposed, so one pulled or
+    # compromised within days of publication never reaches a pull request.
+    # Security updates are not delayed by this.
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: github-actions
     directory: /
@@ -42,4 +48,6 @@ updates:
         patterns:
           - "github/codeql-action/*"
     commit-message:
-      prefix: "ci"
+      prefix: "chore(deps)"
+    cooldown:
+      default-days: 7

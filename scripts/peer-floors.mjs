@@ -45,7 +45,11 @@ const EXACT = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 export function floorOf(name, range) {
   const trimmed = range.trim();
   const bare = trimmed.replace(/^(\^|~|>=|=|v)/, '').trim();
-  if (EXACT.test(bare) && !/\s|\|\||[x*]/i.test(trimmed)) return bare;
+  // EXACT alone refuses every x-range, wildcard, union and hyphen range: each
+  // leaves something other than three numeric parts once the leading operator
+  // is gone. Testing the whole range for an `x` as well refused a prerelease
+  // floor whose identifier merely contains one, such as `^1.0.0-next.1`.
+  if (EXACT.test(bare)) return bare;
   throw new Error(
     `Cannot determine the floor of peer dependency "${name}" from the range "${range}". ` +
       'This job installs each peer at the lowest version its range admits; a range it cannot ' +

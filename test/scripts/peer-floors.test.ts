@@ -29,6 +29,9 @@ describe('floorOf', () => {
     ['=1.0.0', '1.0.0'],
     ['1.2.3', '1.2.3'],
     ['^1.0.0-rc.1', '1.0.0-rc.1'],
+    // A prerelease identifier may contain an x without being an x-range.
+    ['^1.0.0-next.1', '1.0.0-next.1'],
+    ['>=2.0.0-beta.x1', '2.0.0-beta.x1'],
     ['  ^2.0.0  ', '2.0.0'],
   ])('reduces %s to %s', (range, expected) => {
     expect(floor('p', range)).toBe(expected);

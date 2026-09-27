@@ -97,6 +97,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **The job that can publish to npm runs nothing else.** `softprops/action-gh-release`
+  ran in `publish`, which holds `id-token: write`, so a compromised release of
+  that action could have minted a Trusted Publishing credential — contradicting
+  the workflow's own rule that the job runs no third-party code. The GitHub
+  release is now a third job, `github-release`, with `contents: write`, no
+  `id-token`, and the runner's preinstalled `gh` in place of the action;
+  `publish` keeps only `id-token` and `attestations`, and no checkout.
+- **A release is cut only from a commit `main` holds.** `verify` refuses a tag
+  whose commit is not an ancestor of `main`. The CI gate reads the tagged
+  commit's check runs, and a pull request's head commit has those too, so a tag
+  pushed onto an unmerged branch could otherwise have published.
+- **The live suite runs only from `main` or a `v*` tag**, refusing a dispatch
+  from any other branch before a package is installed: the job holds
+  `id-token: write` for the AWS role and runs `npm ci`, so a branch that changed
+  the dependency tree never reaches the role. It, and the release, no longer
+  restore an npm cache, and no workflow persists the checkout token.
+- **The CI gate waits an hour, not thirty minutes**, since the live suite runs
+  one at a time across every ref and a tag's run can queue behind a dispatched
+  one.
+- **`peer-floors` accepts a prerelease floor containing an `x`.** Testing the
+  whole range for `x` refused `^1.0.0-next.1`; the exact-version pattern
+  already refuses every x-range.
+- **Dependabot commits say `chore(deps)`**, as the history does, and a version
+  update waits seven days after its release before it is proposed.
 - **Every GitHub release now carries signed build provenance.** The release
   workflow attests the published tarball and both SBOMs with
   `actions/attest-build-provenance` and attaches the Sigstore bundle as

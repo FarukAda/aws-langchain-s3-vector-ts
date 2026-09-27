@@ -25,12 +25,15 @@ concurrency:
 # this package, *with a valid provenance attestation attached*, which is worse
 # than a leaked token because it looks authentic.
 #
-# So `verify` has no `id-token` and cannot mint anything, and `publish` installs
-# no third-party code at all: it downloads the tarball `verify` already built and
-# checked, and runs `npm publish` on it with npm's own bundled binary. npm's
-# Trusted Publishing validates the repository and the *workflow file*, not the
-# job, so splitting one job into two inside this same file needs no change on
-# the registry side.
+# So `verify` has no `id-token` and cannot mint anything, and `publish` runs no
+# third-party code at all: it downloads the tarball `verify` already built and
+# checked, signs it with GitHub's own attestation action, and runs `npm publish`
+# on it with npm's own bundled binary. The GitHub release is a third job,
+# `github-release`, which holds `contents: write` and no `id-token`, and uses the
+# runner's preinstalled `gh` — so nothing that can create a release can mint a
+# registry credential either. npm's Trusted Publishing validates the repository
+# and the *workflow file*, not the job, so splitting the work into jobs inside
+# this same file needs no change on the registry side.
 permissions: {}
 
 jobs:
@@ -47,7 +50,12 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tarball: ${{ steps.pack.outputs.tarball }}
     steps:
+      # Full history, for the ancestry check below. No persisted token: nothing
+      # in this job pushes, and `npm ci` runs here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       # The tag must be exactly `v<package.json version>` — a tag pushed
       # against a commit whose package.json was never bumped would otherwise
@@ -84,6 +92,19 @@ jobs:
             echo "Releasing ${TAG} (package.json version ${PKG_VERSION}) under the latest dist-tag."
           fi
 
+      # A release is cut only from a commit `main` already holds. The CI gate
+      # below reads the check runs of the tagged commit, and a pull request's
+      # head commit carries those too, so without this a tag pushed onto an
+      # unmerged branch could publish code that was never reviewed into main.
+      - name: Refuse a tag whose commit is not on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" FETCH_HEAD; then
+            echo "::error::${GITHUB_SHA} is not on main; a release is cut only from a commit main already holds."
+            exit 1
+          fi
+
       # Publishing is gated on the CI that already ran for this commit. The
       # gates re-run below catch a broken toolchain on this runner, but only
       # the matrix proves the other two operating systems and Node versions,
@@ -109,7 +130,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          for _ in $(seq 1 60); do
+          # Up to an hour: the live suite runs one at a time across every ref,
+          # so a tag's run can queue behind a dispatched one before it starts.
+          for _ in $(seq 1 120); do
             status=0
             CHECK_RUNS="$(gh api --paginate \
               "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100" \
@@ -121,7 +144,7 @@ jobs:
               *) exit "${status}" ;;
             esac
           done
-          echo "::error::Required CI checks for ${GITHUB_SHA} did not all succeed within 30 minutes; not publishing."
+          echo "::error::Required CI checks for ${GITHUB_SHA} did not all succeed within 60 minutes; not publishing."
           exit 1
 
       # Node 24 for the whole release. Trusted Publishing requires npm >= 11.5.1
@@ -131,10 +154,12 @@ jobs:
       # `publish` job is the one Node shipped with, not one fetched at release
       # time. The package itself supports Node >=22 (see engines.node); the 24
       # here is a publisher-side choice only.
+      #
+      # No dependency cache: the release installs from the lockfile alone, not
+      # from a cache another workflow run may have written.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
-          cache: npm
 
       - run: npm ci
       - run: npm run lint
@@ -221,17 +246,14 @@ jobs:
     permissions:
       # Required for npm Trusted Publishing and automatic provenance.
       id-token: write
-      # Needed to create the GitHub release.
-      contents: write
       # Lets the attestation step below store its provenance with the
       # repository, where `gh attestation verify` finds it.
       attestations: write
+    # No checkout and no `contents: write`: this job publishes the tarball it
+    # downloads, and the GitHub release is `github-release`'s, so the one job
+    # that can mint a registry credential holds nothing else and runs no
+    # third-party code.
     steps:
-      # Checked out for the release step only. Nothing here runs `npm ci`, so
-      # no third-party package executes in the job that can mint a registry
-      # credential.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
@@ -289,6 +311,15 @@ jobs:
           BUNDLE: ${{ steps.attest.outputs.bundle-path }}
         run: cp "${BUNDLE}" provenance.intoto.jsonl
 
+      # Handed to `github-release`, which attaches it. Uploaded before the
+      # publish, like everything else that can fail here.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: provenance
+          path: provenance.intoto.jsonl
+          if-no-files-found: error
+          retention-days: 7
+
       # Do NOT set NODE_AUTH_TOKEN here — setting it (even as empty)
       # causes npm to try token auth and bypass OIDC.
       # The --provenance flag is explicit: npm docs say it is automatic
@@ -299,20 +330,6 @@ jobs:
           TARBALL: ${{ needs.verify.outputs.tarball }}
           DIST_TAG: ${{ needs.verify.outputs.dist-tag }}
         run: npm publish "./${TARBALL}" --access public --provenance --tag "${DIST_TAG}"
-
-      # `release-body.md` came down with the artifacts: `verify` built it from
-      # the CHANGELOG and checked it, so nothing after the publish above can
-      # fail on what the repository contains.
-      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          body_path: release-body.md
-          prerelease: ${{ needs.verify.outputs.prerelease == 'true' }}
-          files: |
-            sbom.runtime.cyclonedx.json
-            sbom.build.cyclonedx.json
-            provenance.intoto.jsonl
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Nothing here moves the `next` dist-tag after a stable release, so
       # `npm install pkg@next` keeps resolving to the last release candidate
@@ -339,3 +356,44 @@ jobs:
             echo "npm dist-tag add @farukada/aws-langchain-s3-vector-ts@${VERSION} next"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  github-release:
+    name: github release ${{ github.ref_name }}
+    needs: [verify, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      # To create the release and attach its files. Nothing else: no
+      # `id-token`, so this job cannot mint a registry credential.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-artifacts
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: provenance
+
+      # `release-body.md` came down with the artifacts: `verify` built it from
+      # the CHANGELOG and checked it, so nothing here can fail on what the
+      # repository contains. `gh` is preinstalled on the runner, so no action
+      # from outside GitHub runs with this token. A re-run after a partial
+      # failure finds the release already there and updates it instead of
+      # failing to create it twice.
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          FILES=(sbom.runtime.cyclonedx.json sbom.build.cyclonedx.json provenance.intoto.jsonl)
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+              --notes-file release-body.md --prerelease="${PRERELEASE}"
+            gh release upload "${TAG}" --repo "${GITHUB_REPOSITORY}" --clobber "${FILES[@]}"
+          else
+            gh release create "${TAG}" --repo "${GITHUB_REPOSITORY}" --verify-tag \
+              --title "${TAG}" --notes-file release-body.md --prerelease="${PRERELEASE}" \
+              "${FILES[@]}"
+          fi
