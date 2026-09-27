@@ -170,8 +170,9 @@ function bucket(perSecond: number, clock: RateLimiterClock): Bucket {
  * A concurrency cap does not bound a rate (`docs/evidence/write-rate.md`).
  *
  * The limiter is per store instance, so separate processes writing to one index
- * can still exceed the limit between them; the SDK's own retries remain the
- * backstop for that.
+ * can still exceed the limit between them, and so can two stores for one index
+ * in the same process, each holding a full budget; the SDK's own retries remain
+ * the backstop for that.
  */
 export function createWriteRateLimiter(
   config: WriteRateLimitConfig | false,

@@ -26,8 +26,8 @@ export interface EmbedPipelineOptions<T> extends OperationScope {
   /** How many writes may be un-settled at once; embedding pauses when full. */
   readonly maxConcurrent: number;
   /**
-   * Cancels the run. Checked before and after every embed, because an
-   * `EmbeddingsInterface` takes no signal and cannot self-cancel.
+   * Cancels the run. Checked before every embed and before every write,
+   * because an `EmbeddingsInterface` takes no signal and cannot self-cancel.
    */
   readonly signal?: AbortSignal | undefined;
   /**
@@ -69,7 +69,9 @@ export interface EmbedPipelineOptions<T> extends OperationScope {
  *   At most `maxConcurrent` puts are un-settled at once; when the window is
  *   full, embedding pauses. This is what makes a large ingest embed-bound
  *   rather than embed-plus-put-bound.
- * - The signal is checked before **and** after every embed call: an
+ * - The signal is checked before every embed call and again before that
+ *   batch's write — here after each later embed, and for the first batch by
+ *   `put` itself, whose index check and rate limiter both check it first. An
  *   `EmbeddingsInterface` takes no signal, so it cannot self-cancel, and a
  *   signal that fires during an embed must still stop that batch's write.
  * - No new work starts after a known failure, and the error is thrown only

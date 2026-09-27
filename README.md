@@ -595,7 +595,7 @@ const store = new AmazonS3Vectors(embeddings, {
 }
 ```
 
-**Enforcing it across an account.** S3 Vectors publishes two IAM condition keys — `s3vectors:sseType` (`AES256` or `aws:kms`) and `s3vectors:kmsKeyArn` — so a service control policy can require SSE-KMS, or require one specific key. Note that both are documented as condition keys for *vector buckets*: they constrain bucket creation, which this package never performs. Creating the bucket with the right encryption, and letting indexes inherit it, is the arrangement that an SCP can actually enforce.
+**Enforcing it across an account.** S3 Vectors publishes two IAM condition keys — `s3vectors:sseType` (`AES256` or `aws:kms`) and `s3vectors:kmsKeyArn` — so a service control policy can require SSE-KMS, or require one specific key. The user guide introduces them as condition keys for *vector buckets*, but the [Service Authorization Reference](https://docs.aws.amazon.com/service-authorization/latest/reference/list_s3vectors.html) lists both on `CreateIndex` as well as `CreateVectorBucket` — so a policy can deny an index created without the required encryption, including one this store creates. A store configured without `encryptionConfiguration` sends none, so under such a policy its `CreateIndex` is refused with `ACCESS_DENIED`: set `encryptionConfiguration` to match, or pre-create the index. Creating the bucket with the right encryption, and letting indexes inherit it, remains the simplest arrangement.
 
 See [Data protection and encryption in S3 Vectors](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-vectors-data-encryption.html) for AWS's full treatment, and [`docs/evidence/index-encryption.md`](docs/evidence/index-encryption.md) for the pairing rules this package enforces locally and how they were established.
 
@@ -914,7 +914,7 @@ This is the knob that keeps a store inside the limit; `maxConcurrentBatchCalls` 
 
 Requests are admitted in the order they asked, whatever their sizes, so a 500-vector `delete` batch waiting beside an ingest of 200-vector batches goes when its turn comes rather than when the ingest ends; a call that is aborted while it waits leaves the line at once.
 
-Two things it does not do: it is per store instance, so separate processes writing one index can still exceed the limit between them (the SDK's retries remain the backstop there), and it paces writes only — reads have their own, looser, documented limit and are left alone.
+Two things it does not do: it is per store instance, so separate processes writing one index can still exceed the limit between them — and so can two stores for the same index in one process, such as one built per request or by each `fromTexts` call, since each gets the full budget. Share one store per index within a process; across processes the SDK's retries remain the backstop. And it paces writes only — reads have their own, looser, documented limit and are left alone.
 
 #### Cost model
 
@@ -1264,7 +1264,7 @@ import {
 
 ## 🔐 IAM Permissions
 
-The store uses the following S3 Vectors actions. The IAM policy below enumerates them explicitly — no `s3vectors:*` wildcard.
+The store uses the following S3 Vectors actions. The IAM policy below enumerates them explicitly — no `s3vectors:*` wildcard — and scopes each to the resource type the [Service Authorization Reference](https://docs.aws.amazon.com/service-authorization/latest/reference/list_s3vectors.html) gives it: `GetVectorBucket` to the bucket, everything else to the index. An index encrypted with a customer-managed KMS key also needs the KMS grants in [Encryption with a customer managed key](#encryption-with-a-customer-managed-key).
 
 ```json
 {
@@ -1277,13 +1277,15 @@ The store uses the following S3 Vectors actions. The IAM policy below enumerates
         "s3vectors:CreateIndex",
         "s3vectors:TagResource",
         "s3vectors:GetIndex",
-        "s3vectors:DeleteIndex",
-        "s3vectors:GetVectorBucket"
+        "s3vectors:DeleteIndex"
       ],
-      "Resource": [
-        "arn:aws:s3vectors:<region>:<account-id>:bucket/<vector-bucket>",
-        "arn:aws:s3vectors:<region>:<account-id>:bucket/<vector-bucket>/index/<index-name>"
-      ]
+      "Resource": "arn:aws:s3vectors:<region>:<account-id>:bucket/<vector-bucket>/index/<index-name>"
+    },
+    {
+      "Sid": "S3VectorsBucketCheck",
+      "Effect": "Allow",
+      "Action": "s3vectors:GetVectorBucket",
+      "Resource": "arn:aws:s3vectors:<region>:<account-id>:bucket/<vector-bucket>"
     },
     {
       "Sid": "S3VectorsRead",
@@ -1310,10 +1312,10 @@ The store uses the following S3 Vectors actions. The IAM policy below enumerates
 
 **Reducing the policy further:**
 
-- If you pre-create the index and set `createIndexIfNotExist: false`, drop the whole `S3VectorsIndexLifecycle` statement: no `GetIndex` is issued either. What you give up with it is the first-write check of the index's distance metric and non-filterable keys against this store's configuration — AWS enforces only the dimension on a write — so make both match the index you provisioned.
+- If you pre-create the index and set `createIndexIfNotExist: false`, drop the whole `S3VectorsIndexLifecycle` statement (and `S3VectorsBucketCheck` too, unless you call `deleteIndex()`): no `GetIndex` is issued either. What you give up with it is the first-write check of the index's distance metric and non-filterable keys against this store's configuration — AWS enforces only the dimension on a write — so make both match the index you provisioned.
 - `s3vectors:TagResource` is needed **only** when you set `tags` *and* this store creates the index: AWS requires it in addition to `s3vectors:CreateIndex` to create a tagged index, and refuses the call without it. Drop it if you set no `tags`. This store never calls `TagResource` itself — tags travel inside the `CreateIndex` request — so the permission is needed without the action ever appearing on its own.
 - If you never call `delete()`, remove `s3vectors:DeleteVectors`; if you never call `deleteIndex()`, remove `s3vectors:DeleteIndex`. They are separate methods and separate permissions.
-- `s3vectors:GetVectorBucket` is there for one thing, and can be removed. `deleteIndex()` uses it when `DeleteIndex` answers 404, to ask whether it was the index or the *bucket* that was missing, since AWS reports both the same way: with it, a bucket that does not exist is `NOT_FOUND` rather than a success. Without it the question is denied, cannot be answered, and a 404 resolves as it always has — so keep it if you want a mistyped bucket name caught, and drop it if you would rather keep the policy minimal. It is never requested on the path where the index was there to delete, and if you never call `deleteIndex()` it is never requested at all.
+- `s3vectors:GetVectorBucket` — the `S3VectorsBucketCheck` statement — is there for one thing, and can be removed. `deleteIndex()` uses it when `DeleteIndex` answers 404, to ask whether it was the index or the *bucket* that was missing, since AWS reports both the same way: with it, a bucket that does not exist is `NOT_FOUND` rather than a success. Without it the question is denied, cannot be answered, and a 404 resolves as it always has — so keep it if you want a mistyped bucket name caught, and drop it if you would rather keep the policy minimal. It is never requested on the path where the index was there to delete, and if you never call `deleteIndex()` it is never requested at all.
 - If your application is read-only (`similaritySearch*`, `getByIds`), keep only the `S3VectorsRead` statement — the read path never touches the control plane.
 - **`s3vectors:GetVectors` is required for every search, not only for enumeration and MMR.** Every `similaritySearch*` call sets `returnMetadata: true` on its `QueryVectors` request — MMR's candidate query is the one that does not, and it then fetches those candidates with `GetVectors` itself — and AWS is explicit that such a request needs both: "If you specify a metadata filter or set `returnMetadata` to true, you must have both `s3vectors:QueryVectors` and `s3vectors:GetVectors` permissions. The request fails with a `403 Forbidden error`…" ([`QueryVectors` API reference](https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_QueryVectors.html)). The policy above already grants both; do not drop `GetVectors` when trimming it.
 - If you never enumerate, remove `s3vectors:ListVectors` — but keep `s3vectors:GetVectors`, for the reason above. `listDocuments` and `listVectors` request metadata too, so they need it as well.
@@ -1395,7 +1397,7 @@ npm run verify:edge     # null page-content key, raw vectors, duplicate ids, non
 ### Type-checking, lint, build
 
 ```bash
-npm run typecheck   # tsc --noEmit
+npm run typecheck   # tsc6 --noEmit (TypeScript 6, via the `typescript` alias)
 npm run lint        # ESLint (read-only)
 npm run lint:fix    # ESLint with --fix
 npm run build       # Compile src/ to dist/esm (ESM) and dist/cjs (CommonJS)
@@ -1427,8 +1429,12 @@ src/
 │   ├── concurrency.ts            # First batch alone, then bounded groups
 │   ├── query-pages.ts            # QueryVectors pagination to k
 │   ├── list-pages.ts             # ListVectors pagination, as an async generator
+│   ├── page-tokens.ts            # Notices a pagination token that comes round again
 │   ├── get-vectors.ts            # Batched GetVectors by key
 │   ├── ids.ts / limits.ts        # Write-id resolution; dimension and value checks
+│   ├── records.ts                # One write record per document, built before any request
+│   ├── request-size.ts           # Splits a batch to fit the 20 MiB request limit
+│   ├── rate-limit.ts             # The per-store write budget, in AWS's two units
 │   ├── output-vectors.ts         # Reads the vector list off an AWS response, or fails
 │   ├── guards.ts                 # Caller-input checks shared by the entry points
 │   ├── filter.ts                 # Filter vocabulary validation
@@ -1438,16 +1444,20 @@ src/
 │   ├── stub-embeddings.ts        # StubEmbeddings placeholder for raw-vector workflows
 │   ├── validation.ts             # assertValidConfig, assertValidIndexConfig
 │   ├── metadata.ts               # buildPutMetadata, createDocument (pure functions)
+│   ├── flatten-metadata.ts       # flattenMetadata, the published helper
 │   ├── batching.ts               # chunk, offsetBatches (pure functions)
 │   ├── describe.ts               # Describes a rejected value by kind, never by content
-│   ├── objects.ts                # isObjectLike / isPlainObject — the two object checks, once
+│   ├── objects.ts                # isObjectLike / isPlainObject / readProperty — object checks, once
+│   ├── scope.ts                  # The bucket-and-index scope every error names
+│   ├── utf16.ts                  # The well-formed UTF-16 rule
 │   ├── aws-limits.ts             # Every AWS limit enforced in more than one place, stated once
 │   └── errors/                   # Typed error model
 │       ├── s3-vectors-error.ts   # S3VectorsError + isS3VectorsError guard
 │       ├── error-code.ts         # S3VectorsErrorCode enum
 │       ├── classify.ts           # AWS exception name → error class
 │       ├── decorate.ts           # Partial-progress ids and the factory instance
-│       ├── wrap-error.ts         # wrapAwsError / toError
+│       ├── wrap-error.ts         # wrapAwsError / wrapCallerError
+│       ├── to-error.ts           # toError: any thrown value as an Error
 │       ├── aws-not-found.ts      # isAwsNotFoundException guard
 │       ├── aws-conflict.ts       # isAwsConflictException guard
 │       └── aws-abort.ts          # isAbortError guard

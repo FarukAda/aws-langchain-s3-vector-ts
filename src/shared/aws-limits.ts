@@ -36,7 +36,9 @@ export const MIN_DIMENSION = 1;
 export const MAX_DIMENSION = 4096;
 
 /**
- * A metadata key is 1–63 characters (userguide `s3-vectors-indexes.html`).
+ * A non-filterable metadata key is 1–63 characters (userguide
+ * `s3-vectors-indexes.html`). A document's own metadata keys have no such
+ * rule; this one applies to the keys an index is configured with.
  *
  * Enforced on `pageContentMetadataKey`, and on every non-filterable key
  * (merged with it, the same set {@link MAX_NON_FILTERABLE_KEYS} counts), both

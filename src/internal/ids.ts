@@ -29,6 +29,13 @@ import { unpairedSurrogateReason } from '../shared/utf16.js';
  * translates to `key` only where a command is built or a response read. The
  * two words are one concept, and every name between here and the wire says
  * `id` so that `key` always means a metadata key instead.
+ *
+ * The length is counted in UTF-16 code units, the unit `String.length` gives.
+ * AWS states the bound without a unit and it has not been probed live: if the
+ * service counts code points, this is stricter than it needs to be for an id
+ * with characters outside the Basic Multilingual Plane, which is safe; if it
+ * counts UTF-8 bytes, a long id in a non-Latin script can pass here and be
+ * refused by AWS, failing its whole batch.
  */
 const ID_MIN_LENGTH = 1;
 const ID_MAX_LENGTH = 1024;

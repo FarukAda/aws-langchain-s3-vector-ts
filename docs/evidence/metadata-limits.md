@@ -64,7 +64,7 @@ Exactly 50, as documented:
 
 ## Consequence for the contracts
 
-Local enforcement becomes exact rather than a guess:
+Local enforcement follows the measured rule:
 
 ```
 byteLength(JSON.stringify(filterableSubset)) + 5 ≤ 2048
@@ -75,5 +75,14 @@ Object.keys(wholeMetadata).length                 ≤ 50
 The filterable subset is the metadata minus the keys declared non-filterable at
 index creation, which this package knows — it sets them.
 
-Erring by the 5-byte overhead is conservative in the caller's favour: a payload
-this package accepts is one AWS accepts.
+What was measured is exact for what the probes sent: one key holding one string,
+ASCII or two-byte UTF-8. What was **not** probed is whether AWS counts every other
+shape the way the JSON text does — several keys (each adding `,` and `"k":`),
+numbers (whose JSON text can differ from a binary width), booleans, arrays, and
+strings with characters JSON escapes (a newline, `"`, `\`, control characters, each
+two to six bytes in JSON). With a single entry, a per-entry cost and a per-object
+cost look the same, so the 5 bytes may not be a flat overhead either. Until those
+shapes are probed, the rule above is the measured one extended by assumption: a
+document close to either limit, with many keys or much escaped text, may be
+refused locally although AWS would take it, or accepted locally and refused by
+AWS after its batch is embedded.

@@ -33,7 +33,9 @@ export interface PutMetadataOptions extends MetadataConfig, OperationScope {
 /**
  * AWS metadata limits. The byte ceilings carry a measured 5-byte overhead on
  * top of the JSON serialisation — see docs/evidence/metadata-limits.md, where
- * the gap was measured independently at both scales.
+ * the gap was measured independently at both scales. Those probes were one key
+ * holding one string; that other shapes (several keys, numbers, escaped
+ * characters) are counted the same way is an assumption the evidence records.
  */
 const MAX_METADATA_KEYS = 50;
 const FILTERABLE_BYTE_LIMIT = 2048;
@@ -143,7 +145,8 @@ function arrayRejectionReason(value: readonly unknown[]): string | undefined {
 }
 
 /**
- * UTF-8 bytes of the JSON serialisation, which is what AWS counts.
+ * UTF-8 bytes of the JSON serialisation, which is what AWS was measured to
+ * count for a one-key string payload (docs/evidence/metadata-limits.md).
  *
  * Truthful only because {@link rejectionReason} has already refused every value
  * whose JSON form differs from what the SDK sends. Before that rule the count

@@ -491,8 +491,8 @@ export class AmazonS3Vectors extends VectorStore {
    * carries `context.recordIndex` — its position in your input — and, where
    * known, `context.recordId`. Nothing is written for an input that fails these.
    * After the first batch's `GetIndex`, when the index already exists:
-   * `INDEX_CONFIG_MISMATCH` when its non-filterable keys disagree with this
-   * store's configuration.
+   * `INDEX_CONFIG_MISMATCH` when its non-filterable keys or distance metric
+   * disagree with this store's configuration.
    * Otherwise, on a failure partway through a multi-batch write, the error's
    * `context.writtenIds` lists every id confirmed written before it and
    * `context.attemptedIds` every id the call resolved — check them before
@@ -577,7 +577,8 @@ export class AmazonS3Vectors extends VectorStore {
    * resolves `[]` rather than raising it. For the first batch alone, after it is
    * embedded and before any `PutVectors` — so still nothing written — when the
    * index already exists: `INDEX_CONFIG_MISMATCH` when its non-filterable keys
-   * disagree with this store's configuration. For a batch the model has
+   * or distance metric disagree with this store's configuration. For a batch
+   * the model has
    * embedded, before it is written: `VALIDATION` when the model returns
    * something other than one storable vector per document, or
    * `INDEX_CONFIG_MISMATCH` when that batch's vectors disagree on dimension,
@@ -888,15 +889,17 @@ export class AmazonS3Vectors extends VectorStore {
    *   three-parameter call.
    *
    * The selection is `maximalMarginalRelevance` from
-   * `@langchain/core/utils/math`, which measures diversity by cosine
-   * similarity whatever the index's metric is. On a **euclidean** index that
-   * holds zero-norm vectors — which euclidean, unlike cosine, accepts — the
-   * similarity against one of them is `NaN`, and where it lands in the
-   * ranking is undefined. Every document is still real and distinct; only the
-   * order among those candidates is. A cosine index cannot reach this: it
-   * refuses a zero-norm vector on write.
+   * `@langchain/core/utils/math`, which measures both relevance and diversity
+   * by cosine similarity whatever the index's metric is. On a **euclidean**
+   * index with embeddings that are not normalised, the first document is the
+   * cosine-closest candidate, which need not be the euclidean-nearest one
+   * `similaritySearch` ranks first — so `lambda: 1` does not reproduce that
+   * order there. A zero-norm candidate, which euclidean (unlike cosine)
+   * accepts, has no cosine similarity; core scores it 0, as if orthogonal to
+   * everything (`dist/utils/math.js`, `matrixFunc`).
    *
-   * @returns At most `k` documents, most relevant first, each distinct. Fewer
+   * @returns At most `k` documents, most relevant first by cosine similarity,
+   * each distinct. Fewer
    * than `k` when the index holds fewer candidates than asked for.
    * @throws {S3VectorsError} `VALIDATION` for a query that is not a string, a
    * missing options object, `k`, `fetchK`, `lambda`, the filter, a signal in
@@ -1085,7 +1088,7 @@ export class AmazonS3Vectors extends VectorStore {
    * survived.
    *
    * This is **this package's** contract, not one inherited from
-   * `@langchain/core`: core `1.2.11` declares no `getByIds` on `VectorStore`
+   * `@langchain/core`: core `1.2.13` declares no `getByIds` on `VectorStore`
    * or `VectorStoreInterface` at all. The `(Document | undefined)[]` shape is
    * chosen to match what LangChain uses elsewhere for an id-keyed read, so a
    * consumer who has seen one knows this one — but a consumer holding this
@@ -1410,7 +1413,7 @@ export class AmazonS3Vectors extends VectorStore {
    * @internal Called by this class's own `similaritySearchWithRelevanceScores`
    * and by `#assertRelevanceScoresAvailable`. Nothing outside the class can
    * reach it — it is a `#private` method — and core does not drive it:
-   * `@langchain/core` `1.2.11` has no `similaritySearchWithRelevanceScores` and
+   * `@langchain/core` `1.2.13` has no `similaritySearchWithRelevanceScores` and
    * no `_selectRelevanceScoreFn` hook on `VectorStore`, so that method here is
    * this package's own, and so is this.
    *

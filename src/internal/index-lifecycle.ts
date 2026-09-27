@@ -372,7 +372,8 @@ export interface IndexLifecycle {
    * Returns: nothing. Existence is the entire result.
    *
    * Throws: `ABORTED` for `signal`; `INDEX_CONFIG_MISMATCH` when an existing
-   * index's non-filterable keys disagree with this store's; `VALIDATION` for a
+   * index's non-filterable keys or distance metric disagree with this store's;
+   * `VALIDATION` for a
    * dimension, key set or tag set an index cannot be created with, before
    * `CreateIndex`; otherwise the class `classifyAwsError` assigns the failed
    * `GetIndex` or `CreateIndex`, carrying that command as `awsCommand`. A

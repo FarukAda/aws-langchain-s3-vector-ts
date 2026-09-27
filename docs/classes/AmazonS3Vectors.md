@@ -234,7 +234,7 @@ Defined in: [s3-vectors.ts:276](https://github.com/FarukAda/aws-langchain-s3-vec
 
 > **\_assertRelevanceScoresAvailable**(): (`distance`) => `number`
 
-Defined in: [s3-vectors.ts:1441](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1441)
+Defined in: [s3-vectors.ts:1444](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1444)
 
 **`Internal`**
 
@@ -288,7 +288,7 @@ Nothing.
 
 > **addDocuments**(`documents`, `options?`): `Promise`\<`string`[]\>
 
-Defined in: [s3-vectors.ts:594](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L594)
+Defined in: [s3-vectors.ts:595](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L595)
 
 Embed documents and store them in the vector index.
 
@@ -347,7 +347,8 @@ un-aborted, and non-empty — `addDocuments([])` on a model-less store
 resolves `[]` rather than raising it. For the first batch alone, after it is
 embedded and before any `PutVectors` — so still nothing written — when the
 index already exists: `INDEX_CONFIG_MISMATCH` when its non-filterable keys
-disagree with this store's configuration. For a batch the model has
+or distance metric disagree with this store's configuration. For a batch
+the model has
 embedded, before it is written: `VALIDATION` when the model returns
 something other than one storable vector per document, or
 `INDEX_CONFIG_MISMATCH` when that batch's vectors disagree on dimension,
@@ -418,8 +419,8 @@ dimension; `ABORTED` for a fired signal. Each refusal about one element
 carries `context.recordIndex` — its position in your input — and, where
 known, `context.recordId`. Nothing is written for an input that fails these.
 After the first batch's `GetIndex`, when the index already exists:
-`INDEX_CONFIG_MISMATCH` when its non-filterable keys disagree with this
-store's configuration.
+`INDEX_CONFIG_MISMATCH` when its non-filterable keys or distance metric
+disagree with this store's configuration.
 Otherwise, on a failure partway through a multi-batch write, the error's
 `context.writtenIds` lists every id confirmed written before it and
 `context.attemptedIds` every id the call resolved — check them before
@@ -438,7 +439,7 @@ with `attemptedIds` overwrites either way.
 
 > **asRetriever**(`kOrFields?`, `filter?`, `callbacks?`, `tags?`, `metadata?`, `verbose?`): [`AmazonS3VectorsRetriever`](AmazonS3VectorsRetriever.md)\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1271](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1271)
+Defined in: [s3-vectors.ts:1274](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1274)
 
 Build a retriever over this store.
 
@@ -534,7 +535,7 @@ a getter on the fields object that throws.
 
 > **delete**(`params`): `Promise`\<`void`\>
 
-Defined in: [s3-vectors.ts:1002](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1002)
+Defined in: [s3-vectors.ts:1005](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1005)
 
 Delete vectors by id.
 
@@ -586,7 +587,7 @@ maps to, carrying `context.deletedIds`.
 
 > **deleteIndex**(`options?`): `Promise`\<`void`\>
 
-Defined in: [s3-vectors.ts:1065](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1065)
+Defined in: [s3-vectors.ts:1068](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1068)
 
 Delete the index itself.
 
@@ -643,7 +644,7 @@ not a failure.
 
 > `static` **fromDocuments**(`docs`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1378](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1378)
+Defined in: [s3-vectors.ts:1381](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1381)
 
 Create a store and add the given documents to it.
 
@@ -695,7 +696,7 @@ same embeddings/config.
 
 > `static` **fromTexts**(`texts`, `metadatas`, `embeddings`, `config`): `Promise`\<`AmazonS3Vectors`\>
 
-Defined in: [s3-vectors.ts:1298](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1298)
+Defined in: [s3-vectors.ts:1301](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1301)
 
 Create a store, embed the given texts and add them to it.
 
@@ -751,7 +752,7 @@ code, cause, `awsCommand`, stack and — once the store was constructed —
 
 > **getByIds**(`ids`, `options?`): `Promise`\<(`Document`\<`Record`\<`string`, `any`\>\> \| `undefined`)[]\>
 
-Defined in: [s3-vectors.ts:1113](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1113)
+Defined in: [s3-vectors.ts:1116](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1116)
 
 Retrieve documents by their vector IDs.
 
@@ -789,7 +790,7 @@ caller reads `result[i]` for `ids[i]` without tracking which ones
 survived.
 
 This is **this package's** contract, not one inherited from
-`@langchain/core`: core `1.2.11` declares no `getByIds` on `VectorStore`
+`@langchain/core`: core `1.2.13` declares no `getByIds` on `VectorStore`
 or `VectorStoreInterface` at all. The `(Document | undefined)[]` shape is
 chosen to match what LangChain uses elsewhere for an id-keyed read, so a
 consumer who has seen one knows this one — but a consumer holding this
@@ -815,7 +816,7 @@ scratch.
 
 > **listDocuments**(`options?`): `AsyncGenerator`\<`Document`\<`Record`\<`string`, `any`\>\>\>
 
-Defined in: [s3-vectors.ts:1160](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1160)
+Defined in: [s3-vectors.ts:1163](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1163)
 
 Every document in the index, one at a time.
 
@@ -860,7 +861,7 @@ atomic and does not pretend to be.
 
 > **listVectors**(`options?`): `AsyncGenerator`\<[`S3VectorsRecord`](../interfaces/S3VectorsRecord.md)\>
 
-Defined in: [s3-vectors.ts:1209](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1209)
+Defined in: [s3-vectors.ts:1212](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L1212)
 
 Every vector in the index with its embedding, one at a time.
 
@@ -906,7 +907,7 @@ index that looks complete and is not.
 
 > **maxMarginalRelevanceSearch**(`query`, `options`, `callbacks?`, `signal?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:911](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L911)
+Defined in: [s3-vectors.ts:914](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L914)
 
 Maximal Marginal Relevance search: relevance traded against diversity.
 
@@ -925,13 +926,14 @@ Accepts:
   three-parameter call.
 
 The selection is `maximalMarginalRelevance` from
-`@langchain/core/utils/math`, which measures diversity by cosine
-similarity whatever the index's metric is. On a **euclidean** index that
-holds zero-norm vectors — which euclidean, unlike cosine, accepts — the
-similarity against one of them is `NaN`, and where it lands in the
-ranking is undefined. Every document is still real and distinct; only the
-order among those candidates is. A cosine index cannot reach this: it
-refuses a zero-norm vector on write.
+`@langchain/core/utils/math`, which measures both relevance and diversity
+by cosine similarity whatever the index's metric is. On a **euclidean**
+index with embeddings that are not normalised, the first document is the
+cosine-closest candidate, which need not be the euclidean-nearest one
+`similaritySearch` ranks first — so `lambda: 1` does not reproduce that
+order there. A zero-norm candidate, which euclidean (unlike cosine)
+accepts, has no cosine similarity; core scores it 0, as if orthogonal to
+everything (`dist/utils/math.js`, `matrixFunc`).
 
 #### Parameters
 
@@ -955,7 +957,8 @@ refuses a zero-norm vector on write.
 
 `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-At most `k` documents, most relevant first, each distinct. Fewer
+At most `k` documents, most relevant first by cosine similarity,
+each distinct. Fewer
 than `k` when the index holds fewer candidates than asked for.
 
 #### Throws
@@ -980,7 +983,7 @@ throws; otherwise whatever the search and fetch raise.
 
 > **similaritySearch**(`query`, `k?`, `filter?`, `_callbacks?`, `signal?`): `Promise`\<`Document`\<`Record`\<`string`, `any`\>\>[]\>
 
-Defined in: [s3-vectors.ts:797](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L797)
+Defined in: [s3-vectors.ts:798](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L798)
 
 Run a text-based similarity search and return documents (no scores).
 
@@ -1042,7 +1045,7 @@ callbacks slot.
 
 > **similaritySearchVectorWithScore**(`query`, `k`, `filter?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:648](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L648)
+Defined in: [s3-vectors.ts:649](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L649)
 
 Core similarity search returning `[Document, distance]` tuples.
 
@@ -1114,7 +1117,7 @@ after the first failed.
 
 > **similaritySearchWithRelevanceScores**(`query`, `k?`, `filter?`, `callbacks?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:847](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L847)
+Defined in: [s3-vectors.ts:848](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L848)
 
 Run a text-based similarity search and return documents with
 *relevance scores* (higher is better), converted from S3 Vectors'
@@ -1179,7 +1182,7 @@ throws; otherwise whatever [similaritySearchWithScore](#similaritysearchwithscor
 
 > **similaritySearchWithScore**(`query`, `k?`, `filter?`, `_callbacks?`, `signal?`): `Promise`\<\[`Document`\<`Record`\<`string`, `any`\>\>, `number`\][]\>
 
-Defined in: [s3-vectors.ts:697](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L697)
+Defined in: [s3-vectors.ts:698](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/s3-vectors.ts#L698)
 
 Run a text-based similarity search and return documents with scores.
 
