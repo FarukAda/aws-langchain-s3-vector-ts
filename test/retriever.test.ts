@@ -14,7 +14,7 @@ import { createTestStore, gate, indexFixture, sendOptionsOf } from './helpers.js
 /**
  * One test per domain cell of `AmazonS3VectorsRetriever`. Core's
  * `BaseRetriever.invoke` never passes the config to `_getRelevantDocuments`
- * (`@langchain/core@1.2.11` `dist/retrievers/index.js:81`, `:85`), so the two
+ * (`@langchain/core@1.2.13` `dist/retrievers/index.js:81`, `:85`), so the two
  * signals have two different jobs: a retriever **field** signal reaches
  * `QueryVectors` and cancels it; a **config** signal ends the invocation only.
  */
@@ -47,7 +47,7 @@ describe('asRetriever', () => {
 
   it('identifies itself by its own name rather than core’s, in the serialization id', () => {
     // `lc_name` is what core stamps into a serialized runnable's id
-    // (`@langchain/core@1.2.11` `dist/load/serializable.js`), so a trace shows
+    // (`@langchain/core@1.2.13` `dist/load/serializable.js`), so a trace shows
     // which retriever actually ran.
     expect(AmazonS3VectorsRetriever.lc_name()).toBe('AmazonS3VectorsRetriever');
   });
@@ -189,7 +189,7 @@ describe('the config signal — invoke(query, { signal })', () => {
 
   it('does not hand core a legacy callbacks argument as a config', async () => {
     // Core's own `invoke` accepts a callbacks list in the config's place
-    // (`@langchain/core@1.2.11` `dist/retrievers/index.js:82`, through
+    // (`@langchain/core@1.2.13` `dist/retrievers/index.js:82`, through
     // `parseCallbackConfigArg`); reading that config here must not lose it.
     const { store } = retrieverStore();
     const started: string[] = [];
@@ -211,7 +211,7 @@ describe('the config signal — invoke(query, { signal })', () => {
 
 describe('a config timeout — invoke(query, { timeout })', () => {
   // Core turns a positive `timeout` into a signal in `ensureConfig`
-  // (`@langchain/core@1.2.11` `dist/runnables/config.js:105-126`) but its
+  // (`@langchain/core@1.2.13` `dist/runnables/config.js:105-126`) but its
   // `BaseRetriever.invoke` never races it; this retriever does.
   it('ends an invocation that outlasts it, ABORTED with the TimeoutError as cause', async () => {
     const { store, mock } = retrieverStore();

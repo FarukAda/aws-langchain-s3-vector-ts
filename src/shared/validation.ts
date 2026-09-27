@@ -627,7 +627,7 @@ function optionMeantBy(key: string): string | undefined {
  * resembles. An unknown key cannot simply be refused: `@langchain/core`'s
  * `SemanticSimilarityExampleSelector` passes its own `k`, `filter`,
  * `exampleKeys` and `inputKeys` through `fromTexts` in the same object
- * (`@langchain/core@1.2.11` `dist/example_selectors/semantic_similarity.js:106`),
+ * (`@langchain/core@1.2.13` `dist/example_selectors/semantic_similarity.js:106`),
  * and refusing those would break that selector with this store. A near miss is
  * different: nothing else means it, and the cost of reading it as unset is
  * silence — `createIndexIfNotExists` created an index with every default, which

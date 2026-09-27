@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `gh attestation verify <file> --repo FarukAda/aws-langchain-s3-vector-ts`.
   The attestation runs before `npm publish`, so a Sigstore outage stops the
   release before anything is published.
+- **Development dependencies moved to their latest patch and minor releases**,
+  lockfile only: `@aws-sdk/client-s3vectors` 3.1141.0, `@langchain/core`
+  1.2.13, `@langchain/aws` 1.4.6, `@smithy/types` 4.19.0, eslint 10.11.0,
+  typescript-eslint 8.70.1, jest and `@jest/globals` 30.5.2, ts-jest 29.4.14,
+  prettier 3.9.9, fast-check 4.10.2, knip 6.38.0, jscpd 5.3.2,
+  eslint-plugin-perfectionist 5.12.1, typedoc-plugin-markdown 4.13.1 and
+  `@types/node` 26.6.3. The peer floors stay `^3.1133.0` and `^1.2.11`. Every
+  file the version citations point into is byte-identical between the old and
+  new versions of both peers, so the citations move to the installed versions
+  with nothing re-worded. The SDK's only type change is that each client
+  method's options argument widens from `HttpHandlerOptions` to
+  `S3VectorsRequestOptions`, which adds an optional `metricsRecorder`. Nothing
+  here passes one.
 
 ## [1.0.0] - 2026-09-21
 

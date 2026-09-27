@@ -51,7 +51,7 @@ interface Citation {
 /**
  * A citation looks like:
  *
- *     (`@langchain/core@1.2.11` `dist/retrievers/index.js:81`, `:85`)
+ *     (`@langchain/core@1.2.13` `dist/retrievers/index.js:81`, `:85`)
  *
  * The package and version are required; the path and its line numbers are read
  * when they are there, because not every fact is at a line.

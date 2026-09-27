@@ -197,7 +197,7 @@ describe('a configuration key that is almost an option', () => {
   it('accepts the keys @langchain/core puts in a store config', () => {
     // `SemanticSimilarityExampleSelector.fromExamples` hands its own `k`,
     // `filter`, `exampleKeys` and `inputKeys` to `vectorStoreCls.fromTexts`
-    // alongside the store config (`@langchain/core@1.2.11`
+    // alongside the store config (`@langchain/core@1.2.13`
     // `dist/example_selectors/semantic_similarity.js:106`), so refusing every
     // unknown key would break that selector with this store. None of them is
     // within two edits of an option here — the closest anything of core's comes

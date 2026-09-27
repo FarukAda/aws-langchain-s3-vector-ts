@@ -772,7 +772,7 @@ describe('a retriever invocation names itself, whatever fails underneath', () =>
 
   it("batch's own signal and timeout reach invoke, so their abort reports it", async () => {
     // Core's `batch` builds each input's config with `ensureConfig` and hands it
-    // to `invoke` (`@langchain/core@1.2.11` `dist/runnables/base.js:77-84`,
+    // to `invoke` (`@langchain/core@1.2.13` `dist/runnables/base.js:77-84`,
     // `:88-94`), and `invoke` races that config's signal.
     const { store, mock } = createTestStore();
     const release = gate();
@@ -795,7 +795,7 @@ describe('a retriever invocation names itself, whatever fails underneath', () =>
 
   it("core's own refusals in batch and stream never reach invoke, and are core's raw errors", async () => {
     // Pinned so an upstream change surfaces here. `batch` and `stream` run
-    // `ensureConfig` before `invoke` (`@langchain/core@1.2.11`
+    // `ensureConfig` before `invoke` (`@langchain/core@1.2.13`
     // `dist/runnables/base.js:77-84`, `:121`), which throws for a non-positive
     // `timeout`; and `stream` races the config signal itself
     // (`dist/utils/stream.js:131-134`, through `raceWithSignal`, which rejects
