@@ -239,9 +239,10 @@ jobs:
     # turning it on is a two-sided change and enabling only this half can break
     # publishing: the OIDC token then carries an `environment` claim, and npm's
     # docs do not state whether a trusted publisher configured *without* an
-    # environment accepts one. To enable: create the environment with a
-    # required reviewer in repository settings, set the same name in the npm
-    # trusted publisher configuration, then uncomment.
+    # environment accepts one. The GitHub half exists: `npm-publish`, with the
+    # maintainer as required reviewer and deployments limited to `v*` tags. To
+    # enable: set the same environment name in the npm trusted publisher
+    # configuration, then uncomment.
     # environment: npm-publish
     permissions:
       # Required for npm Trusted Publishing and automatic provenance.

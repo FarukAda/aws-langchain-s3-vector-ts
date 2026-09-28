@@ -132,6 +132,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release is now a third job, `github-release`, with `contents: write`, no
   `id-token`, and the runner's preinstalled `gh` in place of the action;
   `publish` keeps only `id-token` and `attestations`, and no checkout.
+- **Repository settings now guard releases too**: a `release-tags` ruleset
+  lets only a repository admin create, move or delete a `v*` tag, and an
+  `npm-publish` environment requires the maintainer's approval and accepts only
+  `v*` tags. The publish job does not use the environment yet; it is enabled
+  together with the matching npm trusted-publisher setting.
 - **A release is cut only from a commit `main` holds.** `verify` refuses a tag
   whose commit is not an ancestor of `main`. The CI gate reads the tagged
   commit's check runs, and a pull request's head commit has those too, so a tag
