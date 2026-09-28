@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0-rc.1] - 2026-09-28
+
+### Upgrading from 1.0.0
+
+The public API is unchanged: every declaration a caller can import is the same
+as in `1.0.0`, and no error code was added, removed or renamed. Against the
+real service, nothing that worked on `1.0.0` stops working. Each change below
+is one of three kinds — a call that already failed on `1.0.0` now fails
+earlier, with a coded error naming the cause; a failure carries a more accurate
+code or message; or a mocked client's response that the service never sends is
+refused. So the two places to look are error handling that branches on a code
+and tests that mock the client.
+
+**A failure carries a different code**
+
+- A credential the service rejects — `InvalidClientTokenId`,
+  `MissingAuthenticationToken`, any undeclared exception answered with HTTP 403
+  — is `ACCESS_DENIED`, not `AWS_REQUEST_FAILED`. `context.awsErrorName` still
+  names it.
+- A later `addDocuments` batch the model embedded at a different dimension from
+  the first is `INDEX_CONFIG_MISMATCH`, raised before that batch's request, not
+  `AWS_REJECTED` from AWS after it. `context.writtenIds` still lists what
+  landed.
+- Response metadata `structuredClone` cannot copy is `AWS_INVALID_RESPONSE`, not
+  `VALIDATION`. Only a mocked or custom client returns it.
+
+**Refused before AWS is asked** — each failed on `1.0.0` too, only later
+
+- At construction: an `endpoint` with no host, such as `localhost:4566` without
+  `http://`; a `region` with surrounding whitespace; a `requestTimeout` over
+  2,147,483,647 ms.
+- Metadata over the 2 KB filterable or 40 KB total limit as S3 Vectors counts
+  it. Many short keys, numbers and numeric arrays cost more than their JSON
+  text, and text with newlines or quotes costs less, so some metadata near a
+  limit is now refused and some is now accepted.
+- A vector id over 1,024 UTF-8 bytes — which an id in a non-Latin script can be
+  while under 1,024 characters — on a write, a read or a delete.
+- A vector component beyond the float32 range, or a cosine vector that is zero
+  once stored as float32.
+- Tags `CreateIndex` refuses — more than 50, a character outside its pattern, an
+  `aws:` key — when this store creates the index.
+
+Each of these is `VALIDATION`.
+
+**Mocked clients** — responses the service never sends
+
+- A result with no string key, or with metadata that is not an object, is
+  `AWS_INVALID_RESPONSE`.
+- A pagination token the service has already returned is `PAGE_LIMIT_EXCEEDED`,
+  so a mock that answers every page with the same `nextToken` must return
+  distinct ones.
+
+**Messages only**
+
+- A partial write's message says the ids "were confirmed written" (or deleted),
+  not "were already durably written"; `context.writtenIds` is a lower bound, as
+  it always was.
+- A thrown value that is not an `Error` — a plain object an embeddings provider
+  rejects with — appears in a message as its own `message`, or by kind ("an
+  object"), not as JSON.
+
 ### Fixed
 
 - **Metadata is sized the way S3 Vectors sizes it.** The 2 KB filterable and
@@ -2974,7 +3035,8 @@ never published, and 0.2.2 shipped without an entry here.
 
 - Initial release.
 
-[Unreleased]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.1.0-rc.1...HEAD
+[1.1.0-rc.1]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0...v1.1.0-rc.1
 [1.0.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.2...v1.0.0
 [1.0.0-rc.2]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v0.9.0...v1.0.0-rc.1
