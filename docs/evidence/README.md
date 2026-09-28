@@ -37,6 +37,7 @@ from it.
 | 3 | 2026-09-17 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
 | 4 | 2026-09-20 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1133.0` | `langchain-vectors-ci` |
 | 5 | 2026-09-27 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1141.0` | `langchain-vectors-ci` |
+| 6 | 2026-09-28 | `us-east-1` | `@aws-sdk/client-s3vectors@3.1141.0` | `langchain-vectors-ci` |
 
 **Run 5 differed in one condition.** Its exploratory probes — the binary
 searches behind T3-26, and the key and float32 tables — used `maxAttempts: 6`,
@@ -90,3 +91,4 @@ check works against the real service.
 | T3-26 | 5 | Metadata is sized by type, not as JSON text; T3-4's rule was wrong beyond one string | `metadata-limits.md` |
 | T3-27 | 5 | A vector key is at most 1,024 UTF-8 bytes as well as 1,024 characters | `key-length.md` |
 | T3-28 | 5 | Components are judged after conversion to float32 | `float32-range.md` |
+| T3-29 | 6 | `CreateIndex` enforces its documented tag rules: 50 tags, the `aws:` prefix, the character pattern | `tag-rules.md` |

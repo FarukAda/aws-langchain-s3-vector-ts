@@ -127,10 +127,11 @@ export interface AmazonS3VectorsConfig {
    * true`), for cost allocation or attribute-based access control.
    * Forwarded verbatim to `CreateIndex` (`Record<string, string>`, up to
    * AWS's 50-tag limit). Ignored for an index that already exists. When this
-   * store creates the index, tags `CreateIndex` documents as invalid — more
-   * than 50, a character outside letters, numbers, spaces and
-   * `_ . : / = + - @`, or a key under the reserved `aws:` prefix — are refused
-   * with `VALIDATION` before the request.
+   * store creates the index, tags `CreateIndex` refuses — more than 50, a
+   * character outside letters, numbers, spaces and `_ . : / = + - @`, or a key
+   * under the reserved `aws:` prefix, each confirmed against the service
+   * (docs/evidence/tag-rules.md) — are refused with `VALIDATION` before the
+   * request.
    */
   readonly tags?: Record<string, string>;
 

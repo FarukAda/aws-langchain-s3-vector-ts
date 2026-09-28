@@ -6,7 +6,7 @@
 
 # Interface: S3OutputVector
 
-Defined in: [types.ts:338](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L338)
+Defined in: [types.ts:339](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L339)
 
 Shape of a single vector as returned by QueryVectors / GetVectors.
 
@@ -21,7 +21,7 @@ maps to `Document`.
 
 > `readonly` `optional` **data?**: `object`
 
-Defined in: [types.ts:357](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L357)
+Defined in: [types.ts:358](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L358)
 
 The embedding, present only when the request asked for data. Absent from
 every search result: `QueryVectors` does not return vector data at all,
@@ -37,7 +37,7 @@ which is why MMR needs a second call.
 
 > `readonly` `optional` **distance?**: `number`
 
-Defined in: [types.ts:351](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L351)
+Defined in: [types.ts:352](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L352)
 
 The distance from the query vector, present only on a `QueryVectors`
 result that asked for it. Lower is more similar, for both metrics.
@@ -48,7 +48,7 @@ result that asked for it. Lower is more similar, for both metrics.
 
 > `readonly` **key**: `string`
 
-Defined in: [types.ts:340](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L340)
+Defined in: [types.ts:341](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L341)
 
 The vector key — the id this package wrote it under.
 
@@ -58,7 +58,7 @@ The vector key — the id this package wrote it under.
 
 > `readonly` `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [types.ts:346](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L346)
+Defined in: [types.ts:347](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L347)
 
 The stored metadata, present when the request asked for it. Page content
 is in here, under the store's `pageContentMetadataKey`, until

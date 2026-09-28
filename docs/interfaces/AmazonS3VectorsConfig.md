@@ -23,7 +23,7 @@ SDK client or uses yours.
 
 > `readonly` `optional` **client?**: `S3VectorsClient`
 
-Defined in: [types.ts:236](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L236)
+Defined in: [types.ts:237](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L237)
 
 A pre-configured `S3VectorsClient` instance.
 
@@ -39,7 +39,7 @@ favour.
 
 > `readonly` `optional` **connectionTimeout?**: `number`
 
-Defined in: [types.ts:286](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L286)
+Defined in: [types.ts:287](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L287)
 
 Milliseconds the connection phase of a request may take before it is
 abandoned, defaulting to 5,000. `0` disables it. Not accepted together
@@ -82,7 +82,7 @@ match the index you provisioned.
 
 > `readonly` `optional` **credentials?**: `AwsCredentialIdentity` \| `AwsCredentialIdentityProvider`
 
-Defined in: [types.ts:249](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L249)
+Defined in: [types.ts:250](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L250)
 
 AWS credentials: either a static credential object or an async
 provider function — the same shape `S3VectorsClient` itself accepts.
@@ -122,7 +122,7 @@ Distance metric used for similarity search.
 
 > `readonly` `optional` **embeddings?**: `EmbeddingsInterface`\<`number`[]\>
 
-Defined in: [types.ts:214](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L214)
+Defined in: [types.ts:215](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L215)
 
 Embedding model used for both indexing and querying.
 Required unless you only call methods that accept raw vectors.
@@ -153,7 +153,7 @@ or pre-create the index with your own tooling and use
 
 > `readonly` `optional` **endpoint?**: `string`
 
-Defined in: [types.ts:258](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L258)
+Defined in: [types.ts:259](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L259)
 
 Custom endpoint URL to use instead of the default regional endpoint. It
 must have a host: `localhost:4566`, with no scheme, is refused — it parses
@@ -179,7 +179,7 @@ and contain only lowercase letters, numbers, hyphens, and dots.
 
 > `readonly` `optional` **maxAttempts?**: `number`
 
-Defined in: [types.ts:265](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L265)
+Defined in: [types.ts:266](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L266)
 
 Maximum number of attempts (initial try + retries) for AWS requests.
 Forwarded to the AWS SDK retry strategy. Not accepted together with
@@ -191,7 +191,7 @@ Forwarded to the AWS SDK retry strategy. Not accepted together with
 
 > `readonly` `optional` **maxConcurrentBatchCalls?**: `number`
 
-Defined in: [types.ts:150](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L150)
+Defined in: [types.ts:151](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L151)
 
 Maximum number of `PutVectors` / `DeleteVectors` / `GetVectors`
 calls this store keeps in flight at once during a batched
@@ -255,7 +255,7 @@ Metadata key under which to store the document `page_content`.
 
 > `readonly` `optional` **queryEmbeddings?**: `EmbeddingsInterface`\<`number`[]\>
 
-Defined in: [types.ts:223](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L223)
+Defined in: [types.ts:224](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L224)
 
 Separate embedding model used exclusively for queries.
 Useful when the embedding provider differentiates between
@@ -269,7 +269,7 @@ Falls back to [embeddings](#embeddings) when not set.
 
 > `readonly` `optional` **region?**: `string`
 
-Defined in: [types.ts:242](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L242)
+Defined in: [types.ts:243](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L243)
 
 AWS region to use when creating the SDK client (e.g. `"us-east-1"`),
 without surrounding whitespace. Not accepted together with `client`.
@@ -280,7 +280,7 @@ without surrounding whitespace. Not accepted together with `client`.
 
 > `readonly` `optional` **relevanceScoreFn?**: (`distance`) => `number`
 
-Defined in: [types.ts:206](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L206)
+Defined in: [types.ts:207](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L207)
 
 Converts a raw distance into a relevance score, for
 `similaritySearchWithRelevanceScores` and the retriever's score
@@ -315,7 +315,7 @@ Its result is used as given. A retriever threshold compares
 
 > `readonly` `optional` **requestTimeout?**: `number`
 
-Defined in: [types.ts:325](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L325)
+Defined in: [types.ts:326](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L326)
 
 Milliseconds a whole request and response may take, as a **total
 deadline**. No default, and `0` disables it. Not accepted together with
@@ -343,7 +343,7 @@ with `VALIDATION`.
 
 > `readonly` `optional` **retryMode?**: `"standard"` \| `"adaptive"`
 
-Defined in: [types.ts:277](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L277)
+Defined in: [types.ts:278](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L278)
 
 AWS SDK retry mode. Throttling (`TooManyRequestsException`), 5xx errors,
 the SDK's own `TimeoutError`, and a refused, reset or unreachable
@@ -360,7 +360,7 @@ is refused with `VALIDATION` now: the SDK has no such mode and ran
 
 > `readonly` `optional` **socketTimeout?**: `number`
 
-Defined in: [types.ts:302](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L302)
+Defined in: [types.ts:303](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L303)
 
 Milliseconds a socket may sit **idle** before the request is failed,
 defaulting to 60,000. `0` disables it. Not accepted together with
@@ -381,16 +381,17 @@ value, plus backoff.
 
 > `readonly` `optional` **tags?**: `Record`\<`string`, `string`\>
 
-Defined in: [types.ts:135](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L135)
+Defined in: [types.ts:136](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L136)
 
 Tags to apply to an index this store creates (`createIndexIfNotExist:
 true`), for cost allocation or attribute-based access control.
 Forwarded verbatim to `CreateIndex` (`Record<string, string>`, up to
 AWS's 50-tag limit). Ignored for an index that already exists. When this
-store creates the index, tags `CreateIndex` documents as invalid — more
-than 50, a character outside letters, numbers, spaces and
-`_ . : / = + - @`, or a key under the reserved `aws:` prefix — are refused
-with `VALIDATION` before the request.
+store creates the index, tags `CreateIndex` refuses — more than 50, a
+character outside letters, numbers, spaces and `_ . : / = + - @`, or a key
+under the reserved `aws:` prefix, each confirmed against the service
+(docs/evidence/tag-rules.md) — are refused with `VALIDATION` before the
+request.
 
 ***
 
@@ -408,7 +409,7 @@ Name of an existing S3 vector bucket. Must be created manually beforehand.
 
 > `readonly` `optional` **writeRateLimit?**: `false` \| \{ `requestsPerSecond?`: `number`; `vectorsPerSecond?`: `number`; \}
 
-Defined in: [types.ts:186](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L186)
+Defined in: [types.ts:187](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L187)
 
 How fast this store may write, in the two units AWS counts per vector
 index: vectors written or deleted per second, and `PutVectors` plus

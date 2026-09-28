@@ -67,11 +67,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   once.** With `pageContentMetadataKey: null` it used to reach it twice, and
   `CreateIndex` refuses a repeated key. With the default page-content key it
   was already sent once; nothing else about a repeated key changes.
-- **Tags `CreateIndex` documents as invalid are refused before it is sent**,
-  when this store creates the index: more than 50, a character outside
-  letters, numbers, spaces and `_ . : / = + - @`, or a key under the reserved
-  `aws:` prefix. They are not checked at construction, because an index that
-  already exists never receives them.
+- **Tags `CreateIndex` refuses are refused before it is sent**, when this
+  store creates the index: more than 50, a character outside letters, numbers,
+  spaces and `_ . : / = + - @`, or a key under the reserved `aws:` prefix. Each
+  was confirmed live as a refusal the service makes itself
+  (`docs/evidence/tag-rules.md`), so nothing `CreateIndex` would accept is
+  refused. They are not checked at construction, because an index that already
+  exists never receives them.
 - **Rejected credentials are `ACCESS_DENIED`.** `InvalidClientTokenId`,
   `MissingAuthenticationToken` and their kin are protocol-level names the S3
   Vectors model does not declare, so they came back as `AWS_REQUEST_FAILED`,
@@ -113,6 +115,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **Live evidence run 6**: T3-29 (`CreateIndex` enforces its documented tag
+  rules) is recorded in `docs/evidence/tag-rules.md`, with a guard in
+  `test/integration/evidence-guards-run6.test.ts`. Forty-two `CreateIndex`
+  calls on 2026-09-28: every tag this package refuses at index creation was
+  refused by the service, and every control was accepted.
 - **Live evidence run 5**: T3-26 (metadata sizing), T3-27 (key bytes) and T3-28
   (components judged as float32) are recorded under `docs/evidence/`, each with
   a guard in `test/integration/evidence-guards-run5.test.ts`, run live on

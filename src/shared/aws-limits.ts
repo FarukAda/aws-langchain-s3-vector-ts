@@ -109,14 +109,17 @@ export function isTagValueLength(value: string): boolean {
 
 /**
  * At most 50 tags on an index ("You can enter up to 50 tag key-value pairs",
- * userguide `creating-vector-indexes-with-tags.html`).
+ * userguide `creating-vector-indexes-with-tags.html`). Confirmed live: 51 are
+ * refused with "Too many tags specified" (docs/evidence/tag-rules.md, T3-29).
  */
 export const MAX_TAGS = 50;
 
 /**
  * The characters `CreateIndex` allows in a tag key and value: its documented
  * key and value pattern, `([\p{L}\p{Z}\p{N}_.:/=+\-@]*)` — letters,
- * separators, numbers and `_ . : / = + - @`.
+ * separators, numbers and `_ . : / = + - @`. Confirmed live: the service
+ * refuses a key or value outside it, quoting this same pattern
+ * (docs/evidence/tag-rules.md, T3-29).
  *
  * @see https://docs.aws.amazon.com/AmazonS3/latest/API/API_S3VectorBuckets_CreateIndex.html
  */
@@ -139,6 +142,9 @@ export function isTagText(text: string): boolean {
  * Whether a tag key carries the prefix AWS reserves for its own tags: "System
  * created tags that begin with `aws:` are reserved for AWS use"
  * (https://docs.aws.amazon.com/tag-editor/latest/userguide/best-practices-and-strats.html).
+ * Confirmed live: `CreateIndex` refuses one with "System tags cannot be
+ * added/updated by requester" (docs/evidence/tag-rules.md, T3-29). It refuses
+ * an upper-case `AWS:` too, which this does not match.
  *
  * Accepts: a tag key, already known to be a string.
  *

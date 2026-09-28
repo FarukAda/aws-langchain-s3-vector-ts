@@ -497,7 +497,9 @@ export function assertMetadataKeysCreatable(
  * @throws {S3VectorsError} `VALIDATION` for more than 50 tags, a key outside
  * 1–128 characters or a value outside 0–256, a character outside
  * `CreateIndex`'s pattern, or a key under the reserved `aws:` prefix
- * (`CreateIndex` API reference).
+ * (`CreateIndex` API reference). Each is a refusal the service makes itself,
+ * confirmed live (docs/evidence/tag-rules.md, T3-29), so checking here refuses
+ * nothing `CreateIndex` would accept.
  */
 function assertTagsCreatable(
   tags: Record<string, string> | undefined,
