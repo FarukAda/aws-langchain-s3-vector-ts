@@ -135,8 +135,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Repository settings now guard releases too**: a `release-tags` ruleset
   lets only a repository admin create, move or delete a `v*` tag, and an
   `npm-publish` environment requires the maintainer's approval and accepts only
-  `v*` tags. The publish job does not use the environment yet; it is enabled
-  together with the matching npm trusted-publisher setting.
+  `v*` tags. The publish job waits on that environment, and npm's trusted
+  publisher names it, so a release reaches npm only once approved. The AWS role
+  the live suite assumes now trusts only `main` and `v*` tags of this
+  repository, where it trusted any ref.
 - **A release is cut only from a commit `main` holds.** `verify` refuses a tag
   whose commit is not an ancestor of `main`. The CI gate reads the tagged
   commit's check runs, and a pull request's head commit has those too, so a tag

@@ -234,16 +234,14 @@ jobs:
     name: publish ${{ github.ref_name }}
     needs: verify
     runs-on: ubuntu-latest
-    # A deployment environment is the one control that puts a human between
-    # `git push --tags` and a live `latest`. It is left commented out because
-    # turning it on is a two-sided change and enabling only this half can break
-    # publishing: the OIDC token then carries an `environment` claim, and npm's
-    # docs do not state whether a trusted publisher configured *without* an
-    # environment accepts one. The GitHub half exists: `npm-publish`, with the
-    # maintainer as required reviewer and deployments limited to `v*` tags. To
-    # enable: set the same environment name in the npm trusted publisher
-    # configuration, then uncomment.
-    # environment: npm-publish
+    # The one control that puts a human between `git push --tags` and a live
+    # `latest`: the job waits here for the maintainer's approval, and the
+    # environment accepts only `v*` tags (repository settings). It is a
+    # two-sided setting — naming it adds an `environment` claim to the OIDC
+    # token, which npm checks — so npm's trusted publisher names `npm-publish`
+    # too. Removing it here without removing it there breaks publishing, and
+    # the other way round.
+    environment: npm-publish
     permissions:
       # Required for npm Trusted Publishing and automatic provenance.
       id-token: write

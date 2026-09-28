@@ -72,8 +72,9 @@ jobs:
       # packages and the credentials — so what runs here is limited instead: a
       # dispatch from any branch but `main` stops before a single package is
       # installed, so a branch that changes the dependency tree never reaches
-      # the role. The role's trust policy should pin the OIDC `sub` claim to the
-      # same two refs, so the AWS side holds the line too.
+      # the role. The role's trust policy pins the OIDC `sub` claim to the same
+      # two refs — `ref:refs/heads/main` and `ref:refs/tags/v*` — so the AWS
+      # side holds the line too.
       - name: Refuse a ref other than main or a v* tag
         run: |
           set -euo pipefail
