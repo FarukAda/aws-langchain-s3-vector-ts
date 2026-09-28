@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.0-rc.1] - 2026-09-28
+## [1.1.0] - 2026-09-28
 
 ### Upgrading from 1.0.0
 
@@ -246,6 +246,12 @@ Each of these is `VALIDATION`.
   method's options argument widens from `HttpHandlerOptions` to
   `S3VectorsRequestOptions`, which adds an optional `metricsRecorder`. Nothing
   here passes one.
+
+## [1.1.0-rc.1] - 2026-09-28
+
+The candidate for 1.1.0, published under `next` to exercise the release
+workflow before a stable version depended on it. It is the same code as
+1.1.0, and 1.1.0's notes above are its notes.
 
 ## [1.0.0] - 2026-09-21
 
@@ -3035,7 +3041,8 @@ never published, and 0.2.2 shipped without an entry here.
 
 - Initial release.
 
-[Unreleased]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.1.0-rc.1...HEAD
+[Unreleased]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.1.0-rc.1...v1.1.0
 [1.1.0-rc.1]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0...v1.1.0-rc.1
 [1.0.0]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.2...v1.0.0
 [1.0.0-rc.2]: https://github.com/FarukAda/aws-langchain-s3-vector-ts/compare/v1.0.0-rc.1...v1.0.0-rc.2
