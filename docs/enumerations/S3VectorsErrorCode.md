@@ -256,11 +256,11 @@ Defined in: [shared/errors/error-code.ts:38](https://github.com/FarukAda/aws-lan
 Caller input was invalid — an argument, option, id, document, metadata,
 vector, filter or configuration value this package can tell will not work —
 or an embeddings model returned something other than one storable vector per
-document, or an unusable query vector, or a `relevanceScoreFn` returned
-something other than a finite number.
+document, or an unusable query vector.
 
 Raised before any AWS call and before any billable embedding, except for a
 model's output — refused after that embedding call and before the request
 it would feed, on a write carrying `writtenIds` because earlier batches may
-already be written — and a `relevanceScoreFn` result, refused after the
-search it scores.
+already be written — and tags `CreateIndex` would refuse, which are checked
+only when this store creates the index: after the first batch is embedded,
+before `CreateIndex` is sent.

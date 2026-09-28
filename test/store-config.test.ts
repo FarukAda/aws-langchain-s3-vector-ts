@@ -1,8 +1,10 @@
+import { CreateIndexCommand, GetIndexCommand, PutVectorsCommand } from '@aws-sdk/client-s3vectors';
 import { describe, it, expect } from '@jest/globals';
+import { Document } from '@langchain/core/documents';
 
 import { AmazonS3Vectors } from '../src/s3-vectors.js';
 import { S3VectorsErrorCode } from '../src/shared/errors/error-code.js';
-import { BASE_CONFIG, createMockClient, createMockEmbeddings } from './helpers.js';
+import { BASE_CONFIG, createMockClient, createMockEmbeddings, indexFixture } from './helpers.js';
 
 /**
  * One test per domain cell of the constructor's configuration validation.
@@ -439,14 +441,11 @@ describe('configuration strings sent to AWS must be well-formed UTF-16 (T3-15)',
 
   it('accepts a surrogate pair in every one of them', () => {
     const pair = 'k😀';
-    // A tag is held to CreateIndex's character pattern too, which admits
-    // letters but not symbols, so its pair is a supplementary-plane letter.
-    const letterPair = 'k𝒜';
     expect(
       build({
         pageContentMetadataKey: pair,
         nonFilterableMetadataKeys: [pair],
-        tags: { [letterPair]: letterPair },
+        tags: { [pair]: pair },
         encryptionConfiguration: {
           sseType: 'aws:kms',
           kmsKeyArn: `arn:aws:kms:us-east-1:1:key/${pair}`,
@@ -460,7 +459,6 @@ describe('AmazonS3Vectors constructor — options the SDK would take and then fa
   it.each([
     ['a host with no scheme, read as the scheme', 'localhost:4566'],
     ['a host and port with no scheme', 's3vectors.us-east-1.amazonaws.com:443'],
-    ['a non-HTTP scheme', 'ftp://example.test'],
   ])('refuses an endpoint that is %s', (_label, endpoint) => {
     const error = buildWithoutClient({ region: 'us-east-1', endpoint });
     expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
@@ -474,17 +472,14 @@ describe('AmazonS3Vectors constructor — options the SDK would take and then fa
     },
   );
 
-  it.each(['connectionTimeout', 'socketTimeout', 'requestTimeout'])(
-    'refuses a %s past the largest delay Node can time, which it runs after 1 ms',
-    (option) => {
-      const error = buildWithoutClient({ region: 'us-east-1', [option]: 2 ** 31 });
-      expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-      expect(messageOf(error)).toContain(`config.${option}`);
-    },
-  );
+  it('refuses a requestTimeout past the largest delay Node can time, with which no request completes', () => {
+    const error = buildWithoutClient({ region: 'us-east-1', requestTimeout: 2 ** 31 });
+    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
+    expect(messageOf(error)).toContain('config.requestTimeout');
+  });
 
-  it('accepts the largest timeout Node can time', () => {
-    expect(buildWithoutClient({ region: 'us-east-1', socketTimeout: 2 ** 31 - 1 })).toBeInstanceOf(
+  it('accepts the largest requestTimeout Node can time', () => {
+    expect(buildWithoutClient({ region: 'us-east-1', requestTimeout: 2 ** 31 - 1 })).toBeInstanceOf(
       AmazonS3Vectors,
     );
   });
@@ -496,40 +491,86 @@ describe('AmazonS3Vectors constructor — options the SDK would take and then fa
   });
 });
 
-describe('AmazonS3Vectors constructor — index settings CreateIndex would refuse', () => {
-  it.each([
-    ['with the page-content key disabled', null],
-    ['with the default page-content key', undefined],
-  ])('refuses a repeated non-filterable key %s', (_label, pageContentMetadataKey) => {
-    const error = build({
-      nonFilterableMetadataKeys: ['body', 'body'],
-      ...(pageContentMetadataKey === undefined ? {} : { pageContentMetadataKey }),
+/**
+ * Configurations that work on 1.0.0 and must keep working. Each was broken by a
+ * check added after 1.0.0 that was broader than the bug it was written for, and
+ * each outcome below was confirmed against the published 1.0.0 package.
+ */
+describe('AmazonS3Vectors constructor — what 1.0.0 accepted is still accepted', () => {
+  const writeToExistingIndex = async (
+    config: Record<string, unknown>,
+    indexKeys: string[],
+  ): Promise<{ ids: string[]; created: number }> => {
+    const { client, mock } = createMockClient();
+    mock.on(GetIndexCommand).resolves({
+      index: indexFixture({ metadataConfiguration: { nonFilterableMetadataKeys: indexKeys } }),
     });
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect(messageOf(error)).toContain("'body'");
+    mock.on(PutVectorsCommand).resolves({});
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+      ...config,
+    });
+    const ids = await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], {
+      ids: ['x'],
+    });
+    return { ids, created: mock.commandCalls(CreateIndexCommand).length };
+  };
+
+  it.each([
+    ['the default page-content key', {}, ['body', '_page_content']],
+    ['no page-content key', { pageContentMetadataKey: null }, ['body']],
+  ])('writes with a non-filterable key listed twice and %s', async (_label, config, indexKeys) => {
+    const result = await writeToExistingIndex(
+      { nonFilterableMetadataKeys: ['body', 'body'], ...config },
+      indexKeys,
+    );
+    expect(result.ids).toEqual(['x']);
+  });
+
+  it('creates an index with each non-filterable key once, even with no page-content key', async () => {
+    const { client, mock } = createMockClient();
+    mock
+      .on(GetIndexCommand)
+      .rejects(Object.assign(new Error('gone'), { name: 'NotFoundException' }));
+    mock.on(CreateIndexCommand).resolves({});
+    mock.on(PutVectorsCommand).resolves({});
+    const store = new AmazonS3Vectors(createMockEmbeddings(), {
+      ...BASE_CONFIG,
+      client,
+      nonFilterableMetadataKeys: ['body', 'body'],
+      pageContentMetadataKey: null,
+    });
+    await store.addVectors([[1, 2, 3]], [new Document({ pageContent: 'a' })], { ids: ['x'] });
+    const input = mock.commandCalls(CreateIndexCommand)[0]!.args[0].input;
+    expect(input.metadataConfiguration?.nonFilterableMetadataKeys).toEqual(['body']);
   });
 
   it.each([
-    ['a key character outside the pattern', { 'cost#center': 'a' }],
-    ['a value character outside the pattern', { team: 'a&b' }],
-    ['a key with the reserved aws: prefix', { 'aws:owner': 'x' }],
-  ])('refuses tags with %s', (_label, tags) => {
-    const error = build({ tags });
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect(messageOf(error)).toContain('config.tags');
-  });
+    ['a character outside CreateIndex’s pattern', { team: 'search&ranking' }],
+    ['more than 50 tags', Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`k${i}`, 'v']))],
+    ['a key under the aws: prefix', { 'aws:owner': 'x' }],
+  ])(
+    'writes to an existing index with tags holding %s, which it never sends',
+    async (_label, tags) => {
+      const result = await writeToExistingIndex({ tags }, ['_page_content']);
+      expect(result).toEqual({ ids: ['x'], created: 0 });
+    },
+  );
 
-  it('refuses more than 50 tags', () => {
-    const tags = Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`k${i}`, 'v']));
-    const error = build({ tags });
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect(messageOf(error)).toContain('51');
-  });
+  it.each(['socketTimeout', 'connectionTimeout'])(
+    'accepts a %s past 2,147,483,647 ms, with which requests still complete',
+    (option) => {
+      expect(buildWithoutClient({ region: 'us-east-1', [option]: 3_000_000_000 })).toBeInstanceOf(
+        AmazonS3Vectors,
+      );
+    },
+  );
 
-  it('accepts 50 tags using every documented character class', () => {
-    const tags = Object.fromEntries(Array.from({ length: 49 }, (_, i) => [`k${i}`, 'v']));
-    expect(build({ tags: { ...tags, 'Ünï cödé_.:/=+-@9': 'välue 1_.:/=+-@' } })).toBeInstanceOf(
-      AmazonS3Vectors,
-    );
-  });
+  it.each(['ftp://127.0.0.1:4566', 'ws://127.0.0.1:4566', 'http:127.0.0.1:4566'])(
+    'accepts the endpoint %s, which has a host the SDK sends to',
+    (endpoint) => {
+      expect(buildWithoutClient({ region: 'us-east-1', endpoint })).toBeInstanceOf(AmazonS3Vectors);
+    },
+  );
 });

@@ -49,29 +49,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AWS_INVALID_RESPONSE`. Metadata `structuredClone` cannot copy is
   `AWS_INVALID_RESPONSE` too, not `VALIDATION`: it describes the response, not
   anything the caller passed.
-- **A `relevanceScoreFn` that returns something other than a finite number is
-  `VALIDATION`.** A retriever's threshold compares `score >= scoreThreshold`,
-  which is false for `NaN`, `undefined` and most strings, so such a function
-  dropped every document and reported an empty, successful search.
 - **A vector component beyond the float32 range is refused locally.** S3
   Vectors stores float32 and converts a wider value first, so `1e39` passed as
   finite and became `Infinity` at AWS, failing the batch after earlier ones had
   landed. A cosine vector whose components are all below float32's smallest
   value is the zero vector once stored, and is refused as one.
-- **A filter naming a non-filterable key is refused before the query is
-  embedded.** AWS refuses it anyway ("Invalid use of non-filterable metadata in
-  filter", `docs/evidence/filter-validation.md`); refusing it locally saves the
-  embedding and the request, and says which key.
-- **Configuration AWS or Node would refuse later is refused at construction.**
-  An `endpoint` with no `http`/`https` scheme — `localhost:4566` parses, with
-  `localhost:` as its scheme, and failed every request; a timeout past
-  2,147,483,647 ms, which Node's timers replace with 1 ms, so every request
-  timed out at once; a `region` with surrounding whitespace; a
-  `nonFilterableMetadataKeys` entry listed twice, which `CreateIndex` refuses
-  and which was silently collapsed only when a page-content key was set; and
-  tags `CreateIndex` refuses — more than 50, a character outside its pattern,
-  or a key under the reserved `aws:` prefix. The tag and key rules previously
-  failed at the first write, after the first batch had been embedded.
+- **Configuration that can never complete a request is refused at
+  construction.** An `endpoint` with no host — `localhost:4566` parses, with
+  `localhost:` as its scheme and no host, and every request went to a host
+  named after the port; a `region` with surrounding whitespace, which the SDK
+  refuses on every request, with a custom endpoint too; and a `requestTimeout`
+  past 2,147,483,647 ms, which Node's timers cut to 1 ms, so every request timed
+  out at once, even one answered immediately. Each was checked against 1.0.0
+  itself: none of them ever completed a request. `socketTimeout` and
+  `connectionTimeout` past that ceiling still work, and are still accepted.
+- **A key listed twice in `nonFilterableMetadataKeys` reaches `CreateIndex`
+  once.** With `pageContentMetadataKey: null` it used to reach it twice, and
+  `CreateIndex` refuses a repeated key. With the default page-content key it
+  was already sent once; nothing else about a repeated key changes.
+- **Tags `CreateIndex` documents as invalid are refused before it is sent**,
+  when this store creates the index: more than 50, a character outside
+  letters, numbers, spaces and `_ . : / = + - @`, or a key under the reserved
+  `aws:` prefix. They are not checked at construction, because an index that
+  already exists never receives them.
 - **Rejected credentials are `ACCESS_DENIED`.** `InvalidClientTokenId`,
   `MissingAuthenticationToken` and their kin are protocol-level names the S3
   Vectors model does not declare, so they came back as `AWS_REQUEST_FAILED`,
@@ -96,8 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with a request or config object put its headers or keys into the message and
   from there into logs. A thrown string, or an object's own `message`, is kept,
   stripped of control characters and bounded; anything else is described by
-  kind. `new S3VectorsError(…, cause)` now turns a non-`Error` cause into one,
-  as the class always said it would.
+  kind.
 - **The store handle survives later decoration.** `context.instance`, set by
   the static factories, was dropped by any decoration applied after it,
   because a spread copies only enumerable properties.
@@ -111,8 +110,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `attemptedIds` but not in `writtenIds` is in an unknown state. The partial
   failure message says "were confirmed written", not "were already durably
   written". Retrying with `attemptedIds` is safe either way.
-- **Id lists and `nonFilterableMetadataKeys` accept `readonly string[]`.** An
-  `as const` list or a frozen configuration no longer needs a cast.
 
 ### Internal
 

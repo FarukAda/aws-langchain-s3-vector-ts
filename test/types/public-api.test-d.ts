@@ -4,6 +4,8 @@ import { AmazonS3Vectors, AmazonS3VectorsRetriever } from '../../src/index.js';
 import type {
   AmazonS3VectorsConfig,
   DistanceMetric,
+  S3VectorsAddOptions,
+  S3VectorsDeleteOptions,
   S3VectorsErrorContext,
   S3VectorsRecord,
 } from '../../src/index.js';
@@ -242,20 +244,21 @@ failure.writtenIds?.push('x');
 const writtenIdsAreReadable: readonly string[] | undefined = failure.writtenIds;
 void writtenIdsAreReadable;
 
-// Inputs a caller built as readonly — `as const` lists, a frozen config — are
-// accepted wherever the store only reads them.
-const frozenIds: readonly string[] = ['a', 'b'];
-const readonlyKeys: readonly string[] = ['body'];
-const readonlyConfig: AmazonS3VectorsConfig = {
+// Code written against the 1.0.0 types keeps compiling: the store's key list
+// and the arrays in the exported option and config types are mutable
+// `string[]`, so a caller may type a variable as one and push onto it.
+const storeKeys: string[] | undefined = store.nonFilterableMetadataKeys;
+const addOptions: S3VectorsAddOptions = { ids: [] };
+addOptions.ids?.push('a');
+const deleteOptions: S3VectorsDeleteOptions = { ids: [] };
+deleteOptions.ids.push('a');
+const configWithKeys: AmazonS3VectorsConfig = {
   vectorBucketName: 'b',
   indexName: 'idx',
-  nonFilterableMetadataKeys: readonlyKeys,
+  nonFilterableMetadataKeys: [],
 };
-const addWithReadonlyIds: Promise<string[]> = store.addDocuments([], { ids: frozenIds });
-const deleteWithReadonlyIds: Promise<void> = store.delete({ ids: frozenIds });
-const getWithReadonlyIds: Promise<(Document | undefined)[]> = store.getByIds(frozenIds);
+configWithKeys.nonFilterableMetadataKeys?.push('body');
+const getByIdsArgument: Parameters<typeof store.getByIds>[0] = [];
+getByIdsArgument.push('a');
 
-void readonlyConfig;
-void addWithReadonlyIds;
-void deleteWithReadonlyIds;
-void getWithReadonlyIds;
+void storeKeys;

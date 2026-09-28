@@ -9,7 +9,6 @@
  */
 import type { AmazonS3Vectors } from '../../s3-vectors.js';
 import { S3VectorsErrorCode } from './error-code.js';
-import { toError } from './to-error.js';
 
 /** Structured context attached to every {@link S3VectorsError}. */
 export interface S3VectorsErrorContext {
@@ -246,8 +245,10 @@ const S3_VECTORS_ERROR_BRAND = Symbol.for('@farukada/aws-langchain-s3-vector-ts:
  *
  * Guarantees: instances carry a `Symbol.for` brand, so {@link isS3VectorsError}
  * recognises them across realms and across the ESM and CommonJS copies of this
- * module. `cause` is always an `Error` when present: a caller can read
- * `error.cause.message` without checking what was actually thrown.
+ * module. On an error this package raises, `cause` is always an `Error` when
+ * present — its wrappers normalise whatever was thrown — so a caller can read
+ * `error.cause.message` without checking. The constructor itself stores a
+ * `cause` exactly as it is given.
  *
  * `code` and `context` are readonly at runtime, not only to TypeScript — defined
  * non-writable, with `context` frozen. Both were reassignable, and `context` was
@@ -270,9 +271,7 @@ export class S3VectorsError extends Error {
     context: S3VectorsErrorContext,
     cause?: unknown,
   ) {
-    // Through `toError`, so the guarantee below holds for a caller constructing
-    // one directly too, not only for this package's own wrappers.
-    super(message, cause === undefined ? undefined : { cause: toError(cause) });
+    super(message, cause === undefined ? undefined : { cause });
     this.name = 'S3VectorsError';
 
     // Descriptors, not a spread: `context.instance` is non-enumerable on purpose

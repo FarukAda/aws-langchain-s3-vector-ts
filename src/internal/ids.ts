@@ -86,7 +86,7 @@ export interface IdCheckOptions extends OperationScope {
  */
 export function resolveWriteIds(
   documents: readonly DocumentInterface[],
-  ids: readonly string[] | undefined,
+  ids: string[] | undefined,
 ): string[] {
   return ids === undefined
     ? documents.map((doc) => doc.id ?? randomUUID().replace(/-/g, ''))

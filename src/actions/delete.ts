@@ -25,7 +25,7 @@ const DEFAULT_DELETE_BATCH_SIZE = 500;
 
 export interface DeleteOptions extends Omit<BatchedOperation, 'operation'> {
   /** The vector ids to delete. Required, and never a stand-in for "all of them". */
-  readonly ids: readonly string[];
+  readonly ids: string[];
   /**
    * The store's write rate limit. `DeleteVectors` spends the same per-index
    * budget as `PutVectors` — AWS counts them together — so it waits on the

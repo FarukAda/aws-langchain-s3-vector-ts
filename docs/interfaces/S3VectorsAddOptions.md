@@ -34,7 +34,7 @@ Records per `PutVectors` request, 1–500.
 
 ### ids?
 
-> `readonly` `optional` **ids?**: readonly `string`[]
+> `readonly` `optional` **ids?**: `string`[]
 
 Defined in: [types.ts:378](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L378)
 

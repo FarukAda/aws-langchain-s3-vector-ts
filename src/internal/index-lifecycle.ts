@@ -441,8 +441,11 @@ export interface IndexLifecycle {
  * Returns: the configured list plus the page-content key, which must not be
  * filterable — filterable metadata is capped at 2 KB against 40 KB total
  * (limits page), and page content is prose nobody filters by. Duplicates
- * collapse, so a caller who already listed the key gets no second copy, and
- * the caller's array is not mutated.
+ * collapse — the caller's own as well as the page-content key listed again —
+ * so each key reaches `CreateIndex` once, as it requires ("Non-filterable
+ * metadata keys must be unique within the vector index", userguide
+ * `s3-vectors-indexes.html`). With no page-content key, a key listed twice
+ * used to reach it twice and be refused. The caller's array is not mutated.
  *
  * Throws: nothing. The 10-key ceiling and each key's own length are enforced
  * on this exact result — by the {@link AmazonS3Vectors} constructor at
@@ -452,7 +455,7 @@ export interface IndexLifecycle {
 export function resolveNonFilterableMetadataKeys(config: IndexLifecycleConfig): string[] {
   const configured = config.nonFilterableMetadataKeys ?? [];
   return config.pageContentMetadataKey === null
-    ? [...configured]
+    ? [...new Set(configured)]
     : [...new Set([...configured, config.pageContentMetadataKey])];
 }
 

@@ -277,7 +277,7 @@ export class AmazonS3Vectors extends VectorStore {
   readonly indexName: string;
   readonly dataType: VectorDataType;
   readonly distanceMetric: DistanceMetric;
-  readonly nonFilterableMetadataKeys: readonly string[] | undefined;
+  readonly nonFilterableMetadataKeys: string[] | undefined;
   readonly pageContentMetadataKey: string | null;
   readonly createIndexIfNotExist: boolean;
   readonly encryptionConfiguration: EncryptionConfiguration | undefined;
@@ -660,7 +660,7 @@ export class AmazonS3Vectors extends VectorStore {
         distanceMetric: this.distanceMetric,
         queryVector: query,
         k: parseK(operation, this.#scope, k),
-        filter: parseFilter(filter, operation, this.#scope, this.#nonFilterableMetadataKeys),
+        filter: parseFilter(filter, operation, this.#scope),
         pageContentMetadataKey: this.pageContentMetadataKey,
         signal,
         ...this.#scope,
@@ -751,12 +751,7 @@ export class AmazonS3Vectors extends VectorStore {
     // before failing.
     assertQueryText(operation, this.#scope, query);
     const parsedK = parseK(operation, this.#scope, k);
-    const parsedFilter = parseFilter(
-      filter,
-      operation,
-      this.#scope,
-      this.#nonFilterableMetadataKeys,
-    );
+    const parsedFilter = parseFilter(filter, operation, this.#scope);
     // embedQuery has no signal support (LangChain's EmbeddingsInterface
     // doesn't accept one), so it can't self-cancel the way an AWS call does —
     // check explicitly. Only the QueryVectors call after it can be cancelled
@@ -943,12 +938,7 @@ export class AmazonS3Vectors extends VectorStore {
         'maxMarginalRelevanceSearch',
         this.#scope,
       );
-      const parsedFilter = parseFilter(
-        options.filter,
-        'maxMarginalRelevanceSearch',
-        this.#scope,
-        this.#nonFilterableMetadataKeys,
-      );
+      const parsedFilter = parseFilter(options.filter, 'maxMarginalRelevanceSearch', this.#scope);
 
       // embedQuery has no signal support, so it cannot self-cancel — check
       // before spending a billable, uncancellable call.
@@ -1114,7 +1104,7 @@ export class AmazonS3Vectors extends VectorStore {
    * scratch.
    */
   async getByIds(
-    ids: readonly string[],
+    ids: string[],
     options?: S3VectorsGetByIdsOptions,
   ): Promise<(Document | undefined)[]> {
     return await this.#asOperation('getByIds', async () => {
@@ -1553,30 +1543,16 @@ export class AmazonS3Vectors extends VectorStore {
    *
    * `relevanceScoreFn` is caller-supplied code called once per result, so it
    * fails the same way any other caller code does and is wrapped the same way.
-   * What it returns is checked too: a retriever compares it with
-   * `score >= scoreThreshold`, which is false for `NaN`, `undefined` and most
-   * strings, so a function returning one of those would drop every document
-   * and report an empty, successful search.
    */
   #score(scoreFn: (distance: number) => number, distance: number): number {
-    let score: unknown;
     try {
-      score = scoreFn(distance);
+      return scoreFn(distance);
     } catch (error: unknown) {
       throw wrapCallerError(error, {
         operation: 'similaritySearchWithRelevanceScores',
         ...this.#scope,
       });
     }
-    if (typeof score !== 'number' || !Number.isFinite(score)) {
-      throw validationError(
-        'similaritySearchWithRelevanceScores',
-        this.#scope,
-        `relevanceScoreFn returned ${renderValue(score)} for distance ${distance}; it must ` +
-          'return a finite number.',
-      );
-    }
-    return score;
   }
 
   /**

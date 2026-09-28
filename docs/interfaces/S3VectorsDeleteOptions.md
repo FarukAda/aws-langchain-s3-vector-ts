@@ -28,7 +28,7 @@ Batch size for `DeleteVectors` calls.
 
 ### ids
 
-> `readonly` **ids**: readonly `string`[]
+> `readonly` **ids**: `string`[]
 
 Defined in: [types.ts:418](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/types.ts#L418)
 

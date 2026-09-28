@@ -64,7 +64,7 @@ export interface AddVectorsOptions extends StoreScope {
    * Caller-supplied ids. Omitted, each document's own `id` is used and a fresh
    * UUID minted only where there is none.
    */
-  readonly ids?: readonly string[] | undefined;
+  readonly ids?: string[] | undefined;
   /**
    * Vectors per batch: 1–500, defaulting to 200. A batch is one `PutVectors`
    * call unless its body would exceed the 20 MiB AWS accepts, in which case it
@@ -120,7 +120,7 @@ function resolveIds(
   operation: string,
   scope: StoreScope,
   documents: DocumentInterface[],
-  given: readonly string[] | null | undefined,
+  given: string[] | null | undefined,
   countLabel: string,
   count: number,
 ): string[] {

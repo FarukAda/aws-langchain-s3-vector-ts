@@ -6,7 +6,7 @@
 
 # Interface: S3VectorsErrorContext
 
-Defined in: [shared/errors/s3-vectors-error.ts:15](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L15)
+Defined in: [shared/errors/s3-vectors-error.ts:14](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L14)
 
 Structured context attached to every [S3VectorsError](../classes/S3VectorsError.md).
 
@@ -16,7 +16,7 @@ Structured context attached to every [S3VectorsError](../classes/S3VectorsError.
 
 > `readonly` `optional` **attemptedIds?**: readonly `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:61](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L61)
+Defined in: [shared/errors/s3-vectors-error.ts:60](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L60)
 
 Every id the failed write resolved, whether or not it landed. Retrying with
 `{ ids: attemptedIds }` overwrites in place instead of minting fresh UUIDs
@@ -28,7 +28,7 @@ for the documents that already committed.
 
 > `readonly` `optional` **awsCommand?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:41](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L41)
+Defined in: [shared/errors/s3-vectors-error.ts:40](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L40)
 
 The S3 Vectors API operation whose request failed: `"GetIndex"`,
 `"CreateIndex"`, `"DeleteIndex"`, `"GetVectorBucket"`, `"PutVectors"`,
@@ -51,7 +51,7 @@ arrive.
 
 > `readonly` `optional` **awsErrorName?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:162](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L162)
+Defined in: [shared/errors/s3-vectors-error.ts:161](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L161)
 
 The name of an AWS-shaped cause (`"AccessDeniedException"`,
 `"TooManyRequestsException"`, `"ValidationException"`, `"TimeoutError"`,
@@ -90,7 +90,7 @@ it did.
 
 > `readonly` `optional` **batchSize?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:121](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L121)
+Defined in: [shared/errors/s3-vectors-error.ts:120](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L120)
 
 How many vectors the failed `PutVectors` call carried.
 
@@ -109,7 +109,7 @@ splitting.
 
 > `readonly` `optional` **deletedIds?**: readonly `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:88](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L88)
+Defined in: [shared/errors/s3-vectors-error.ts:87](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L87)
 
 Ids confirmed deleted before a partial `delete({ ids })` failure.
 
@@ -119,7 +119,7 @@ Ids confirmed deleted before a partial `delete({ ids })` failure.
 
 > `readonly` `optional` **fieldList?**: readonly `Readonly`\<\{ `message?`: `string`; `path?`: `string`; \}\>[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:86](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L86)
+Defined in: [shared/errors/s3-vectors-error.ts:85](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L85)
 
 The specific validation failures AWS reported, each naming the field that
 failed and why. A `ValidationException` carries these
@@ -132,7 +132,7 @@ and they are the actionable half of an otherwise opaque rejection.
 
 > `readonly` `optional` **foundIds?**: readonly `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:205](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L205)
+Defined in: [shared/errors/s3-vectors-error.ts:204](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L204)
 
 Ids confirmed found (and already fetched) before a partial fetch failure —
 either a `GetVectors` batch rejecting while sibling batches in the same
@@ -148,7 +148,7 @@ Set by `getByIds` **and** by MMR, which fetches its candidates the same way.
 
 > `readonly` `optional` **httpStatusCode?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:164](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L164)
+Defined in: [shared/errors/s3-vectors-error.ts:163](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L163)
 
 HTTP status of the failed AWS response (`cause.$metadata.httpStatusCode`), when known.
 
@@ -158,7 +158,7 @@ HTTP status of the failed AWS response (`cause.$metadata.httpStatusCode`), when 
 
 > `readonly` `optional` **indexName?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:45](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L45)
+Defined in: [shared/errors/s3-vectors-error.ts:44](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L44)
 
 The index the failed operation named. Absent only on a failure raised before one was known.
 
@@ -168,7 +168,7 @@ The index the failed operation named. Absent only on a failure raised before one
 
 > `readonly` `optional` **instance?**: [`AmazonS3Vectors`](../classes/AmazonS3Vectors.md)
 
-Defined in: [shared/errors/s3-vectors-error.ts:230](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L230)
+Defined in: [shared/errors/s3-vectors-error.ts:229](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L229)
 
 The store constructed by a `fromDocuments`/`fromTexts` factory call that
 failed partway through writing. Only ever set on an error thrown by
@@ -199,7 +199,7 @@ renderings.
 
 > `readonly` **operation**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:24](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L24)
+Defined in: [shared/errors/s3-vectors-error.ts:23](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L23)
 
 The public method the caller invoked — `"addDocuments"`, `"getByIds"`,
 `"deleteIndex"`, `"fromDocuments"`, `"retriever.invoke"`, `"constructor"` —
@@ -214,7 +214,7 @@ through. Never the name of an AWS command: the request that failed is
 
 > `readonly` `optional` **pagesScanned?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:102](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L102)
+Defined in: [shared/errors/s3-vectors-error.ts:101](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L101)
 
 Pages scanned before a paginated operation stopped.
 
@@ -234,7 +234,7 @@ into the generator that keeps the count.
 
 > `readonly` `optional` **recordId?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:79](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L79)
+Defined in: [shared/errors/s3-vectors-error.ts:78](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L78)
 
 The id of that element, whenever it has one that is a string: the resolved
 id of a document or vector, or the offending id itself. Absent when the
@@ -247,7 +247,7 @@ that is not an object).
 
 > `readonly` `optional` **recordIndex?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:72](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L72)
+Defined in: [shared/errors/s3-vectors-error.ts:71](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L71)
 
 Position, in the caller's own input and counted from 0 over the whole call
 — never over a batch — of the one element this error is about.
@@ -264,7 +264,7 @@ first. Raised by `addVectors`, `addDocuments`, `fromDocuments`, `fromTexts`,
 
 > `readonly` `optional` **requestId?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:169](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L169)
+Defined in: [shared/errors/s3-vectors-error.ts:168](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L168)
 
 The AWS request id (`cause.$metadata.requestId`), when known. This is the
 identifier AWS Support asks for — it also appears in the error message.
@@ -275,7 +275,7 @@ identifier AWS Support asks for — it also appears in the error message.
 
 > `readonly` `optional` **resultsCollected?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:108](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L108)
+Defined in: [shared/errors/s3-vectors-error.ts:107](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L107)
 
 Results collected before a paginated search stopped early. Compare
 against the requested `k` to see how far short it fell. Set alongside
@@ -287,7 +287,7 @@ against the requested `k` to see how far short it fell. Set alongside
 
 > `readonly` `optional` **retryable?**: `boolean`
 
-Defined in: [shared/errors/s3-vectors-error.ts:195](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L195)
+Defined in: [shared/errors/s3-vectors-error.ts:194](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L194)
 
 Whether the failure is worth retrying after a backoff. `true` for
 throttling (`TooManyRequestsException`, HTTP 429), transient service errors
@@ -319,7 +319,7 @@ means those attempts were exhausted.
 
 > `readonly` `optional` **vectorBucketName?**: `string`
 
-Defined in: [shared/errors/s3-vectors-error.ts:43](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L43)
+Defined in: [shared/errors/s3-vectors-error.ts:42](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L42)
 
 The bucket the failed operation named. Absent only on a failure raised before one was known.
 
@@ -329,7 +329,7 @@ The bucket the failed operation named. Absent only on a failure raised before on
 
 > `readonly` `optional` **writtenIds?**: readonly `string`[]
 
-Defined in: [shared/errors/s3-vectors-error.ts:55](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L55)
+Defined in: [shared/errors/s3-vectors-error.ts:54](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L54)
 
 Ids confirmed written to AWS before a partial `addVectors`/
 `addDocuments` failure — present so a caller (especially one relying
@@ -345,7 +345,7 @@ in an unknown state.
 
 > `readonly` `optional` **yielded?**: `number`
 
-Defined in: [shared/errors/s3-vectors-error.ts:129](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L129)
+Defined in: [shared/errors/s3-vectors-error.ts:128](https://github.com/FarukAda/aws-langchain-s3-vector-ts/blob/main/src/shared/errors/s3-vectors-error.ts#L128)
 
 Vectors already yielded by an enumeration (`listDocuments`/`listVectors`)
 before it failed. Those records have been consumed by the caller already,

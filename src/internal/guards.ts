@@ -183,7 +183,7 @@ export function assertOptionsBag(
 export function assertIdsOption(
   operation: string,
   scope: StoreScope,
-  ids: readonly string[] | undefined,
+  ids: string[] | undefined,
 ): void {
   if (ids !== undefined) {
     assertIsArray(operation, scope, 'ids', ids);

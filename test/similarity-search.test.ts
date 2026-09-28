@@ -959,22 +959,19 @@ describe('an unusable query embedding is refused before any request on every sea
   });
 });
 
-describe('AmazonS3Vectors — a filter on a non-filterable key', () => {
-  it('is refused before the query is embedded', async () => {
-    const { store, mock, embeddings } = createTestStore({ nonFilterableMetadataKeys: ['body'] });
-    const error = await store
-      .similaritySearch('q', 1, { body: { $eq: 'x' } })
-      .catch((e: unknown) => e);
-    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
-    expect(embeddings.embedQuery).not.toHaveBeenCalled();
-    expect(mock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
-  });
+describe('AmazonS3Vectors — a filter is judged by the index, not by this store’s key list', () => {
+  it('sends a filter on a key the store lists as non-filterable, as 1.0.0 did', async () => {
+    // The store's list need not match the index: an index created by other
+    // tooling may treat the key as filterable, and then AWS accepts it.
+    const { store, mock } = createTestStore({ nonFilterableMetadataKeys: ['body'] });
+    mock.on(QueryVectorsCommand).resolves({
+      distanceMetric: 'cosine',
+      vectors: [{ key: 'a', distance: 0.1, metadata: { _page_content: 'x', body: 'b' } }],
+    });
 
-  it('refuses the page-content key, which is always non-filterable', async () => {
-    const { store } = createTestStore();
-    const error = await store
-      .similaritySearchVectorWithScore([1, 2, 3], 1, { _page_content: 'x' })
-      .catch((e: unknown) => e);
-    expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.VALIDATION);
+    const results = await store.similaritySearchVectorWithScore([1, 2, 3], 1, { body: 'b' });
+
+    expect(results).toHaveLength(1);
+    expect(mock.commandCalls(QueryVectorsCommand)[0]!.args[0].input.filter).toEqual({ body: 'b' });
   });
 });

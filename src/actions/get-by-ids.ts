@@ -17,7 +17,7 @@ import type { StoreScope } from '../shared/scope.js';
 
 export interface GetByIdsOptions extends Omit<BatchedOperation, 'operation'> {
   /** The ids to fetch, in the order the result should hold them. */
-  readonly ids: readonly string[];
+  readonly ids: string[];
   /** Where page content is stored, so it can be lifted back out. */
   readonly pageContentMetadataKey: string | null;
 }

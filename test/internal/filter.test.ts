@@ -395,34 +395,3 @@ describe('nesting depth', () => {
     expect(codeOf(check(nest(cap + 1)))).toBe(S3VectorsErrorCode.VALIDATION);
   });
 });
-
-/**
- * AWS refuses a filter naming a non-filterable key with "Invalid use of
- * non-filterable metadata in filter" (docs/evidence/filter-validation.md,
- * T3-13) — after the query has already been embedded.
- */
-describe('parseFilter — non-filterable keys', () => {
-  const checkWith = (filter: unknown, keys: readonly string[]): unknown => {
-    try {
-      parseFilter(filter, 'similaritySearch', SCOPE, keys);
-      return undefined;
-    } catch (e) {
-      return e;
-    }
-  };
-
-  it.each([
-    ['as a field', { _page_content: 'x' }],
-    ['with an operator', { body: { $exists: true } }],
-    ['inside $and', { $and: [{ genre: 'a' }, { body: { $eq: 'x' } }] }],
-    ['inside nested $or', { $or: [{ $and: [{ _page_content: 'x' }, { g: 1 }] }, { g: 2 }] }],
-  ])('refuses a non-filterable key used %s', (_label, filter) => {
-    const error = checkWith(filter, ['_page_content', 'body']);
-    expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-    expect((error as Error).message).toContain('non-filterable');
-  });
-
-  it('accepts a filter on any other key', () => {
-    expect(checkWith({ $and: [{ genre: 'a' }, { year: { $gt: 1 } }] }, ['body'])).toBeUndefined();
-  });
-});

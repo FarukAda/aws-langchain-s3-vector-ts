@@ -79,22 +79,30 @@ describe('relevance score selection', () => {
   });
 });
 
-describe('relevance score selection — the function must return a finite number', () => {
+describe('relevance score selection — the function’s score is used as given, as in 1.0.0', () => {
   it.each([
-    ['NaN', () => Number.NaN],
-    ['undefined', () => undefined as unknown as number],
-    ['a string', () => '0.9' as unknown as number],
-    ['Infinity', () => Number.POSITIVE_INFINITY],
-  ])(
-    'refuses a relevanceScoreFn that returns %s instead of letting a threshold drop every result',
-    async (_label, relevanceScoreFn) => {
-      const { store, mock } = createTestStore({ relevanceScoreFn });
-      mock.on(QueryVectorsCommand).resolves(queryResolving(0.5, 'cosine'));
-      const error = await store
-        .similaritySearchWithRelevanceScores('q', 1)
-        .catch((e: unknown) => e);
-      expect(codeOf(error)).toBe(S3VectorsErrorCode.VALIDATION);
-      expect((error as Error).message).toContain('relevanceScoreFn');
-    },
-  );
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+    ['NaN', Number.NaN],
+  ])('returns a score of %s unchanged', async (_label, score) => {
+    const { store, mock } = createTestStore({ relevanceScoreFn: () => score });
+    mock.on(QueryVectorsCommand).resolves(queryResolving(0.5, 'cosine'));
+    const results = await store.similaritySearchWithRelevanceScores('q', 1);
+    expect(results[0]?.[1]).toBe(score);
+  });
+
+  it('keeps an Infinity-scored document above a retriever threshold and drops a NaN-scored one', async () => {
+    const { store, mock } = createTestStore({
+      relevanceScoreFn: (distance) => (distance < 1 ? Number.POSITIVE_INFINITY : Number.NaN),
+    });
+    mock.on(QueryVectorsCommand).resolves({
+      distanceMetric: 'cosine',
+      vectors: [
+        { key: 'near', distance: 0.1, metadata: { _page_content: 'near' } },
+        { key: 'far', distance: 1.5, metadata: { _page_content: 'far' } },
+      ],
+    });
+    const docs = await store.asRetriever({ k: 2, scoreThreshold: 0.5 }).invoke('q');
+    expect(docs.map((d) => d.id)).toEqual(['near']);
+  });
 });
