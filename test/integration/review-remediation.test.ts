@@ -225,11 +225,11 @@ if (!env) {
       expect(await store.getByIds(['b'])).toEqual([undefined]);
     }, 120_000);
 
-    it('lets AWS reject a later addDocuments batch the model embedded at another dimension, and reports what already landed', async () => {
+    it('refuses a later addDocuments batch the model embedded at another dimension before sending it, and reports what already landed', async () => {
       // A model's output exists only one batch at a time, so a later batch that
-      // disagrees with the index cannot be refused before earlier batches are
-      // written. AWS enforces the index dimension; what this package owes the
-      // caller is an accurate account of what landed — batch 0, not batch 1.
+      // disagrees with the first cannot be refused before earlier batches are
+      // written. It is refused before its own request, and what this package
+      // owes the caller is an accurate account of what landed — batch 0, not 1.
       let batch = 0;
       const shifting: EmbeddingsInterface = {
         async embedDocuments(docs: string[]): Promise<number[][]> {
@@ -257,9 +257,25 @@ if (!env) {
         })
         .catch((e: unknown) => e);
 
+      expect((error as { code?: string }).code).toBe(S3VectorsErrorCode.INDEX_CONFIG_MISMATCH);
       const context = (error as { context: Record<string, unknown> }).context;
-      expect(context['awsErrorName']).toBe('ValidationException');
+      // Refused locally: no request was sent for batch 1.
+      expect(context['awsCommand']).toBeUndefined();
       expect(context['writtenIds']).toEqual(['b']);
+      expect((await store.getByIds(['b', 'c'])).map((doc) => doc?.id)).toEqual(['b', undefined]);
+
+      // AWS enforces the index's dimension itself, so refusing the batch first
+      // refuses nothing the service would have stored.
+      const direct = await store
+        .addVectors(
+          [Array.from({ length: DIM * 2 }, (_, d) => (d + 1) / 10)],
+          [new Document({ pageContent: 'd' })],
+          { ids: ['d'] },
+        )
+        .catch((e: unknown) => e);
+      expect((direct as { context: Record<string, unknown> }).context['awsErrorName']).toBe(
+        'ValidationException',
+      );
     }, 120_000);
 
     // ── Task 2: constructor client validation ───────────────────────────

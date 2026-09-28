@@ -132,6 +132,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release is now a third job, `github-release`, with `contents: write`, no
   `id-token`, and the runner's preinstalled `gh` in place of the action;
   `publish` keeps only `id-token` and `attestations`, and no checkout.
+- **The peer-floors CI job runs its tests again.** It confirmed each floor had
+  installed with `npm ls`, which judges an installed version against the
+  devDependency range; once those ranges were raised to the lockfile's
+  versions, `npm ls` called both floors "invalid" and failed the job before the
+  typecheck and unit tier ran at them. It now checks that the installed
+  version is the floor itself. Run against the floors — SDK 3.1133.0,
+  `@langchain/core` 1.2.11 — every typecheck and all 2,173 unit tests pass.
 - **Repository settings now guard releases too**: a `release-tags` ruleset
   lets only a repository admin create, move or delete a `v*` tag, and an
   `npm-publish` environment requires the maintainer's approval and accepts only

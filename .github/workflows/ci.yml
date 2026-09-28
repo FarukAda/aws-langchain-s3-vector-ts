@@ -120,9 +120,21 @@ jobs:
           fi
           printf 'installing %s\n' "${floors[@]}"
           npm install --no-save "${floors[@]}"
-          # No `|| true`: this is the check that the floors actually resolved,
-          # and swallowing it was swallowing the one signal the job produces.
-          npm ls --depth=0 "${floors[@]%@*}"
+          # The check that each floor actually resolved: the version installed
+          # must be the floor itself. `npm ls` did this until the devDependency
+          # ranges were raised to the lockfile's versions; it judges an
+          # installed version against that range, so it called every floor
+          # "invalid" and failed the job before the floors were tested at all.
+          for spec in "${floors[@]}"; do
+            name="${spec%@*}"
+            want="${spec##*@}"
+            have="$(node -p "JSON.parse(require('node:fs').readFileSync('node_modules/${name}/package.json', 'utf8')).version")"
+            if [ "${have}" != "${want}" ]; then
+              echo "::error::${name} resolved to ${have}, not its floor ${want}."
+              exit 1
+            fi
+            echo "${name}@${have} installed at its floor"
+          done
       - run: npm run typecheck
       - run: npm run typecheck:test
       - run: npm run typecheck:types
