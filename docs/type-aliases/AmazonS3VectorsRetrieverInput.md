@@ -21,6 +21,12 @@ the store it reads from, and `asRetriever` already knows it.
 The two added fields are `readonly` to match every other published option
 type here; core's own fields are as core declares them.
 
+## Type Parameters
+
+### V
+
+`V` *extends* [`AmazonS3Vectors`](../classes/AmazonS3Vectors.md) = [`AmazonS3Vectors`](../classes/AmazonS3Vectors.md)
+
 ## Type Declaration
 
 ### scoreThreshold?
@@ -30,9 +36,3 @@ type here; core's own fields are as core declares them.
 ### signal?
 
 > `readonly` `optional` **signal?**: `AbortSignal`
-
-## Type Parameters
-
-### V
-
-`V` *extends* [`AmazonS3Vectors`](../classes/AmazonS3Vectors.md) = [`AmazonS3Vectors`](../classes/AmazonS3Vectors.md)

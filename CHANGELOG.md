@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- **Development dependencies and CodeQL updated** (Dependabot #67, #68 and
+  later releases): `@aws-sdk/client-s3vectors` 3.1151.0, `@langchain/core`
+  1.2.17, `eslint` 10.12.0, `typescript-eslint` 8.71.2, `knip` 6.41.0, `jscpd`
+  5.4.1, `prettier` 3.9.10, `eslint-plugin-prettier` 5.5.7,
+  `typedoc-plugin-markdown` 4.14.0, `publint` 0.3.25, `@types/node` 26.6.5, and
+  `github/codeql-action` 4.38.3. Every dependency citation in `src/` and
+  `test/` was re-read at the new version and still holds; one line pointer
+  moved (`ListVectorsOutput.vectors`, `models_0.d.ts:642` → `:682`). The SDK's
+  new index modes (`CLASSIC`/`ENHANCED`, `UpdateIndexMode`,
+  `PutVectorBucketDefaultIndexMode`) are additive and not used here. The peer
+  floors do not move.
+
 ## [1.1.0] - 2026-09-28
 
 ### Upgrading from 1.0.0

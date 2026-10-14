@@ -8,7 +8,7 @@ import { createMockClient } from '../helpers.js';
 
 /**
  * One test per domain cell of `mmrSearch`. The selection itself is core's
- * `maximalMarginalRelevance` (`@langchain/core@1.2.13`
+ * `maximalMarginalRelevance` (`@langchain/core@1.2.17`
  * `dist/utils/math.d.ts:40`) — this package fetches the candidates and their
  * vectors and maps the result.
  */
