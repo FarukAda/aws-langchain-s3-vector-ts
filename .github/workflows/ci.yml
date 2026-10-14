@@ -217,4 +217,6 @@ jobs:
       # — `@aws-sdk/client-s3vectors` and `@langchain/core` are peers,
       # installed here via devDependencies. With `--omit=dev` the audit
       # therefore had an empty tree and passed unconditionally.
-      - run: npm audit --audit-level=high
+      # `npm audit --audit-level=high`, less the advisories `scripts/audit.mjs`
+      # carries by GHSA id, each with its reason; npm cannot skip just one.
+      - run: npm run audit:high

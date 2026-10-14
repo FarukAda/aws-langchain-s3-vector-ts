@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   new index modes (`CLASSIC`/`ENHANCED`, `UpdateIndexMode`,
   `PutVectorBucketDefaultIndexMode`) are additive and not used here. The peer
   floors do not move.
+- **The audit gate can carry one advisory without lowering the bar.** CI and
+  the release ran `npm audit --audit-level=high`, which cannot skip a single
+  advisory, and `braces` ≤ 3.0.3 (GHSA-vfj7-8cjw-p6xm, high) has no patched
+  release. Both now run `npm run audit:high` (`scripts/audit.mjs`): every high
+  or critical advisory still fails except the ones listed there by GHSA id,
+  each with its reason, and a listed one that no longer occurs is reported for
+  removal. The only entry is braces, reached solely through the development
+  tool depcheck. Run side by side, the new gate still fails the 1.1.0 lockfile
+  on the same handlebars and source-map-js advisories the old one did. Separately,
+  `npm audit fix` took handlebars 4.7.10 and source-map-js 1.2.2.
 
 ## [1.1.0] - 2026-09-28
 

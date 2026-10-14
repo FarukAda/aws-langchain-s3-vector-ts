@@ -175,8 +175,9 @@ jobs:
       - run: npm run pack:check
       - run: npm run test:package-smoke
       # CI audited the commit; an advisory can land between that run and this
-      # tag, and this is the last moment before anything is irreversible.
-      - run: npm audit --audit-level=high
+      # tag, and this is the last moment before anything is irreversible. The
+      # same gate as CI's, carried advisories included (`scripts/audit.mjs`).
+      - run: npm run audit:high
 
       # Pack once, here, and publish exactly this file. Anything that repacks
       # in the publish job would be publishing an artifact nothing checked.
